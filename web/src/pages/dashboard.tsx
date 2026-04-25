@@ -1,5 +1,6 @@
 import { useLive } from "../state/live";
 import { useQuery } from "@tanstack/react-query";
+import { Link } from "react-router-dom";
 import { api } from "../api/client";
 
 export default function Dashboard() {
@@ -22,7 +23,7 @@ export default function Dashboard() {
         <tbody>
           {(recent.data ?? []).map(r => (
             <tr key={r.id}>
-              <td><a href={`/runs/${r.id}`}>{r.id}</a></td>
+              <td><Link to={`/runs/${r.id}`}>{r.id}</Link></td>
               <td>{live.jobStatus[r.id]?.status ?? r.status}</td>
               <td>{live.jobProgress[r.id]?.pct ? `${live.jobProgress[r.id]!.pct!.toFixed(1)}%` : ""}</td>
               <td>{new Date(r.created_at*1000).toLocaleString()}</td>

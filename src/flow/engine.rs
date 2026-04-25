@@ -127,7 +127,16 @@ impl Engine {
                                 }
                             }
                         }
-                        if let Some(e) = last_err { return Err(e); }
+                        if let Some(e) = last_err {
+                            // Record which step failed so on_failure templates can
+                            // reference {{ failed.id }} / {{ failed.use_ }} / {{ failed.error }}.
+                            ctx.failed = Some(crate::flow::context::FailedInfo {
+                                id: step_id.clone(),
+                                use_: use_.clone(),
+                                error: e.to_string(),
+                            });
+                            return Err(e);
+                        }
                     }
                     Node::Conditional { id, if_, then_, else_ } => {
                         let step_id = id.clone().unwrap_or_else(|| format!("if_{my_index}"));

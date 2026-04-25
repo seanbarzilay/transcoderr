@@ -8,6 +8,17 @@ pub struct Context {
     pub file: FileMeta,
     pub probe: Option<Value>,
     pub steps: BTreeMap<String, Value>,
+    /// Populated by the engine when running `on_failure` handlers. Templates can
+    /// reference `{{ failed.id }}`, `{{ failed.use_ }}`, and `{{ failed.error }}`.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub failed: Option<FailedInfo>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FailedInfo {
+    pub id: String,
+    pub use_: String,
+    pub error: String,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
