@@ -52,6 +52,17 @@ pub fn record_output(
     output_path: &std::path::Path,
     extras: serde_json::Value,
 ) {
+    // Read the previous staged path BEFORE overwriting ctx.steps["transcode"],
+    // so we can delete it once the new step has superseded it. Without this,
+    // every transformer step in a chain leaves a `.tcr-NN.tmp.*` orphan next
+    // to the original (e.g. audio.ensure → transcode left a 7.6 GB tcr-00).
+    let previous_output: Option<String> = ctx
+        .steps
+        .get("transcode")
+        .and_then(|v| v.get("output_path"))
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
+
     let mut map = match extras {
         serde_json::Value::Object(m) => m,
         _ => serde_json::Map::new(),
@@ -62,6 +73,14 @@ pub fn record_output(
     );
     ctx.steps
         .insert("transcode".into(), serde_json::Value::Object(map));
+
+    if let Some(prev) = previous_output {
+        let new_str = output_path.to_string_lossy().to_string();
+        if prev != new_str && prev != ctx.file.path {
+            // Best-effort: ignore errors. If it's already gone or in use, fine.
+            let _ = std::fs::remove_file(&prev);
+        }
+    }
 
     let counter = ctx
         .steps

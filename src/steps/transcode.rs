@@ -219,6 +219,12 @@ async fn run_ffmpeg(
         cmd.args(["-err_detect", "ignore_err", "-fflags", "+discardcorrupt"]);
     }
     cmd.arg("-i").arg(src);
+    // Preserve every input stream — without `-map 0`, ffmpeg's default selection
+    // picks "the best one of each type" (one video, one audio, one subtitle) and
+    // silently drops everything else. That breaks chains like `audio.ensure` →
+    // `transcode`: the AC3 6ch track that audio.ensure added would be dropped
+    // because ffmpeg considers the lossless DTS-HD MA the "best" audio.
+    cmd.args(["-map", "0"]);
     cmd.args(["-c:v", codec_arg, "-preset", preset, "-crf", &crf.to_string()]);
     if force_10bit {
         cmd.args(["-profile:v", "main10", "-pix_fmt", "p010le"]);
