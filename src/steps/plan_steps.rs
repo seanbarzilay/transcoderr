@@ -27,6 +27,26 @@ const SUPPORTED_SUB_CODECS: &[&str] = &[
 
 const PLAYABLE_AUDIO: &[&str] = &["aac", "ac3", "eac3", "mp3", "opus"];
 
+/// Commentary tracks shouldn't satisfy the "wanted audio codec" check — a
+/// director's commentary in AC3 6ch eng is not a usable main audio track,
+/// even though it matches the codec/channels/language spec on paper. We
+/// detect commentary by either the `disposition.comment=1` flag (set by some
+/// muxers) or a "comment(ary)" substring in the title.
+fn is_commentary(s: &Value) -> bool {
+    let comment_disp = s
+        .get("disposition")
+        .and_then(|d| d.get("comment"))
+        .and_then(|v| v.as_i64())
+        == Some(1);
+    let title = s
+        .get("tags")
+        .and_then(|t| t.get("title"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_lowercase();
+    comment_disp || title.contains("comment")
+}
+
 fn channel_layout_label(channels: i64) -> String {
     match channels {
         1 => "Mono".into(),
@@ -357,6 +377,11 @@ impl Step for PlanAudioEnsureStep {
         });
 
         let has_target = existing_audio.clone().any(|s| {
+            // Commentary tracks don't count as the wanted main audio even if
+            // they happen to match codec/channels/language.
+            if is_commentary(s) {
+                return false;
+            }
             let codec = s
                 .get("codec_name")
                 .and_then(|v| v.as_str())
@@ -382,11 +407,16 @@ impl Step for PlanAudioEnsureStep {
             return Ok(());
         }
 
-        // Pick highest-channel audio stream as seed.
+        // Pick highest-channel non-commentary audio stream as seed.
         let seed = existing_audio
             .clone()
+            .filter(|s| !is_commentary(s))
             .max_by_key(|s| s.get("channels").and_then(|v| v.as_i64()).unwrap_or(0))
-            .ok_or_else(|| anyhow::anyhow!("plan.audio.ensure: no audio stream to seed from"))?;
+            .ok_or_else(|| {
+                anyhow::anyhow!(
+                    "plan.audio.ensure: no non-commentary audio stream to seed from"
+                )
+            })?;
         let seed_index = seed.get("index").and_then(|v| v.as_i64()).unwrap_or(-1);
         let seed_ch = seed.get("channels").and_then(|v| v.as_i64()).unwrap_or(0);
 
@@ -394,6 +424,7 @@ impl Step for PlanAudioEnsureStep {
         // target channel count.
         if dedupe {
             let playable_max = existing_audio
+                .filter(|s| !is_commentary(s))
                 .filter(|s| {
                     let codec = s
                         .get("codec_name")
@@ -517,5 +548,68 @@ mod tests {
         PlanAudioEnsureStep.execute(&with, &mut ctx, &mut cb).await.unwrap();
         let plan = load_plan(&ctx).unwrap();
         assert!(plan.audio_added.is_empty());
+    }
+
+    #[tokio::test]
+    async fn plan_audio_ensure_does_not_count_commentary_as_target() {
+        // Source has DTS-HD MA 5.1 main audio + an AC3 6ch eng COMMENTARY track.
+        // The target is AC3 6ch eng. The commentary matches on paper but it's
+        // not a usable main track, so audio.ensure must still add a real one.
+        // Both commentary and the new track should be present in the plan.
+        let mut ctx = crate::flow::Context::for_file("/x");
+        ctx.probe = Some(json!({
+            "streams": [
+                {"index": 0, "codec_type": "video", "codec_name": "h264"},
+                {"index": 1, "codec_type": "audio", "codec_name": "dts", "channels": 6,
+                 "tags": {"language": "eng", "title": "DTS-HD MA 5.1"}},
+                {"index": 2, "codec_type": "audio", "codec_name": "ac3", "channels": 6,
+                 "tags": {"language": "eng", "title": "Director's Commentary"},
+                 "disposition": {"comment": 1}},
+            ]
+        }));
+        let plan = StreamPlan::from_probe(ctx.probe.as_ref().unwrap());
+        save_plan(&mut ctx, &plan);
+        let mut with: BTreeMap<String, Value> = BTreeMap::new();
+        with.insert("codec".into(), json!("ac3"));
+        with.insert("channels".into(), json!(6));
+        with.insert("language".into(), json!("eng"));
+        with.insert("dedupe".into(), json!(false));
+        let mut cb = |_: StepProgress| {};
+        PlanAudioEnsureStep.execute(&with, &mut ctx, &mut cb).await.unwrap();
+
+        let plan = load_plan(&ctx).unwrap();
+        // The commentary did NOT satisfy has_target → a new AC3 6ch was added.
+        assert_eq!(plan.audio_added.len(), 1);
+        // Seed must be the main DTS track (idx 1), not the commentary (idx 2).
+        assert_eq!(plan.audio_added[0].seed_index, 1);
+        // Both original audio streams (main + commentary) are still kept.
+        assert_eq!(plan.kept_indices(), vec![0, 1, 2]);
+    }
+
+    #[tokio::test]
+    async fn plan_audio_ensure_commentary_detected_via_title_substring() {
+        // Some encodes don't set disposition.comment but put "commentary" in
+        // the title. The title-substring fallback should still catch it.
+        let mut ctx = crate::flow::Context::for_file("/x");
+        ctx.probe = Some(json!({
+            "streams": [
+                {"index": 0, "codec_type": "video"},
+                {"index": 1, "codec_type": "audio", "codec_name": "dts", "channels": 6,
+                 "tags": {"language": "eng"}},
+                {"index": 2, "codec_type": "audio", "codec_name": "ac3", "channels": 6,
+                 "tags": {"language": "eng", "title": "Filmmakers' Commentary"}},
+            ]
+        }));
+        let plan = StreamPlan::from_probe(ctx.probe.as_ref().unwrap());
+        save_plan(&mut ctx, &plan);
+        let mut with: BTreeMap<String, Value> = BTreeMap::new();
+        with.insert("codec".into(), json!("ac3"));
+        with.insert("channels".into(), json!(6));
+        with.insert("language".into(), json!("eng"));
+        with.insert("dedupe".into(), json!(false));
+        let mut cb = |_: StepProgress| {};
+        PlanAudioEnsureStep.execute(&with, &mut ctx, &mut cb).await.unwrap();
+        let plan = load_plan(&ctx).unwrap();
+        assert_eq!(plan.audio_added.len(), 1, "commentary by title should not satisfy target");
     }
 }
