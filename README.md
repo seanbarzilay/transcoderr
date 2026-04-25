@@ -1,37 +1,46 @@
 # transcoderr
 
-A push-driven, single-binary transcoder. Phase 1 ships a headless engine that:
+A push-driven, single-binary transcoder. A leaner replacement for tdarr aimed at homelab self-hosters.
 
-- listens for Radarr download webhooks
-- runs a linear `probe → transcode → output(replace)` flow against the file
-- persists jobs and resumes from checkpoints across restarts
+- **Webhook-driven.** Radarr / Sonarr / Lidarr / generic JSON webhooks create jobs.
+- **Configurable flows.** YAML source-of-truth, visual mirror, dry-run testing, plugin host.
+- **Single binary.** Embedded SQLite, embedded SPA. One image, one volume.
+- **Hardware aware.** NVENC / QSV / VAAPI / VideoToolbox probing, per-device concurrency limits, runtime CPU fallback.
+- **Observable.** Per-run live logs, structured event timeline, Prometheus `/metrics`.
 
-This is **Phase 1 of 5**. No web UI, no plugins, no GPU acceleration yet — see `docs/superpowers/specs/` for the full design and `docs/superpowers/plans/` for upcoming phases.
+## Quickstart with Docker
 
-## Build
+```yaml
+# docker-compose.yml
+services:
+  transcoderr:
+    image: ghcr.io/your-org/transcoderr:cpu-latest
+    restart: unless-stopped
+    ports: ["8080:8080"]
+    volumes:
+      - ./data:/data
+      - /mnt/movies:/mnt/movies
+```
+
+Then open `http://localhost:8080`. Add a source under Sources → Add, point Radarr's webhook at `http://your-host:8080/webhook/radarr` with the bearer token.
+
+For NVIDIA / Intel acceleration, see [`docs/deploy.md`](docs/deploy.md).
+
+## Build from source
 
 ```
+npm --prefix web ci && npm --prefix web run build
 cargo build --release
 ```
 
-## Configure
+The binary at `target/release/transcoderr` embeds the compiled SPA.
 
-Copy `config.example.toml` to `config.toml` and edit. The Radarr bearer token must match the `Authorization: Bearer …` header your Radarr install will send (configure under Settings → Connect → Webhook).
+## Documentation
 
-## Run
+- [Design spec](docs/superpowers/specs/2026-04-25-transcoderr-design.md)
+- [Implementation plans (5 phases)](docs/superpowers/plans/)
+- [Deploy guide](docs/deploy.md)
 
-```
-./target/release/transcoderr serve --config config.toml
-```
+## License
 
-Then seed a flow into the DB (Phase 2 adds a CLI / UI for this) and POST a Radarr webhook at it.
-
-## Building with web UI
-
-```
-npm --prefix web ci
-npm --prefix web run build
-cargo build --release
-```
-
-The `cargo build` step embeds `web/dist/` into the binary via `include_dir!`. A `build.rs` script auto-runs `npm` if `web/dist/` is missing.
+(TBD by the project owner.)
