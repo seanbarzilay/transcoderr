@@ -30,12 +30,13 @@ impl Worker {
 
     /// One loop iteration: claim and run one job. Returns true if a job was processed.
     pub async fn tick(&self) -> anyhow::Result<bool> {
-        // Update queue depth metric.
-        let depth: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM jobs WHERE status='pending'")
-            .fetch_one(&self.pool).await.unwrap_or(0);
-        crate::metrics::set_queue_depth(depth);
+        self.broadcast_queue_snapshot().await;
 
         let Some(job) = db::jobs::claim_next(&self.pool).await? else { return Ok(false); };
+
+        // Job just transitioned pending → running; refresh the snapshot so the
+        // Dashboard's "Running" tile reflects the change immediately.
+        self.broadcast_queue_snapshot().await;
         // Load flow.
         let flow_row: Option<(String, String, String)> = sqlx::query_as(
             "SELECT name, yaml_source, parsed_json FROM flows WHERE id = ?"
@@ -75,7 +76,31 @@ impl Worker {
             outcome.label.as_deref(),
         )
         .await?;
+
+        // Job left the running set; refresh the snapshot.
+        self.broadcast_queue_snapshot().await;
+
         Ok(true)
+    }
+
+    /// Count pending + running jobs and broadcast onto the bus, plus update the
+    /// Prometheus queue gauge. Called whenever the queue state changes (worker
+    /// tick start, claim, finish) so the Dashboard tiles track in real time.
+    async fn broadcast_queue_snapshot(&self) {
+        let pending: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM jobs WHERE status = 'pending'",
+        )
+        .fetch_one(&self.pool)
+        .await
+        .unwrap_or(0);
+        let running: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM jobs WHERE status = 'running'",
+        )
+        .fetch_one(&self.pool)
+        .await
+        .unwrap_or(0);
+        crate::metrics::set_queue_depth(pending);
+        let _ = self.bus.tx.send(crate::bus::Event::Queue { pending, running });
     }
 
     pub async fn run_loop(&self, shutdown: tokio::sync::watch::Receiver<bool>) {
