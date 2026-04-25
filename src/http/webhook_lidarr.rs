@@ -9,16 +9,16 @@ use serde_json::Value;
 use std::sync::Arc;
 
 #[derive(Debug, Deserialize)]
-pub struct RadarrPayload {
+struct Payload {
     #[serde(rename = "eventType")]
-    pub event_type: String,
-    #[serde(rename = "movieFile", default)]
-    pub movie_file: Option<RadarrMovieFile>,
+    event_type: String,
+    #[serde(rename = "trackFile")]
+    track_file: Option<TrackFile>,
 }
 
 #[derive(Debug, Deserialize)]
-pub struct RadarrMovieFile {
-    pub path: String,
+struct TrackFile {
+    path: String,
 }
 
 pub async fn handle(
@@ -32,25 +32,25 @@ pub async fn handle(
         .and_then(|v| v.to_str().ok())
         .and_then(|h| h.strip_prefix("Bearer "))
         .unwrap_or("");
-    let source = db::sources::get_by_kind_and_token(&state.pool, "radarr", token)
+    let source = db::sources::get_by_kind_and_token(&state.pool, "lidarr", token)
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
         .ok_or(StatusCode::UNAUTHORIZED)?;
 
-    let payload: RadarrPayload = serde_json::from_value(raw.0.clone())
-        .map_err(|_| StatusCode::BAD_REQUEST)?;
+    let payload: Payload =
+        serde_json::from_value(raw.0.clone()).map_err(|_| StatusCode::BAD_REQUEST)?;
     let event = match payload.event_type.as_str() {
-        "Download" | "MovieFileImported" => "downloaded",
+        "Download" | "TrackFileImport" => "downloaded",
         _ => return Ok(StatusCode::ACCEPTED),
     };
-    let Some(file) = payload.movie_file else {
+    let Some(file) = payload.track_file else {
         return Ok(StatusCode::ACCEPTED);
     };
     let raw_str = serde_json::to_string(&raw.0).unwrap_or_default();
     if !dedup.observe(source.id, &file.path, &raw_str) {
         return Ok(StatusCode::ACCEPTED);
     }
-    let flows = db::flows::list_enabled_for_radarr(&state.pool, event)
+    let flows = db::flows::list_enabled_for_lidarr(&state.pool, event)
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     for flow in flows {
@@ -59,7 +59,7 @@ pub async fn handle(
             flow.id,
             flow.version,
             source.id,
-            "radarr",
+            "lidarr",
             &file.path,
             &raw_str,
         )

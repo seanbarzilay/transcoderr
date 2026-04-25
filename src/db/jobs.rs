@@ -59,6 +59,31 @@ pub async fn set_current_step(pool: &SqlitePool, id: i64, step_index: i64) -> an
     Ok(())
 }
 
+pub async fn insert_with_source(
+    pool: &SqlitePool,
+    flow_id: i64,
+    flow_version: i64,
+    source_id: i64,
+    source_kind: &str,
+    file_path: &str,
+    payload: &str,
+) -> anyhow::Result<i64> {
+    let now = now_unix();
+    Ok(sqlx::query_scalar::<_, i64>(
+        "INSERT INTO jobs (flow_id, flow_version, source_id, source_kind, file_path, trigger_payload_json, status, priority, attempt, created_at) \
+         VALUES (?, ?, ?, ?, ?, ?, 'pending', 0, 0, ?) RETURNING id"
+    )
+    .bind(flow_id)
+    .bind(flow_version)
+    .bind(source_id)
+    .bind(source_kind)
+    .bind(file_path)
+    .bind(payload)
+    .bind(now)
+    .fetch_one(pool)
+    .await?)
+}
+
 /// Reset 'running' rows to 'pending' on boot. Returns the number reset.
 pub async fn reset_running_to_pending(pool: &SqlitePool) -> anyhow::Result<u64> {
     let r = sqlx::query("UPDATE jobs SET status = 'pending', started_at = NULL WHERE status = 'running'")

@@ -1,7 +1,7 @@
 mod common;
 
 use common::boot;
-use serde_json::json;
+use serde_json::{json, json as json_macro};
 use std::time::Duration;
 use transcoderr::{db, ffmpeg::make_testsrc_mkv, flow::parse_flow};
 
@@ -28,6 +28,11 @@ steps:
 "#;
     let flow = parse_flow(yaml).unwrap();
     db::flows::insert(&app.pool, "e2e", yaml, &flow).await.unwrap();
+
+    // Insert a radarr source so the auth lookup succeeds.
+    db::sources::insert(&app.pool, "radarr", "main", &json_macro!({}), "test-token")
+        .await
+        .unwrap();
 
     // POST a Radarr-shaped payload.
     let client = reqwest::Client::new();

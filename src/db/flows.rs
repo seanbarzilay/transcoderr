@@ -53,3 +53,57 @@ pub async fn list_enabled_for_radarr(pool: &SqlitePool, event: &str) -> anyhow::
     }
     Ok(out)
 }
+
+pub async fn list_enabled_for_sonarr(pool: &SqlitePool, event: &str) -> anyhow::Result<Vec<FlowRow>> {
+    let all = sqlx::query_as::<_, (i64, String, i64, String, String, i64)>(
+        "SELECT id, name, enabled, yaml_source, parsed_json, version FROM flows WHERE enabled = 1"
+    ).fetch_all(pool).await?;
+    let mut out = vec![];
+    for (id, name, enabled, yaml_source, parsed_json, version) in all {
+        let flow: Flow = serde_json::from_str(&parsed_json)?;
+        let matches = flow.triggers.iter().any(|t| match t {
+            crate::flow::Trigger::Sonarr(events) => events.iter().any(|e| e == event),
+            _ => false,
+        });
+        if matches {
+            out.push(FlowRow { id, name, enabled: enabled != 0, yaml_source, parsed_json, version });
+        }
+    }
+    Ok(out)
+}
+
+pub async fn list_enabled_for_lidarr(pool: &SqlitePool, event: &str) -> anyhow::Result<Vec<FlowRow>> {
+    let all = sqlx::query_as::<_, (i64, String, i64, String, String, i64)>(
+        "SELECT id, name, enabled, yaml_source, parsed_json, version FROM flows WHERE enabled = 1"
+    ).fetch_all(pool).await?;
+    let mut out = vec![];
+    for (id, name, enabled, yaml_source, parsed_json, version) in all {
+        let flow: Flow = serde_json::from_str(&parsed_json)?;
+        let matches = flow.triggers.iter().any(|t| match t {
+            crate::flow::Trigger::Lidarr(events) => events.iter().any(|e| e == event),
+            _ => false,
+        });
+        if matches {
+            out.push(FlowRow { id, name, enabled: enabled != 0, yaml_source, parsed_json, version });
+        }
+    }
+    Ok(out)
+}
+
+pub async fn list_enabled_for_webhook(pool: &SqlitePool, name: &str) -> anyhow::Result<Vec<FlowRow>> {
+    let all = sqlx::query_as::<_, (i64, String, i64, String, String, i64)>(
+        "SELECT id, name, enabled, yaml_source, parsed_json, version FROM flows WHERE enabled = 1"
+    ).fetch_all(pool).await?;
+    let mut out = vec![];
+    for (id, flow_name, enabled, yaml_source, parsed_json, version) in all {
+        let flow: Flow = serde_json::from_str(&parsed_json)?;
+        let matches = flow.triggers.iter().any(|t| match t {
+            crate::flow::Trigger::Webhook(n) => n == name,
+            _ => false,
+        });
+        if matches {
+            out.push(FlowRow { id, name: flow_name, enabled: enabled != 0, yaml_source, parsed_json, version });
+        }
+    }
+    Ok(out)
+}
