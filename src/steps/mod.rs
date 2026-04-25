@@ -22,6 +22,7 @@ pub mod verify_playable;
 pub enum StepProgress {
     Pct(f64),
     Log(String),
+    Marker { kind: String, payload: serde_json::Value },
 }
 
 #[async_trait]
@@ -43,7 +44,9 @@ pub trait Step: Send + Sync {
 pub fn dispatch(use_: &str) -> Option<Box<dyn Step>> {
     match use_ {
         "probe" => Some(Box::new(probe::ProbeStep)),
-        "transcode" => Some(Box::new(transcode::TranscodeStep)),
+        "transcode" => Some(Box::new(transcode::TranscodeStep {
+            hw: crate::hw::semaphores::DeviceRegistry::empty(),
+        })),
         "output" => Some(Box::new(output::OutputStep)),
         _ => None,
     }

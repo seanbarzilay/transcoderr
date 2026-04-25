@@ -5,7 +5,7 @@ use transcoderr::{db, flow::{parse_flow, Context, Engine}};
 async fn shell_step_timeout_fails_quickly() {
     let dir = tempdir().unwrap();
     let pool = db::open(dir.path()).await.unwrap();
-    transcoderr::steps::registry::init(pool.clone(), vec![]).await;
+    transcoderr::steps::registry::init(pool.clone(), transcoderr::hw::semaphores::DeviceRegistry::empty(), vec![]).await;
 
     let yaml = r#"
 name: t

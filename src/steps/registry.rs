@@ -1,3 +1,4 @@
+use crate::hw::semaphores::DeviceRegistry;
 use crate::plugins::manifest::DiscoveredPlugin;
 use crate::plugins::subprocess::SubprocessStep;
 use crate::steps::{builtin, Step};
@@ -13,18 +14,29 @@ pub struct Registry {
 }
 
 impl Registry {
-    pub fn empty() -> Self { Self { by_name: HashMap::new() } }
+    pub fn empty() -> Self {
+        Self { by_name: HashMap::new() }
+    }
 }
 
-pub async fn init(pool: SqlitePool, discovered: Vec<DiscoveredPlugin>) {
+pub async fn init(
+    pool: SqlitePool,
+    hw: DeviceRegistry,
+    discovered: Vec<DiscoveredPlugin>,
+) {
     let mut reg = Registry::empty();
-    builtin::register_all(&mut reg.by_name, pool);
+    builtin::register_all(&mut reg.by_name, pool, hw);
     for d in discovered {
-        if d.manifest.kind != "subprocess" { continue; }
+        if d.manifest.kind != "subprocess" {
+            continue;
+        }
         let entry = d.manifest.entrypoint.clone().unwrap_or_default();
         let abs = d.manifest_dir.join(&entry);
         for step_name in &d.manifest.provides_steps {
-            let step = SubprocessStep { step_name: step_name.clone(), entrypoint_abs: abs.clone() };
+            let step = SubprocessStep {
+                step_name: step_name.clone(),
+                entrypoint_abs: abs.clone(),
+            };
             reg.by_name.insert(step_name.clone(), Arc::new(step));
         }
     }
@@ -42,6 +54,10 @@ pub async fn resolve(name: &str) -> Option<Arc<dyn Step>> {
     // Fallback: registry not yet initialized — serve built-ins directly
     // (notify excluded as it requires a pool).
     let mut map: HashMap<String, Arc<dyn Step>> = HashMap::new();
-    builtin::register_all(&mut map, SqlitePool::connect_lazy("sqlite::memory:").unwrap());
+    builtin::register_all(
+        &mut map,
+        SqlitePool::connect_lazy("sqlite::memory:").unwrap(),
+        DeviceRegistry::empty(),
+    );
     map.remove(name)
 }

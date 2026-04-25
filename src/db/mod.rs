@@ -27,6 +27,22 @@ pub mod run_events;
 pub mod checkpoints;
 pub mod sources;
 
+pub async fn snapshot_hw_caps(
+    pool: &SqlitePool,
+    caps: &crate::hw::HwCaps,
+) -> anyhow::Result<()> {
+    let json = serde_json::to_string(caps)?;
+    sqlx::query(
+        "INSERT INTO hw_capabilities (id, probed_at, devices_json) VALUES (1, ?, ?)
+         ON CONFLICT (id) DO UPDATE SET probed_at = excluded.probed_at, devices_json = excluded.devices_json",
+    )
+    .bind(caps.probed_at)
+    .bind(json)
+    .execute(pool)
+    .await?;
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

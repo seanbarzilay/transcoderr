@@ -20,7 +20,8 @@ async fn transcode_writes_output_and_records_path() {
     with.insert("crf".into(), json!(28));
     with.insert("preset".into(), json!("ultrafast"));
 
-    TranscodeStep.execute(&with, &mut ctx, &mut cb).await.unwrap();
+    let step = TranscodeStep { hw: transcoderr::hw::semaphores::DeviceRegistry::empty() };
+    step.execute(&with, &mut ctx, &mut cb).await.unwrap();
 
     let out_path = ctx.steps.get("transcode").unwrap()["output_path"].as_str().unwrap();
     assert!(std::path::Path::new(out_path).exists(), "output file missing");

@@ -1,7 +1,13 @@
 use std::path::PathBuf;
 use tempfile::TempDir;
 use tokio::task::JoinHandle;
-use transcoderr::{config::{Config, RadarrConfig}, db, http, worker::Worker};
+use transcoderr::{
+    config::{Config, RadarrConfig},
+    db,
+    hw::{semaphores::DeviceRegistry, HwCaps},
+    http,
+    worker::Worker,
+};
 
 pub struct TestApp {
     pub url: String,
@@ -19,8 +25,18 @@ pub async fn boot() -> TestApp {
     let data_dir = temp.path().to_path_buf();
     let pool = db::open(&data_dir).await.unwrap();
 
+    // Empty hw caps for tests.
+    let caps = HwCaps::default();
+    let hw_devices = DeviceRegistry::from_caps(&caps);
+    let hw_caps = std::sync::Arc::new(tokio::sync::RwLock::new(caps));
+
     // Initialize the step registry with no subprocess plugins for tests.
-    transcoderr::steps::registry::init(pool.clone(), vec![]).await;
+    transcoderr::steps::registry::init(
+        pool.clone(),
+        hw_devices.clone(),
+        vec![],
+    )
+    .await;
 
     let cfg = std::sync::Arc::new(Config {
         bind: "127.0.0.1:0".into(),
@@ -34,7 +50,12 @@ pub async fn boot() -> TestApp {
 
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
-    let app = http::router(http::AppState { pool: pool.clone(), cfg });
+    let app = http::router(http::AppState {
+        pool: pool.clone(),
+        cfg,
+        hw_caps,
+        hw_devices,
+    });
     let s = tokio::spawn(async move {
         axum::serve(listener, app).await.unwrap();
     });
