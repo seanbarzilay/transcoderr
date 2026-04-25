@@ -6,6 +6,7 @@ import { useLive, type LiveRunEvent } from "../state/live";
 import RunTimeline from "../components/run-timeline";
 import LiveProgress from "../components/live-progress";
 import StatusPill from "../components/status-pill";
+import { basename } from "../components/file-id";
 
 const EMPTY_EVENTS: LiveRunEvent[] = [];
 
@@ -74,12 +75,33 @@ export default function RunDetail() {
   return (
     <div className="page">
       <div className="page-header">
-        <div>
-          <div className="crumb">Operate / Runs</div>
-          <h2>
-            Run <span className="dim">#</span>
-            <span className="tnum">{idNum}</span>
+        <div style={{ minWidth: 0, flex: 1 }}>
+          <div className="crumb">
+            Operate / Runs / Run #{idNum}
+          </div>
+          <h2
+            title={q.data.run.file_path}
+            style={{
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              whiteSpace: "nowrap",
+            }}
+          >
+            {basename(q.data.run.file_path) || `Run #${idNum}`}
           </h2>
+          <div
+            className="dim mono"
+            title={q.data.run.file_path}
+            style={{
+              fontSize: 11,
+              marginTop: 4,
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              whiteSpace: "nowrap",
+            }}
+          >
+            {q.data.run.file_path}
+          </div>
         </div>
         <div style={{ display: "flex", gap: 8 }}>
           <button

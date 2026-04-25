@@ -14,6 +14,10 @@ pub struct RunSummary {
     pub status: String,
     pub created_at: i64,
     pub finished_at: Option<i64>,
+    /// The input file the run was processing — what `ctx.file.path` started
+    /// at. Surfaced everywhere a run is identified so the user doesn't have
+    /// to drill in just to see "which one is this".
+    pub file_path: String,
 }
 
 #[derive(Serialize)]
@@ -61,22 +65,22 @@ pub async fn list(
 
     let rows = match (&params.status, &params.flow_id) {
         (Some(s), Some(fid)) => {
-            sqlx::query("SELECT id, flow_id, status, created_at, finished_at FROM jobs WHERE status = ? AND flow_id = ? ORDER BY created_at DESC LIMIT ? OFFSET ?")
+            sqlx::query("SELECT id, flow_id, status, created_at, finished_at, file_path FROM jobs WHERE status = ? AND flow_id = ? ORDER BY created_at DESC LIMIT ? OFFSET ?")
                 .bind(s).bind(fid).bind(limit).bind(offset)
                 .fetch_all(&state.pool).await
         }
         (Some(s), None) => {
-            sqlx::query("SELECT id, flow_id, status, created_at, finished_at FROM jobs WHERE status = ? ORDER BY created_at DESC LIMIT ? OFFSET ?")
+            sqlx::query("SELECT id, flow_id, status, created_at, finished_at, file_path FROM jobs WHERE status = ? ORDER BY created_at DESC LIMIT ? OFFSET ?")
                 .bind(s).bind(limit).bind(offset)
                 .fetch_all(&state.pool).await
         }
         (None, Some(fid)) => {
-            sqlx::query("SELECT id, flow_id, status, created_at, finished_at FROM jobs WHERE flow_id = ? ORDER BY created_at DESC LIMIT ? OFFSET ?")
+            sqlx::query("SELECT id, flow_id, status, created_at, finished_at, file_path FROM jobs WHERE flow_id = ? ORDER BY created_at DESC LIMIT ? OFFSET ?")
                 .bind(fid).bind(limit).bind(offset)
                 .fetch_all(&state.pool).await
         }
         (None, None) => {
-            sqlx::query("SELECT id, flow_id, status, created_at, finished_at FROM jobs ORDER BY created_at DESC LIMIT ? OFFSET ?")
+            sqlx::query("SELECT id, flow_id, status, created_at, finished_at, file_path FROM jobs ORDER BY created_at DESC LIMIT ? OFFSET ?")
                 .bind(limit).bind(offset)
                 .fetch_all(&state.pool).await
         }
@@ -89,6 +93,7 @@ pub async fn list(
         status: r.get(2),
         created_at: r.get(3),
         finished_at: r.get(4),
+        file_path: r.get(5),
     }).collect();
     Ok(Json(out))
 }
@@ -97,7 +102,7 @@ pub async fn get(
     State(state): State<AppState>,
     Path(job_id): Path<i64>,
 ) -> Result<Json<RunDetail>, StatusCode> {
-    let row = sqlx::query("SELECT id, flow_id, status, created_at, finished_at FROM jobs WHERE id = ?")
+    let row = sqlx::query("SELECT id, flow_id, status, created_at, finished_at, file_path FROM jobs WHERE id = ?")
         .bind(job_id).fetch_optional(&state.pool).await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
         .ok_or(StatusCode::NOT_FOUND)?;
@@ -108,6 +113,7 @@ pub async fn get(
         status: row.get(2),
         created_at: row.get(3),
         finished_at: row.get(4),
+        file_path: row.get(5),
     };
 
     let event_rows = sqlx::query(

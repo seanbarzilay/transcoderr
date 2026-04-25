@@ -3,6 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 import { api } from "../api/client";
 import StatusPill from "../components/status-pill";
+import FileId from "../components/file-id";
 
 export default function RunsList() {
   const [status, setStatus] = useState<string>("");
@@ -34,11 +35,12 @@ export default function RunsList() {
         <table>
           <thead>
             <tr>
-              <th style={{ width: 70 }}>ID</th>
-              <th style={{ width: 80 }}>Flow</th>
+              <th style={{ width: 60 }}>ID</th>
               <th style={{ width: 130 }}>Status</th>
-              <th>Created</th>
-              <th style={{ width: 160 }}>Duration</th>
+              <th>File</th>
+              <th style={{ width: 60 }}>Flow</th>
+              <th style={{ width: 170 }}>Created</th>
+              <th style={{ width: 110 }}>Duration</th>
             </tr>
           </thead>
           <tbody>
@@ -56,10 +58,15 @@ export default function RunsList() {
                       #{r.id}
                     </Link>
                   </td>
-                  <td className="dim mono">{r.flow_id}</td>
                   <td>
                     <StatusPill status={r.status} />
                   </td>
+                  <td>
+                    <Link to={`/runs/${r.id}`} style={{ color: "var(--text)" }}>
+                      <FileId path={r.file_path} width={520} />
+                    </Link>
+                  </td>
+                  <td className="dim mono">{r.flow_id}</td>
                   <td className="dim tnum">{new Date(created).toLocaleString()}</td>
                   <td className="dim tnum">{dur ?? "—"}</td>
                 </tr>
@@ -67,7 +74,7 @@ export default function RunsList() {
             })}
             {(runs.data ?? []).length === 0 && !runs.isLoading && (
               <tr>
-                <td colSpan={5} className="empty">
+                <td colSpan={6} className="empty">
                   No runs match this filter.
                 </td>
               </tr>

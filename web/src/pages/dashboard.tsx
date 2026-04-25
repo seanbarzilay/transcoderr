@@ -3,6 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 import { api } from "../api/client";
 import StatusPill from "../components/status-pill";
+import FileId from "../components/file-id";
 
 export default function Dashboard() {
   const live = useLive();
@@ -50,10 +51,11 @@ export default function Dashboard() {
         <table>
           <thead>
             <tr>
-              <th style={{ width: 70 }}>ID</th>
+              <th style={{ width: 60 }}>ID</th>
               <th style={{ width: 110 }}>Status</th>
-              <th>Progress</th>
-              <th style={{ width: 220 }}>Created</th>
+              <th>File</th>
+              <th style={{ width: 200 }}>Progress</th>
+              <th style={{ width: 180 }}>Created</th>
             </tr>
           </thead>
           <tbody>
@@ -71,9 +73,14 @@ export default function Dashboard() {
                     <StatusPill status={liveStatus} />
                   </td>
                   <td>
+                    <Link to={`/runs/${r.id}`} style={{ color: "var(--text)" }}>
+                      <FileId path={r.file_path} width={420} />
+                    </Link>
+                  </td>
+                  <td>
                     {liveStatus === "running" && pct != null ? (
                       <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                        <div className="progress" style={{ flex: 1, maxWidth: 200 }}>
+                        <div className="progress" style={{ flex: 1 }}>
                           <div className="fill" style={{ width: `${pct}%` }} />
                         </div>
                         <span className="muted tnum" style={{ fontSize: 11 }}>
@@ -92,7 +99,7 @@ export default function Dashboard() {
             })}
             {(recent.data ?? []).length === 0 && !recent.isLoading && (
               <tr>
-                <td colSpan={4} className="empty">
+                <td colSpan={5} className="empty">
                   No runs yet.
                   <div className="hint">
                     Trigger a webhook from Radarr / Sonarr to start one.
