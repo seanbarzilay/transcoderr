@@ -12,6 +12,7 @@ pub mod metrics;
 pub mod notifiers;
 pub mod plugins;
 pub mod ready;
+pub mod retention;
 pub mod static_assets;
 pub mod steps;
 pub mod worker;

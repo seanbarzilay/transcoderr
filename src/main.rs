@@ -65,6 +65,9 @@ async fn main() -> anyhow::Result<()> {
             let worker_task =
                 tokio::spawn(async move { worker.run_loop(rx).await });
 
+            let retention_rx = tx.subscribe();
+            tokio::spawn(transcoderr::retention::run_periodic(pool.clone(), retention_rx));
+
             let ready = transcoderr::ready::Readiness::new();
 
             let state = transcoderr::http::AppState {
