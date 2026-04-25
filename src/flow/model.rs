@@ -24,19 +24,22 @@ pub enum Trigger {
 
 impl<'de> Deserialize<'de> for Trigger {
     fn deserialize<D: Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
-        // Each trigger in YAML is a single-key map: { radarr: [event, ...] }
-        let map: BTreeMap<String, Vec<String>> = BTreeMap::deserialize(d)?;
-        if map.len() != 1 {
-            return Err(serde::de::Error::custom(
-                format!("trigger must have exactly one key, got {}", map.len())
-            ));
+        use serde::de::Error as _;
+        // Deserialize as a map with serde_yaml::Value so Phase 2 variants like
+        // `webhook: my-source` (single string) can be handled per-key without rework.
+        let map: BTreeMap<String, serde_yaml::Value> = BTreeMap::deserialize(d)?;
+        let mut iter = map.into_iter();
+        let (key, val) = iter.next().ok_or_else(|| D::Error::custom("trigger map is empty"))?;
+        if iter.next().is_some() {
+            return Err(D::Error::custom("trigger map has multiple keys"));
         }
-        let (key, events) = map.into_iter().next().unwrap();
         match key.as_str() {
-            "radarr" => Ok(Trigger::Radarr(events)),
-            other => Err(serde::de::Error::custom(
-                format!("unknown trigger type {:?}", other)
-            )),
+            "radarr" => {
+                let events: Vec<String> = serde_yaml::from_value(val)
+                    .map_err(|e| D::Error::custom(format!("radarr: {e}")))?;
+                Ok(Trigger::Radarr(events))
+            }
+            other => Err(D::Error::custom(format!("unknown trigger kind {other:?}"))),
         }
     }
 }

@@ -28,6 +28,22 @@ steps:
 }
 
 #[test]
+fn rejects_unknown_trigger_kind() {
+    let yaml = r#"
+name: bad-trigger
+triggers:
+  - webhook: my-source
+steps:
+  - use: probe
+"#;
+    let err = parse_flow(yaml).unwrap_err();
+    assert!(
+        err.to_string().contains("unknown trigger kind"),
+        "got: {err}"
+    );
+}
+
+#[test]
 fn rejects_unknown_step_use() {
     let yaml = r#"
 name: bad
