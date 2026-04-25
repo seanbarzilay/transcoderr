@@ -1,4 +1,5 @@
 use std::path::PathBuf;
+use std::sync::{Arc, OnceLock};
 use tempfile::TempDir;
 use tokio::task::JoinHandle;
 use transcoderr::{
@@ -6,9 +7,12 @@ use transcoderr::{
     db,
     hw::{semaphores::DeviceRegistry, HwCaps},
     http,
+    metrics::Metrics,
     ready::Readiness,
     worker::Worker,
 };
+
+static METRICS: OnceLock<Arc<Metrics>> = OnceLock::new();
 
 pub struct TestApp {
     pub url: String,
@@ -53,6 +57,8 @@ pub async fn boot() -> TestApp {
     let ready = Readiness::new();
     ready.mark_ready().await;
 
+    let metrics = METRICS.get_or_init(|| Arc::new(Metrics::install().unwrap())).clone();
+
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
     let app = http::router(http::AppState {
@@ -62,6 +68,7 @@ pub async fn boot() -> TestApp {
         hw_devices,
         bus,
         ready,
+        metrics,
     });
     let s = tokio::spawn(async move {
         axum::serve(listener, app).await.unwrap();

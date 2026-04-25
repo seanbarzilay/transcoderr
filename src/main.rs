@@ -52,6 +52,8 @@ async fn main() -> anyhow::Result<()> {
             )
             .await;
 
+            let metrics = std::sync::Arc::new(transcoderr::metrics::Metrics::install()?);
+
             let bus = transcoderr::bus::Bus::default();
             let worker = transcoderr::worker::Worker::new(pool.clone(), bus.clone());
             let reset = worker.recover_on_boot().await?;
@@ -72,6 +74,7 @@ async fn main() -> anyhow::Result<()> {
                 hw_devices: registry,
                 bus,
                 ready: ready.clone(),
+                metrics,
             };
             ready.mark_ready().await;
 

@@ -90,16 +90,19 @@ impl Engine {
                                     "probe" | "verify.playable" => 60,
                                     _ => 600,
                                 });
+                            let step_start = std::time::Instant::now();
                             let exec_fut = runner.execute(with, ctx, &mut cb);
                             let result = tokio::time::timeout(std::time::Duration::from_secs(timeout_secs), exec_fut).await;
                             match result {
                                 Ok(Ok(())) => {
+                                    crate::metrics::record_step_finished(use_, "ok", step_start.elapsed().as_secs_f64());
                                     db::run_events::append_with_bus(&self.pool, &self.bus, job_id, Some(&step_id), "completed", None).await?;
                                     db::checkpoints::upsert(&self.pool, job_id, my_index as i64, &ctx.to_snapshot()).await?;
                                     last_err = None;
                                     break;
                                 }
                                 Ok(Err(e)) => {
+                                    crate::metrics::record_step_finished(use_, "err", step_start.elapsed().as_secs_f64());
                                     db::run_events::append_with_bus(&self.pool, &self.bus, job_id, Some(&step_id), "failed",
                                         Some(&json!({ "error": e.to_string(), "attempt": attempt }))).await?;
                                     let should_retry = retry.as_ref().and_then(|r| r.on.as_deref())
@@ -112,6 +115,7 @@ impl Engine {
                                     last_err = Some(e);
                                 }
                                 Err(_) => {
+                                    crate::metrics::record_step_finished(use_, "err", step_start.elapsed().as_secs_f64());
                                     db::run_events::append_with_bus(&self.pool, &self.bus, job_id, Some(&step_id), "failed",
                                         Some(&json!({ "error": "timeout", "after_seconds": timeout_secs, "attempt": attempt }))).await?;
                                     last_err = Some(anyhow::anyhow!("timeout after {timeout_secs}s"));

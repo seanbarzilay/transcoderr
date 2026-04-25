@@ -7,6 +7,7 @@ pub mod ffmpeg;
 pub mod flow;
 pub mod hw;
 pub mod http;
+pub mod metrics;
 pub mod notifiers;
 pub mod plugins;
 pub mod ready;

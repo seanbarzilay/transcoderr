@@ -17,6 +17,7 @@ pub struct AppState {
     pub hw_devices: crate::hw::semaphores::DeviceRegistry,
     pub bus: crate::bus::Bus,
     pub ready: crate::ready::Readiness,
+    pub metrics: std::sync::Arc<crate::metrics::Metrics>,
 }
 
 pub fn router(state: AppState) -> Router {
@@ -24,6 +25,7 @@ pub fn router(state: AppState) -> Router {
     Router::new()
         .route("/healthz", axum::routing::get(|| async { axum::http::StatusCode::OK }))
         .route("/readyz", axum::routing::get(readyz_handler))
+        .route("/metrics", axum::routing::get(metrics_handler))
         .route("/webhook/radarr", post(webhook_radarr::handle))
         .route("/webhook/sonarr", post(webhook_sonarr::handle))
         .route("/webhook/lidarr", post(webhook_lidarr::handle))
@@ -39,6 +41,10 @@ pub fn router(state: AppState) -> Router {
 async fn readyz_handler(State(state): State<AppState>) -> axum::http::StatusCode {
     if state.ready.is_ready().await { axum::http::StatusCode::OK }
     else { axum::http::StatusCode::SERVICE_UNAVAILABLE }
+}
+
+async fn metrics_handler(State(state): State<AppState>) -> String {
+    state.metrics.render()
 }
 
 async fn get_hw(State(state): State<AppState>) -> axum::Json<crate::hw::HwCaps> {
