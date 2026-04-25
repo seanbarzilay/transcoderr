@@ -53,6 +53,17 @@ pub async fn set_status(pool: &SqlitePool, id: i64, status: &str, label: Option<
     Ok(())
 }
 
+pub async fn set_status_with_bus(
+    pool: &SqlitePool, bus: &crate::bus::Bus,
+    id: i64, status: &str, label: Option<&str>,
+) -> anyhow::Result<()> {
+    set_status(pool, id, status, label).await?;
+    bus.send(crate::bus::Event::JobState {
+        id, status: status.to_string(), label: label.map(|s| s.to_string()),
+    });
+    Ok(())
+}
+
 pub async fn set_current_step(pool: &SqlitePool, id: i64, step_index: i64) -> anyhow::Result<()> {
     sqlx::query("UPDATE jobs SET current_step = ? WHERE id = ?")
         .bind(step_index).bind(id).execute(pool).await?;

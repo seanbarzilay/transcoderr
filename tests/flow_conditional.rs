@@ -20,7 +20,8 @@ steps:
     let flow_id = db::flows::insert(&pool, "c", yaml, &flow).await.unwrap();
     let job_id = db::jobs::insert(&pool, flow_id, 1, "radarr", "/m/x.mkv", "{}").await.unwrap();
     let _ = db::jobs::claim_next(&pool).await.unwrap().unwrap();
-    let outcome = Engine::new(pool.clone()).run(&flow, job_id, Context::for_file("/m/x.mkv")).await.unwrap();
+    let bus = transcoderr::bus::Bus::default();
+    let outcome = Engine::new(pool.clone(), bus).run(&flow, job_id, Context::for_file("/m/x.mkv")).await.unwrap();
     assert_eq!(outcome.status, "skipped");
     assert_eq!(outcome.label.as_deref(), Some("matched"));
 }

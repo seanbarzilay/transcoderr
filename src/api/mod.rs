@@ -42,6 +42,7 @@ pub fn router(state: AppState) -> Router<AppState> {
         .route("/notifiers/:id/test", post(notifiers::test))
         .route("/settings",           get(settings::get_all).patch(settings::patch))
         .route("/dry-run",            post(dryrun::dry_run))
+        .route("/stream",             axum::routing::get(crate::bus::sse::stream))
         .route_layer(from_fn_with_state(state.clone(), auth::require_auth));
 
     public.merge(protected).layer(CookieManagerLayer::new())

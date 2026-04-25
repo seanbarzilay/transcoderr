@@ -15,3 +15,21 @@ pub async fn append(
         .execute(pool).await?;
     Ok(())
 }
+
+pub async fn append_with_bus(
+    pool: &SqlitePool,
+    bus: &crate::bus::Bus,
+    job_id: i64,
+    step_id: Option<&str>,
+    kind: &str,
+    payload: Option<&Value>,
+) -> anyhow::Result<()> {
+    append(pool, job_id, step_id, kind, payload).await?;
+    bus.send(crate::bus::Event::RunEvent {
+        job_id,
+        step_id: step_id.map(|s| s.to_string()),
+        kind: kind.to_string(),
+        payload: payload.cloned().unwrap_or(Value::Null),
+    });
+    Ok(())
+}

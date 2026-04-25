@@ -15,6 +15,7 @@ pub struct AppState {
     pub cfg: Arc<Config>,
     pub hw_caps: Arc<tokio::sync::RwLock<crate::hw::HwCaps>>,
     pub hw_devices: crate::hw::semaphores::DeviceRegistry,
+    pub bus: crate::bus::Bus,
 }
 
 pub fn router(state: AppState) -> Router {

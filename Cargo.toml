@@ -23,7 +23,9 @@ clap = { version = "4", features = ["derive"] }
 chrono = { version = "0.4", features = ["serde"] }
 async-trait = "0.1"
 cel-interpreter = "0.10"
-reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "cookies"] }
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "cookies", "stream"] }
+tokio-stream = { version = "0.1", features = ["sync"] }
+futures = "0.3"
 argon2 = "0.5"
 rand = "0.8"
 tower-cookies = "0.10"

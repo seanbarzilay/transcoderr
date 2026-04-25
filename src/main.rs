@@ -52,7 +52,8 @@ async fn main() -> anyhow::Result<()> {
             )
             .await;
 
-            let worker = transcoderr::worker::Worker::new(pool.clone());
+            let bus = transcoderr::bus::Bus::default();
+            let worker = transcoderr::worker::Worker::new(pool.clone(), bus.clone());
             let reset = worker.recover_on_boot().await?;
             if reset > 0 {
                 tracing::warn!(reset, "recovered stale running jobs");
@@ -67,6 +68,7 @@ async fn main() -> anyhow::Result<()> {
                 cfg: cfg.clone(),
                 hw_caps,
                 hw_devices: registry,
+                bus,
             };
             let app = transcoderr::http::router(state);
             let listener =

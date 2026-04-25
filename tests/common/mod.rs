@@ -44,7 +44,8 @@ pub async fn boot() -> TestApp {
         radarr: RadarrConfig { bearer_token: "test-token".into() },
     });
 
-    let worker = Worker::new(pool.clone());
+    let bus = transcoderr::bus::Bus::default();
+    let worker = Worker::new(pool.clone(), bus.clone());
     let (tx, rx) = tokio::sync::watch::channel(false);
     let w = tokio::spawn(async move { worker.run_loop(rx).await });
 
@@ -55,6 +56,7 @@ pub async fn boot() -> TestApp {
         cfg,
         hw_caps,
         hw_devices,
+        bus,
     });
     let s = tokio::spawn(async move {
         axum::serve(listener, app).await.unwrap();

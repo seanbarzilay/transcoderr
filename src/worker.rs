@@ -1,3 +1,4 @@
+use crate::bus::Bus;
 use crate::db;
 use crate::flow::{Context, Engine, Flow};
 use sqlx::SqlitePool;
@@ -5,10 +6,11 @@ use std::time::Duration;
 
 pub struct Worker {
     pool: SqlitePool,
+    bus: Bus,
 }
 
 impl Worker {
-    pub fn new(pool: SqlitePool) -> Self { Self { pool } }
+    pub fn new(pool: SqlitePool, bus: Bus) -> Self { Self { pool, bus } }
 
     /// On startup: reset stale 'running' rows back to 'pending'.
     pub async fn recover_on_boot(&self) -> anyhow::Result<u64> {
@@ -26,8 +28,8 @@ impl Worker {
         let flow: Flow = serde_json::from_str(&parsed_json)?;
 
         let ctx = Context::for_file(&job.file_path);
-        let outcome = Engine::new(self.pool.clone()).run(&flow, job.id, ctx).await?;
-        db::jobs::set_status(&self.pool, job.id, &outcome.status, outcome.label.as_deref()).await?;
+        let outcome = Engine::new(self.pool.clone(), self.bus.clone()).run(&flow, job.id, ctx).await?;
+        db::jobs::set_status_with_bus(&self.pool, &self.bus, job.id, &outcome.status, outcome.label.as_deref()).await?;
         Ok(true)
     }
 

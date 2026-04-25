@@ -39,12 +39,13 @@ steps:
     // Process "crashes"; row left in 'running'
 
     // Boot recovery
-    let w = Worker::new(pool.clone());
+    let bus = transcoderr::bus::Bus::default();
+    let w = Worker::new(pool.clone(), bus.clone());
     let reset = w.recover_on_boot().await.unwrap();
     assert_eq!(reset, 1, "should reset one running job");
 
     // Run engine — should resume from checkpoint, skipping probe.
-    let outcome = Engine::new(pool.clone()).run(&flow, job_id, Context::for_file(movie.to_string_lossy())).await.unwrap();
+    let outcome = Engine::new(pool.clone(), bus).run(&flow, job_id, Context::for_file(movie.to_string_lossy())).await.unwrap();
     assert_eq!(outcome.status, "completed");
 
     // The probe-skipped path leaves probe-step events absent from this run leg —

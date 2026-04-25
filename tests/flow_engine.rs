@@ -33,7 +33,8 @@ steps:
     let _claimed = db::jobs::claim_next(&pool).await.unwrap().unwrap();
 
     let ctx = Context::for_file(movie.to_string_lossy());
-    let outcome = Engine::new(pool.clone()).run(&flow, job_id, ctx).await.unwrap();
+    let bus = transcoderr::bus::Bus::default();
+    let outcome = Engine::new(pool.clone(), bus).run(&flow, job_id, ctx).await.unwrap();
     assert_eq!(outcome.status, "completed");
 
     // Original file replaced with transcoded output, and probe context recorded.
