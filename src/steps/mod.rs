@@ -5,6 +5,7 @@ use std::collections::BTreeMap;
 
 pub mod builtin;
 pub mod copy_step;
+pub mod notify;
 pub mod delete_step;
 pub mod extract_subs;
 pub mod move_step;

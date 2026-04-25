@@ -20,7 +20,7 @@ pub async fn boot() -> TestApp {
     let pool = db::open(&data_dir).await.unwrap();
 
     // Initialize the step registry with no subprocess plugins for tests.
-    transcoderr::steps::registry::init(vec![]).await;
+    transcoderr::steps::registry::init(pool.clone(), vec![]).await;
 
     let cfg = std::sync::Arc::new(Config {
         bind: "127.0.0.1:0".into(),

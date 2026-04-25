@@ -35,7 +35,7 @@ async fn main() -> anyhow::Result<()> {
             // Discover plugins and initialize the step registry.
             let plugins_dir = cfg.data_dir.join("plugins");
             let discovered = transcoderr::plugins::discover(&plugins_dir)?;
-            transcoderr::steps::registry::init(discovered).await;
+            transcoderr::steps::registry::init(pool.clone(), discovered).await;
 
             let worker = transcoderr::worker::Worker::new(pool.clone());
             let reset = worker.recover_on_boot().await?;

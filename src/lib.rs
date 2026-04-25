@@ -4,6 +4,7 @@ pub mod error;
 pub mod ffmpeg;
 pub mod flow;
 pub mod http;
+pub mod notifiers;
 pub mod plugins;
 pub mod steps;
 pub mod worker;

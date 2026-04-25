@@ -3,6 +3,7 @@ use crate::steps::{
     delete_step::DeleteStep,
     extract_subs::ExtractSubsStep,
     move_step::MoveStep,
+    notify::NotifyStep,
     output::OutputStep,
     probe::ProbeStep,
     remux::RemuxStep,
@@ -12,10 +13,11 @@ use crate::steps::{
     verify_playable::VerifyPlayableStep,
     Step,
 };
+use sqlx::SqlitePool;
 use std::collections::HashMap;
 use std::sync::Arc;
 
-pub fn register_all(map: &mut HashMap<String, Arc<dyn Step>>) {
+pub fn register_all(map: &mut HashMap<String, Arc<dyn Step>>, pool: SqlitePool) {
     map.insert("probe".into(), Arc::new(ProbeStep));
     map.insert("transcode".into(), Arc::new(TranscodeStep));
     map.insert("output".into(), Arc::new(OutputStep));
@@ -27,4 +29,5 @@ pub fn register_all(map: &mut HashMap<String, Arc<dyn Step>>) {
     map.insert("copy".into(),   Arc::new(CopyStep));
     map.insert("delete".into(), Arc::new(DeleteStep));
     map.insert("shell".into(),  Arc::new(ShellStep));
+    map.insert("notify".into(), Arc::new(NotifyStep { pool: pool.clone() }));
 }

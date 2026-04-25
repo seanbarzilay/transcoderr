@@ -22,6 +22,7 @@ pub fn now_unix() -> i64 {
 
 pub mod flows;
 pub mod jobs;
+pub mod notifiers;
 pub mod run_events;
 pub mod checkpoints;
 pub mod sources;

@@ -1,6 +1,7 @@
 use crate::plugins::manifest::DiscoveredPlugin;
 use crate::plugins::subprocess::SubprocessStep;
 use crate::steps::{builtin, Step};
+use sqlx::SqlitePool;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::OnceCell;
@@ -15,9 +16,9 @@ impl Registry {
     pub fn empty() -> Self { Self { by_name: HashMap::new() } }
 }
 
-pub async fn init(discovered: Vec<DiscoveredPlugin>) {
+pub async fn init(pool: SqlitePool, discovered: Vec<DiscoveredPlugin>) {
     let mut reg = Registry::empty();
-    builtin::register_all(&mut reg.by_name);
+    builtin::register_all(&mut reg.by_name, pool);
     for d in discovered {
         if d.manifest.kind != "subprocess" { continue; }
         let entry = d.manifest.entrypoint.clone().unwrap_or_default();
@@ -32,12 +33,15 @@ pub async fn init(discovered: Vec<DiscoveredPlugin>) {
 
 /// Resolve a step by name. If the registry has not been initialized (e.g. in
 /// unit tests that skip `init`), falls back to the built-in dispatch table.
+/// NOTE: the fallback cannot instantiate `notify` (needs a pool) — tests that
+/// exercise notify must call `init` explicitly.
 pub async fn resolve(name: &str) -> Option<Arc<dyn Step>> {
     if let Some(reg) = REGISTRY.get() {
         return reg.by_name.get(name).cloned();
     }
-    // Fallback: registry not yet initialized — serve built-ins directly.
+    // Fallback: registry not yet initialized — serve built-ins directly
+    // (notify excluded as it requires a pool).
     let mut map: HashMap<String, Arc<dyn Step>> = HashMap::new();
-    builtin::register_all(&mut map);
+    builtin::register_all(&mut map, SqlitePool::connect_lazy("sqlite::memory:").unwrap());
     map.remove(name)
 }
