@@ -1,5 +1,5 @@
 use crate::db;
-use crate::flow::{Context, Flow};
+use crate::flow::{Context, Flow, Node};
 use crate::steps::{dispatch, StepProgress};
 use serde_json::json;
 use sqlx::SqlitePool;
@@ -27,14 +27,21 @@ impl Engine {
             None => 0,
         };
 
-        for (idx, step) in flow.steps.iter().enumerate().skip(resume_index as usize) {
-            let step_id = step.id.clone().unwrap_or_else(|| format!("step{idx}"));
+        for (idx, node) in flow.steps.iter().enumerate().skip(resume_index as usize) {
+            let (step_id_opt, use_, with) = match node {
+                Node::Step { id, use_, with, .. } => (id.clone(), use_.clone(), with.clone()),
+                Node::Conditional { .. } | Node::Return { .. } => {
+                    // TODO(Phase 2 Task 5): handle conditionals + return in the recursive engine rewrite.
+                    anyhow::bail!("non-Step nodes not supported in Phase 1 engine — see Phase 2 Task 5");
+                }
+            };
+            let step_id = step_id_opt.unwrap_or_else(|| format!("step{idx}"));
             db::jobs::set_current_step(&self.pool, job_id, idx as i64).await?;
             db::run_events::append(&self.pool, job_id, Some(&step_id), "started",
-                Some(&json!({ "use": step.use_ }))).await?;
+                Some(&json!({ "use": use_ }))).await?;
 
-            let runner = dispatch(&step.use_)
-                .ok_or_else(|| anyhow::anyhow!("unknown step `use:` {}", step.use_))?;
+            let runner = dispatch(&use_)
+                .ok_or_else(|| anyhow::anyhow!("unknown step `use:` {}", use_))?;
 
             let pool = self.pool.clone();
             let step_id_for_cb = step_id.clone();
@@ -50,7 +57,7 @@ impl Engine {
                 });
             };
 
-            match runner.execute(&step.with, &mut ctx, &mut cb).await {
+            match runner.execute(&with, &mut ctx, &mut cb).await {
                 Ok(()) => {
                     db::run_events::append(&self.pool, job_id, Some(&step_id), "completed", None).await?;
                     db::checkpoints::upsert(&self.pool, job_id, idx as i64, &ctx.to_snapshot()).await?;

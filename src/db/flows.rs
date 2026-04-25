@@ -45,6 +45,7 @@ pub async fn list_enabled_for_radarr(pool: &SqlitePool, event: &str) -> anyhow::
         let flow: Flow = serde_json::from_str(&parsed_json)?;
         let matches = flow.triggers.iter().any(|t| match t {
             crate::flow::Trigger::Radarr(events) => events.iter().any(|e| e == event),
+            _ => false,
         });
         if matches {
             out.push(FlowRow { id, name, enabled: enabled != 0, yaml_source, parsed_json, version });
