@@ -1,9 +1,8 @@
 use super::{Step, StepProgress};
-use crate::flow::Context;
+use crate::flow::{staging, Context};
 use async_trait::async_trait;
 use serde_json::{json, Value};
 use std::collections::BTreeMap;
-use std::path::Path;
 use std::process::Stdio;
 use tokio::process::Command;
 
@@ -53,8 +52,7 @@ impl Step for StripTracksStep {
             .and_then(|v| v.as_bool())
             .unwrap_or(false);
 
-        let src = Path::new(&ctx.file.path).to_path_buf();
-        let dest = src.with_extension("transcoderr.tmp.mkv");
+        let (src, dest) = staging::next_io(ctx, "mkv");
         let _ = std::fs::remove_file(&dest);
 
         let mut cmd = Command::new("ffmpeg");
@@ -119,10 +117,7 @@ impl Step for StripTracksStep {
         if !status.success() {
             anyhow::bail!("strip.tracks ffmpeg failed");
         }
-        ctx.record_step_output(
-            "transcode",
-            json!({ "output_path": dest.to_string_lossy() }),
-        );
+        staging::record_output(ctx, &dest, json!({}));
         Ok(())
     }
 }

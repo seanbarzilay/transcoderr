@@ -3,6 +3,7 @@ pub mod engine;
 pub mod expr;
 pub mod model;
 pub mod parser;
+pub mod staging;
 
 pub use context::Context;
 pub use engine::Engine;

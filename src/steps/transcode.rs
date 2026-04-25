@@ -1,6 +1,6 @@
 use super::{Step, StepProgress};
 use crate::ffmpeg::{drain_stderr_progress, ProgressParser};
-use crate::flow::Context;
+use crate::flow::{staging, Context};
 use crate::hw::{devices::Accel, semaphores::DeviceRegistry};
 use async_trait::async_trait;
 use serde_json::{json, Value};
@@ -46,8 +46,7 @@ impl Step for TranscodeStep {
         let cpu_fallback =
             hw_block.get("fallback").and_then(|v| v.as_str()) == Some("cpu");
 
-        let src = Path::new(&ctx.file.path).to_path_buf();
-        let dest = src.with_extension("transcoderr.tmp.mkv");
+        let (src, dest) = staging::next_io(ctx, "mkv");
         let _ = std::fs::remove_file(&dest);
 
         let duration_sec = ctx
@@ -100,10 +99,10 @@ impl Step for TranscodeStep {
 
         match result {
             Ok(()) => {
-                ctx.record_step_output(
-                    "transcode",
+                staging::record_output(
+                    ctx,
+                    &dest,
                     json!({
-                        "output_path": dest.to_string_lossy(),
                         "codec": codec,
                         "hw": acquired_key,
                     }),
@@ -138,10 +137,10 @@ impl Step for TranscodeStep {
                         on_progress,
                     )
                     .await?;
-                    ctx.record_step_output(
-                        "transcode",
+                    staging::record_output(
+                        ctx,
+                        &dest,
                         json!({
-                            "output_path": dest.to_string_lossy(),
                             "codec": codec,
                             "hw": null,
                             "fallback_from": acquired_key,

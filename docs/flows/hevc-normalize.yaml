@@ -46,12 +46,13 @@ steps:
           tolerate_errors: true
 
     else:
-      # Full re-encode: x265 fast crf=19 with 10-bit preservation.
+      # Full re-encode: normalize streams first, then x265 fast crf=19 with 10-bit
+      # preservation. Steps now chain correctly — `transcode` reads `audio.ensure`'s
+      # output, not the original file.
       - id: extract-eng-subs2
         use: extract.subs
         with: { language: eng }
 
-      # First normalize the streams (drop cover art, drop unsupported subs, ensure audio).
       - id: ensure-audio2
         use: audio.ensure
         with:
@@ -63,10 +64,6 @@ steps:
           drop_data_streams: true
           tolerate_errors: true
 
-      # Then re-encode video. NOTE: this re-runs against the original file (not the
-      # output of the previous step) — the chain limitation is documented; for many flows
-      # this is fine because the audio.ensure tmp gets overwritten by transcode's tmp.
-      # If you need strict chain semantics, run only the encode here and skip ensure-audio2.
       - id: encode
         use: transcode
         with:

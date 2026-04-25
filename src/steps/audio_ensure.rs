@@ -1,9 +1,8 @@
 use super::{Step, StepProgress};
-use crate::flow::Context;
+use crate::flow::{staging, Context};
 use async_trait::async_trait;
 use serde_json::{json, Value};
 use std::collections::BTreeMap;
-use std::path::Path;
 use std::process::Stdio;
 use tokio::process::Command;
 
@@ -207,8 +206,7 @@ impl Step for AudioEnsureStep {
         }
 
         // Build the ffmpeg command.
-        let src = Path::new(&ctx.file.path).to_path_buf();
-        let dest = src.with_extension("transcoderr.tmp.mkv");
+        let (src, dest) = staging::next_io(ctx, "mkv");
         let _ = std::fs::remove_file(&dest);
 
         let mut cmd = Command::new("ffmpeg");
@@ -304,11 +302,11 @@ impl Step for AudioEnsureStep {
             anyhow::bail!("audio.ensure: ffmpeg failed");
         }
 
-        let mut out = json!({ "output_path": dest.to_string_lossy() });
-        if let Some(idx) = new_audio_out_idx {
-            out["added_audio_index"] = json!(idx);
-        }
-        ctx.record_step_output("transcode", out);
+        let extras = match new_audio_out_idx {
+            Some(idx) => json!({ "added_audio_index": idx }),
+            None => json!({}),
+        };
+        staging::record_output(ctx, &dest, extras);
         Ok(())
     }
 }
