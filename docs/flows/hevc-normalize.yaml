@@ -1,0 +1,100 @@
+name: hevc-normalize
+description: |
+  Equivalent to the tdarr Flow 0:
+  - Skip empty / unreadable files
+  - If video is already hevc → just normalize audio + drop unsupported subs / cover art
+  - Otherwise → re-encode to x265 (fast, crf=19), preserve 10-bit, prefer GPU with CPU fallback
+  - Always end with output:replace + notify
+enabled: true
+
+triggers:
+  - radarr: [downloaded, upgraded]
+  - sonarr: [downloaded]
+
+# Pre-filter: skip files smaller than 1 MB (proxy for "unreadable / not really a media file").
+match:
+  expr: file.size_gb > 0.001
+
+steps:
+  - id: probe
+    use: probe
+
+  # Bail if probe surfaced nothing — skip the run cleanly instead of failing.
+  - id: bail-if-empty
+    if: probe.streams == null
+    then:
+      - return: skipped-no-streams
+
+  # The main decision: is the video already hevc?
+  - id: codec-gate
+    if: probe.streams[0].codec_name == "hevc"
+    then:
+      # Already hevc — only normalize the container's audio + drop garbage.
+      - id: extract-eng-subs
+        use: extract.subs
+        with: { language: eng }
+
+      - id: ensure-audio
+        use: audio.ensure
+        with:
+          language: eng
+          codec: ac3
+          channels: 6
+          drop_cover_art: true
+          drop_unsupported_subs: true
+          drop_data_streams: true
+          tolerate_errors: true
+
+    else:
+      # Full re-encode: x265 fast crf=19 with 10-bit preservation.
+      - id: extract-eng-subs2
+        use: extract.subs
+        with: { language: eng }
+
+      # First normalize the streams (drop cover art, drop unsupported subs, ensure audio).
+      - id: ensure-audio2
+        use: audio.ensure
+        with:
+          language: eng
+          codec: ac3
+          channels: 6
+          drop_cover_art: true
+          drop_unsupported_subs: true
+          drop_data_streams: true
+          tolerate_errors: true
+
+      # Then re-encode video. NOTE: this re-runs against the original file (not the
+      # output of the previous step) — the chain limitation is documented; for many flows
+      # this is fine because the audio.ensure tmp gets overwritten by transcode's tmp.
+      # If you need strict chain semantics, run only the encode here and skip ensure-audio2.
+      - id: encode
+        use: transcode
+        with:
+          codec: x265
+          crf: 19
+          preset: fast
+          preserve_10bit: true
+          tolerate_errors: true
+          hw:
+            prefer: [nvenc, qsv, vaapi, videotoolbox]
+            fallback: cpu
+
+  - id: verify
+    use: verify.playable
+    with: { min_duration_ratio: 0.99 }
+
+  - id: swap
+    use: output
+    with: { mode: replace }
+
+  - id: success-notify
+    use: notify
+    with:
+      channel: tg-main
+      template: "✓ {{ file.path }} normalized"
+
+on_failure:
+  - use: notify
+    with:
+      channel: tg-main
+      template: "✗ {{ file.path }} failed at {{ failed.id }}: {{ failed.error }}"

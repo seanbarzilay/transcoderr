@@ -1,5 +1,6 @@
 use crate::hw::semaphores::DeviceRegistry;
 use crate::steps::{
+    audio_ensure::AudioEnsureStep,
     copy_step::CopyStep,
     delete_step::DeleteStep,
     extract_subs::ExtractSubsStep,
@@ -30,6 +31,7 @@ pub fn register_all(
     map.insert("remux".into(), Arc::new(RemuxStep));
     map.insert("extract.subs".into(), Arc::new(ExtractSubsStep));
     map.insert("strip.tracks".into(), Arc::new(StripTracksStep));
+    map.insert("audio.ensure".into(), Arc::new(AudioEnsureStep));
     map.insert("move".into(), Arc::new(MoveStep));
     map.insert("copy".into(), Arc::new(CopyStep));
     map.insert("delete".into(), Arc::new(DeleteStep));

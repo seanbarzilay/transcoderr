@@ -3,6 +3,7 @@ use async_trait::async_trait;
 use serde_json::Value;
 use std::collections::BTreeMap;
 
+pub mod audio_ensure;
 pub mod builtin;
 pub mod copy_step;
 pub mod notify;

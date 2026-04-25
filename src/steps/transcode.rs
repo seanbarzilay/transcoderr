@@ -26,6 +26,11 @@ impl Step for TranscodeStep {
         let codec = with.get("codec").and_then(|v| v.as_str()).unwrap_or("x265");
         let crf = with.get("crf").and_then(|v| v.as_i64()).unwrap_or(22);
         let preset = with.get("preset").and_then(|v| v.as_str()).unwrap_or("medium");
+        let preserve_10bit = with.get("preserve_10bit").and_then(|v| v.as_bool()).unwrap_or(false);
+        let tolerate_errors = with.get("tolerate_errors").and_then(|v| v.as_bool()).unwrap_or(false);
+
+        // Detect 10-bit from probe data when preserve_10bit is on.
+        let force_10bit = preserve_10bit && detect_10bit(ctx);
 
         // Parse hw block.
         let hw_block = with.get("hw").cloned().unwrap_or(Value::Null);
@@ -84,6 +89,8 @@ impl Step for TranscodeStep {
             preset,
             crf,
             duration_sec,
+            tolerate_errors,
+            force_10bit,
             on_progress,
         )
         .await;
@@ -126,6 +133,8 @@ impl Step for TranscodeStep {
                         "ultrafast",
                         crf,
                         duration_sec,
+                        tolerate_errors,
+                        force_10bit,
                         on_progress,
                     )
                     .await?;
@@ -168,6 +177,25 @@ fn pick_codec_arg(codec: &str, acquired_key: Option<&str>) -> anyhow::Result<&'s
     )
 }
 
+/// Inspect the probe data on `ctx` and return true if the first video stream is 10-bit.
+fn detect_10bit(ctx: &Context) -> bool {
+    let Some(probe) = ctx.probe.as_ref() else { return false; };
+    let Some(streams) = probe.get("streams").and_then(|s| s.as_array()) else { return false; };
+    for s in streams {
+        if s.get("codec_type").and_then(|v| v.as_str()) != Some("video") {
+            continue;
+        }
+        let pix_fmt = s.get("pix_fmt").and_then(|v| v.as_str()).unwrap_or("").to_lowercase();
+        let bps = s.get("bits_per_raw_sample").and_then(|v| v.as_str()).unwrap_or("");
+        return bps == "10"
+            || pix_fmt.contains("p010")
+            || pix_fmt.contains("yuv420p10")
+            || pix_fmt.contains("yuv422p10")
+            || pix_fmt.contains("yuv444p10");
+    }
+    false
+}
+
 fn is_disk_full(e: &anyhow::Error) -> bool {
     let s = e.to_string().to_lowercase();
     s.contains("no space left") || s.contains("enospc")
@@ -180,23 +208,21 @@ async fn run_ffmpeg(
     preset: &str,
     crf: i64,
     duration_sec: f64,
+    tolerate_errors: bool,
+    force_10bit: bool,
     on_progress: &mut (dyn FnMut(StepProgress) + Send),
 ) -> anyhow::Result<()> {
     let mut cmd = Command::new("ffmpeg");
-    cmd.args(["-hide_banner", "-y", "-i"])
-        .arg(src)
-        .args([
-            "-c:v",
-            codec_arg,
-            "-preset",
-            preset,
-            "-crf",
-            &crf.to_string(),
-            "-c:a",
-            "copy",
-            "-c:s",
-            "copy",
-        ])
+    cmd.args(["-hide_banner", "-y"]);
+    if tolerate_errors {
+        cmd.args(["-err_detect", "ignore_err", "-fflags", "+discardcorrupt"]);
+    }
+    cmd.arg("-i").arg(src);
+    cmd.args(["-c:v", codec_arg, "-preset", preset, "-crf", &crf.to_string()]);
+    if force_10bit {
+        cmd.args(["-profile:v", "main10", "-pix_fmt", "p010le"]);
+    }
+    cmd.args(["-c:a", "copy", "-c:s", "copy"])
         .arg(dest)
         .stdin(Stdio::null())
         .stdout(Stdio::null())
