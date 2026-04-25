@@ -21,10 +21,15 @@ impl Step for ExtractSubsStep {
     ) -> anyhow::Result<()> {
         let lang = with.get("language").and_then(|v| v.as_str()).unwrap_or("eng");
 
-        // Skip silently if probe shows no matching subtitle stream. Otherwise ffmpeg
-        // refuses with "Output file does not contain any stream" when there's nothing
-        // to extract.
-        let has_sub = ctx
+        // Only text-format subtitle codecs can be written into an .srt file. Bitmap
+        // formats (PGS, DVD, DVB) require OCR and aren't supported here. Skip silently
+        // when there's no matching text-format stream — Blu-ray rips usually have
+        // language-tagged PGS subs which would match a naive language filter but
+        // ffmpeg can't write them to .srt and bails.
+        const TEXT_SUB_CODECS: &[&str] = &["srt", "subrip", "ass", "ssa", "mov_text", "webvtt"];
+
+        let mut found_lang_match = false;
+        let has_text_sub = ctx
             .probe
             .as_ref()
             .and_then(|p| p.get("streams"))
@@ -35,20 +40,35 @@ impl Step for ExtractSubsStep {
                         .get("codec_type")
                         .and_then(|v| v.as_str())
                         == Some("subtitle");
+                    if !is_sub {
+                        return false;
+                    }
                     let s_lang = s
                         .get("tags")
                         .and_then(|t| t.get("language"))
                         .and_then(|v| v.as_str())
                         .unwrap_or("")
                         .to_lowercase();
-                    is_sub && s_lang == lang
+                    if s_lang != lang {
+                        return false;
+                    }
+                    found_lang_match = true;
+                    let codec = s
+                        .get("codec_name")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .to_lowercase();
+                    TEXT_SUB_CODECS.contains(&codec.as_str())
                 })
             })
             .unwrap_or(false);
-        if !has_sub {
-            on_progress(StepProgress::Log(format!(
-                "extract.subs: no {lang} subtitle stream found; skipping"
-            )));
+        if !has_text_sub {
+            let why = if found_lang_match {
+                format!("only bitmap {lang} subtitle streams found (PGS/DVD/DVB); cannot write .srt")
+            } else {
+                format!("no {lang} subtitle stream found")
+            };
+            on_progress(StepProgress::Log(format!("extract.subs: {why}; skipping")));
             return Ok(());
         }
 
