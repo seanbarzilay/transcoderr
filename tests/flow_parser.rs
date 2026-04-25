@@ -1,4 +1,4 @@
-use transcoderr::flow::{parse_flow, Flow, Step, Trigger};
+use transcoderr::flow::{parse_flow, Flow, Trigger};
 
 #[test]
 fn parses_minimal_linear_flow() {
