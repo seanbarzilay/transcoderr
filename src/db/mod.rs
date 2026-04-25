@@ -24,6 +24,7 @@ pub mod flows;
 pub mod jobs;
 pub mod run_events;
 pub mod checkpoints;
+pub mod sources;
 
 #[cfg(test)]
 mod tests {
