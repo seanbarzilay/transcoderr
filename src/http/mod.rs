@@ -26,6 +26,7 @@ pub fn router(state: AppState) -> Router {
         .route("/webhook/:name", post(webhook_generic::handle))
         .route("/api/hw", axum::routing::get(get_hw))
         .route("/api/hw/reprobe", axum::routing::post(reprobe_hw))
+        .nest("/api", crate::api::router(state.clone()))
         .layer(Extension(dedup))
         .with_state(state)
 }
