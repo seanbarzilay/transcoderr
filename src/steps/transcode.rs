@@ -89,6 +89,7 @@ impl Step for TranscodeStep {
             duration_sec,
             tolerate_errors,
             force_10bit,
+            ctx.cancel.as_ref(),
             on_progress,
         )
         .await;
@@ -133,6 +134,7 @@ impl Step for TranscodeStep {
                         duration_sec,
                         tolerate_errors,
                         force_10bit,
+                        ctx.cancel.as_ref(),
                         on_progress,
                     )
                     .await?;
@@ -208,6 +210,7 @@ async fn run_ffmpeg(
     duration_sec: f64,
     tolerate_errors: bool,
     force_10bit: bool,
+    cancel: Option<&tokio_util::sync::CancellationToken>,
     on_progress: &mut (dyn FnMut(StepProgress) + Send),
 ) -> anyhow::Result<()> {
     let mut cmd = Command::new("ffmpeg");
@@ -223,7 +226,7 @@ async fn run_ffmpeg(
     cmd.args(["-c:a", "copy", "-c:s", "copy"]).arg(dest);
 
     let mut emitted_any_pct = false;
-    let status = crate::ffmpeg::run_with_live_events(cmd, duration_sec, |ev| match ev {
+    let status = crate::ffmpeg::run_with_live_events(cmd, duration_sec, cancel, |ev| match ev {
         FfmpegEvent::Pct(p) => {
             emitted_any_pct = true;
             on_progress(StepProgress::Pct(p));

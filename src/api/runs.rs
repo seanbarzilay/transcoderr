@@ -172,19 +172,30 @@ pub async fn cancel(
     State(state): State<AppState>,
     Path(job_id): Path<i64>,
 ) -> Result<StatusCode, StatusCode> {
-    let result = sqlx::query(
-        "UPDATE jobs SET status = 'cancelled', finished_at = strftime('%s','now') WHERE id = ? AND status IN ('running', 'pending')"
-    )
-    .bind(job_id).execute(&state.pool).await
-    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    // Trigger the cancellation token (if the worker is currently running this job).
+    // This SIGKILLs any ffmpeg subprocess via run_with_live_events and lets the
+    // engine return early. The worker's tick() then writes status='cancelled'.
+    //
+    // For pending jobs that haven't started, mark cancelled directly so the
+    // worker skips them when it picks up the next one.
+    let triggered = state.cancellations.cancel(job_id);
 
-    if result.rows_affected() == 0 {
-        // Job not found or not in a cancellable state
-        let exists: Option<i64> = sqlx::query_scalar("SELECT id FROM jobs WHERE id = ?")
-            .bind(job_id).fetch_optional(&state.pool).await
-            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-        if exists.is_none() {
-            return Err(StatusCode::NOT_FOUND);
+    if !triggered {
+        // Pending or unknown — flip the row directly so the worker doesn't pick it up.
+        let result = sqlx::query(
+            "UPDATE jobs SET status = 'cancelled', finished_at = strftime('%s','now') WHERE id = ? AND status = 'pending'"
+        )
+        .bind(job_id).execute(&state.pool).await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+        if result.rows_affected() == 0 {
+            let exists: Option<i64> = sqlx::query_scalar("SELECT id FROM jobs WHERE id = ?")
+                .bind(job_id).fetch_optional(&state.pool).await
+                .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+            if exists.is_none() {
+                return Err(StatusCode::NOT_FOUND);
+            }
+            // Row exists but already in a terminal state; treat as a no-op success.
         }
     }
     Ok(StatusCode::NO_CONTENT)

@@ -40,7 +40,12 @@ steps:
 
     // Boot recovery
     let bus = transcoderr::bus::Bus::default();
-    let w = Worker::new(pool.clone(), bus.clone(), dir.path().join("db"));
+    let w = Worker::new(
+        pool.clone(),
+        bus.clone(),
+        dir.path().join("db"),
+        transcoderr::cancellation::JobCancellations::new(),
+    );
     let reset = w.recover_on_boot().await.unwrap();
     assert_eq!(reset, 1, "should reset one running job");
 

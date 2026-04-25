@@ -50,7 +50,8 @@ pub async fn boot() -> TestApp {
     });
 
     let bus = transcoderr::bus::Bus::default();
-    let worker = Worker::new(pool.clone(), bus.clone(), data_dir.clone());
+    let cancellations = transcoderr::cancellation::JobCancellations::new();
+    let worker = Worker::new(pool.clone(), bus.clone(), data_dir.clone(), cancellations.clone());
     let (tx, rx) = tokio::sync::watch::channel(false);
     let w = tokio::spawn(async move { worker.run_loop(rx).await });
 
@@ -69,6 +70,7 @@ pub async fn boot() -> TestApp {
         bus,
         ready,
         metrics,
+        cancellations,
     });
     let s = tokio::spawn(async move {
         axum::serve(listener, app).await.unwrap();

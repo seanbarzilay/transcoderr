@@ -1,5 +1,6 @@
 pub mod api;
 pub mod bus;
+pub mod cancellation;
 pub mod config;
 pub mod db;
 pub mod error;

@@ -100,6 +100,7 @@ pub enum FfmpegEvent {
 pub async fn run_with_live_events<F>(
     mut cmd: tokio::process::Command,
     duration_sec: f64,
+    cancel: Option<&tokio_util::sync::CancellationToken>,
     mut on_event: F,
 ) -> anyhow::Result<std::process::ExitStatus>
 where
@@ -117,6 +118,24 @@ where
             let _ = tx.send(ev);
         })
         .await;
+    });
+
+    // Spawn a separate killer task that sends SIGKILL to the child's PID when
+    // cancellation fires. We can't call child.start_kill() directly inside the
+    // select! loop because child.wait() already holds a mutable borrow.
+    let pid = child.id();
+    let cancel_for_killer = cancel.cloned();
+    let killer_handle = tokio::spawn(async move {
+        let (Some(token), Some(p)) = (cancel_for_killer, pid) else { return };
+        token.cancelled().await;
+        let _ = tokio::process::Command::new("kill")
+            .arg("-KILL")
+            .arg(p.to_string())
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status()
+            .await;
     });
 
     let mut waiter = Box::pin(child.wait());
@@ -157,11 +176,15 @@ where
         }
     };
 
+    killer_handle.abort();
     let _ = drain_handle.await;
     while let Ok(ev) = rx.try_recv() {
         throttle(ev, &mut on_event);
     }
 
+    if cancel.map(|t| t.is_cancelled()).unwrap_or(false) {
+        anyhow::bail!("cancelled");
+    }
     Ok(status_result?)
 }
 

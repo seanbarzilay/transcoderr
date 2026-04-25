@@ -3035,7 +3035,7 @@ dependencies = [
 
 [[package]]
 name = "transcoderr"
-version = "0.4.2"
+version = "0.4.3"
 dependencies = [
  "anyhow",
  "argon2",
@@ -3064,6 +3064,7 @@ dependencies = [
  "time",
  "tokio",
  "tokio-stream",
+ "tokio-util",
  "toml",
  "tower",
  "tower-cookies",

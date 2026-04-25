@@ -12,6 +12,12 @@ pub struct Context {
     /// reference `{{ failed.id }}`, `{{ failed.use_ }}`, and `{{ failed.error }}`.
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub failed: Option<FailedInfo>,
+    /// Cooperative cancellation. Set by the engine before running each job. Steps
+    /// that spawn long-running subprocesses (ffmpeg) clone this and race it against
+    /// `child.wait()` so a Cancel from the API kills the child immediately.
+    /// Skipped from serialization — never persisted to checkpoints.
+    #[serde(skip)]
+    pub cancel: Option<tokio_util::sync::CancellationToken>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

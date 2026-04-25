@@ -301,7 +301,7 @@ impl Step for AudioEnsureStep {
             .and_then(|s| s.parse::<f64>().ok())
             .unwrap_or(0.0);
 
-        let status = crate::ffmpeg::run_with_live_events(cmd, duration_sec, |ev| match ev {
+        let status = crate::ffmpeg::run_with_live_events(cmd, duration_sec, ctx.cancel.as_ref(), |ev| match ev {
             crate::ffmpeg::FfmpegEvent::Pct(p) => on_progress(StepProgress::Pct(p)),
             crate::ffmpeg::FfmpegEvent::Line(l) => {
                 on_progress(StepProgress::Log(format!("ffmpeg: {l}")))

@@ -55,7 +55,13 @@ async fn main() -> anyhow::Result<()> {
             let metrics = std::sync::Arc::new(transcoderr::metrics::Metrics::install()?);
 
             let bus = transcoderr::bus::Bus::default();
-            let worker = transcoderr::worker::Worker::new(pool.clone(), bus.clone(), cfg.data_dir.clone());
+            let cancellations = transcoderr::cancellation::JobCancellations::new();
+            let worker = transcoderr::worker::Worker::new(
+                pool.clone(),
+                bus.clone(),
+                cfg.data_dir.clone(),
+                cancellations.clone(),
+            );
             let reset = worker.recover_on_boot().await?;
             if reset > 0 {
                 tracing::warn!(reset, "recovered stale running jobs");
@@ -78,6 +84,7 @@ async fn main() -> anyhow::Result<()> {
                 bus,
                 ready: ready.clone(),
                 metrics,
+                cancellations,
             };
             ready.mark_ready().await;
 
