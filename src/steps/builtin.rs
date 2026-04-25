@@ -7,6 +7,11 @@ use crate::steps::{
     move_step::MoveStep,
     notify::NotifyStep,
     output::OutputStep,
+    plan_execute::PlanExecuteStep,
+    plan_steps::{
+        PlanAudioEnsureStep, PlanContainerStep, PlanDropCoverArtStep, PlanDropDataStep,
+        PlanDropUnsupportedSubsStep, PlanInitStep, PlanTolerateErrorsStep, PlanVideoEncodeStep,
+    },
     probe::ProbeStep,
     remux::RemuxStep,
     shell::ShellStep,
@@ -25,13 +30,25 @@ pub fn register_all(
     hw: DeviceRegistry,
 ) {
     map.insert("probe".into(), Arc::new(ProbeStep));
-    map.insert("transcode".into(), Arc::new(TranscodeStep { hw }));
+    map.insert("transcode".into(), Arc::new(TranscodeStep { hw: hw.clone() }));
     map.insert("output".into(), Arc::new(OutputStep));
     map.insert("verify.playable".into(), Arc::new(VerifyPlayableStep));
     map.insert("remux".into(), Arc::new(RemuxStep));
     map.insert("extract.subs".into(), Arc::new(ExtractSubsStep));
     map.insert("strip.tracks".into(), Arc::new(StripTracksStep));
     map.insert("audio.ensure".into(), Arc::new(AudioEnsureStep));
+
+    // New plan-then-execute pipeline. Mutator steps are pure (no ffmpeg), the
+    // executor materializes everything into one ffmpeg pass.
+    map.insert("plan.init".into(), Arc::new(PlanInitStep));
+    map.insert("plan.input.tolerate_errors".into(), Arc::new(PlanTolerateErrorsStep));
+    map.insert("plan.streams.drop_cover_art".into(), Arc::new(PlanDropCoverArtStep));
+    map.insert("plan.streams.drop_data".into(), Arc::new(PlanDropDataStep));
+    map.insert("plan.subs.drop_unsupported".into(), Arc::new(PlanDropUnsupportedSubsStep));
+    map.insert("plan.container".into(), Arc::new(PlanContainerStep));
+    map.insert("plan.video.encode".into(), Arc::new(PlanVideoEncodeStep));
+    map.insert("plan.audio.ensure".into(), Arc::new(PlanAudioEnsureStep));
+    map.insert("plan.execute".into(), Arc::new(PlanExecuteStep { hw: hw.clone() }));
     map.insert("move".into(), Arc::new(MoveStep));
     map.insert("copy".into(), Arc::new(CopyStep));
     map.insert("delete".into(), Arc::new(DeleteStep));

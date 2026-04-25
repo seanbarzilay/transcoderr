@@ -1,17 +1,17 @@
 name: hevc-normalize
 description: |
-  Equivalent to the tdarr Flow 0:
-  - Skip empty / unreadable files
-  - If video is already hevc → just normalize audio + drop unsupported subs / cover art
-  - Otherwise → re-encode to x265 (fast, crf=19), preserve 10-bit, prefer GPU with CPU fallback
-  - Always end with output:replace + notify
+  Re-encode anything not already hevc to x265 fast crf=19, ensure an English
+  AC3 6ch audio track exists, and drop cover-art / data streams. Every
+  per-stream decision is built up declaratively (`plan.*` steps) and
+  materialized in a SINGLE ffmpeg pass via `plan.execute` — no chained tmp
+  files, all subtitle tracks preserved.
 enabled: true
 
 triggers:
   - radarr: [downloaded, upgraded]
   - sonarr: [downloaded]
 
-# Pre-filter: skip files smaller than 1 MB (proxy for "unreadable / not really a media file").
+# Skip empty / unreadable files.
 match:
   expr: file.size_gb > 0.001
 
@@ -19,66 +19,61 @@ steps:
   - id: probe
     use: probe
 
-  # Bail if probe surfaced nothing — skip the run cleanly instead of failing.
+  # Bail cleanly if probe surfaced nothing.
   - id: bail-if-empty
     if: probe.streams == null
     then:
       - return: skipped-no-streams
 
-  # The main decision: is the video already hevc?
+  # Seed the plan from probe (every stream copied, container=mkv).
+  - id: plan-init
+    use: plan.init
+
+  # Make ffmpeg tolerant of corrupt frames in the source.
+  - id: plan-tolerate
+    use: plan.input.tolerate_errors
+
+  # Drop cover-art / attached_pic video streams.
+  - id: plan-drop-cover-art
+    use: plan.streams.drop_cover_art
+
+  # Drop data streams (incompatible with most containers anyway).
+  - id: plan-drop-data
+    use: plan.streams.drop_data
+
+  # If the video is NOT already hevc, mark it for re-encode.
+  # (When already hevc, the plan keeps video as `copy` and we only do the
+  # audio + container work in plan.execute.)
   - id: codec-gate
     if: probe.streams[0].codec_name == "hevc"
-    then:
-      # Already hevc — only normalize the container's audio + drop garbage.
-      - id: extract-eng-subs
-        use: extract.subs
-        with: { language: eng }
-
-      - id: ensure-audio
-        use: audio.ensure
-        with:
-          language: eng
-          codec: ac3
-          channels: 6
-          drop_cover_art: true
-          drop_data_streams: true
-          tolerate_errors: true
-          # drop_unsupported_subs defaults to false now — every subtitle stream
-          # is preserved regardless of codec. Set to true if you specifically
-          # want to drop fringe sub formats.
-
+    then: []
     else:
-      # Full re-encode: normalize streams first, then x265 fast crf=19 with 10-bit
-      # preservation. Steps now chain correctly — `transcode` reads `audio.ensure`'s
-      # output, not the original file.
-      - id: extract-eng-subs2
-        use: extract.subs
-        with: { language: eng }
-
-      - id: ensure-audio2
-        use: audio.ensure
-        with:
-          language: eng
-          codec: ac3
-          channels: 6
-          drop_cover_art: true
-          drop_data_streams: true
-          tolerate_errors: true
-          # drop_unsupported_subs defaults to false now — every subtitle stream
-          # is preserved regardless of codec. Set to true if you specifically
-          # want to drop fringe sub formats.
-
-      - id: encode
-        use: transcode
+      - id: plan-encode-video
+        use: plan.video.encode
         with:
           codec: x265
           crf: 19
           preset: fast
           preserve_10bit: true
-          tolerate_errors: true
           hw:
             prefer: [nvenc, qsv, vaapi, videotoolbox]
             fallback: cpu
+
+  # Ensure there's an English AC3 6ch audio track. Skipped if the source
+  # already has one, or if dedupe says an existing playable track already
+  # covers the channel count.
+  - id: plan-ensure-audio
+    use: plan.audio.ensure
+    with:
+      codec: ac3
+      channels: 6
+      language: eng
+      dedupe: true
+
+  # ONE ffmpeg invocation: re-encode video (or copy), copy every kept stream,
+  # add the new audio track if any, write to mkv.
+  - id: plan-execute
+    use: plan.execute
 
   - id: verify
     use: verify.playable

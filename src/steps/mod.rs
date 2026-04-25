@@ -5,6 +5,8 @@ use std::collections::BTreeMap;
 
 pub mod audio_ensure;
 pub mod builtin;
+pub mod plan_execute;
+pub mod plan_steps;
 pub mod copy_step;
 pub mod notify;
 pub mod delete_step;
