@@ -31,6 +31,12 @@ async fn main() -> anyhow::Result<()> {
         Cmd::Serve { config } => {
             let cfg = std::sync::Arc::new(transcoderr::config::Config::from_path(&config)?);
             let pool = transcoderr::db::open(&cfg.data_dir).await?;
+
+            // Discover plugins and initialize the step registry.
+            let plugins_dir = cfg.data_dir.join("plugins");
+            let discovered = transcoderr::plugins::discover(&plugins_dir)?;
+            transcoderr::steps::registry::init(discovered).await;
+
             let worker = transcoderr::worker::Worker::new(pool.clone());
             let reset = worker.recover_on_boot().await?;
             if reset > 0 { tracing::warn!(reset, "recovered stale running jobs"); }

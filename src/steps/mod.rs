@@ -3,9 +3,11 @@ use async_trait::async_trait;
 use serde_json::Value;
 use std::collections::BTreeMap;
 
-pub mod probe;
-pub mod transcode;
+pub mod builtin;
 pub mod output;
+pub mod probe;
+pub mod registry;
+pub mod transcode;
 
 #[derive(Debug, Clone)]
 pub enum StepProgress {
@@ -28,6 +30,7 @@ pub trait Step: Send + Sync {
 }
 
 /// Look up a built-in step by `use:` name.
+/// Kept for backwards compatibility with Phase 1 tests.
 pub fn dispatch(use_: &str) -> Option<Box<dyn Step>> {
     match use_ {
         "probe" => Some(Box::new(probe::ProbeStep)),
