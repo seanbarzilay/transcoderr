@@ -72,10 +72,11 @@ impl Engine {
                                 let step_id = step_id_for_cb.clone();
                                 tokio::spawn(async move {
                                     let (kind, payload) = match ev {
-                                        StepProgress::Pct(p) => ("progress", json!({ "pct": p })),
-                                        StepProgress::Log(l) => ("log", json!({ "msg": l })),
+                                        StepProgress::Pct(p) => ("progress".to_string(), json!({ "pct": p })),
+                                        StepProgress::Log(l) => ("log".to_string(), json!({ "msg": l })),
+                                        StepProgress::Marker { kind, payload } => (kind, payload),
                                     };
-                                    let _ = db::run_events::append(&pool, job_id, Some(&step_id), kind, Some(&payload)).await;
+                                    let _ = db::run_events::append(&pool, job_id, Some(&step_id), &kind, Some(&payload)).await;
                                 });
                             };
                             let timeout_secs = with.get("timeout")
