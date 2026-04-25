@@ -4,3 +4,4 @@ pub mod error;
 pub mod ffmpeg;
 pub mod flow;
 pub mod steps;
+pub mod worker;
