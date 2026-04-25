@@ -1,4 +1,4 @@
-use crate::{db, flow::expr, flow::Context, http::AppState, http::dedup::DedupCache};
+use crate::{db, flow::expr, flow::Context, http::AppState, http::auth_extract, http::dedup::DedupCache};
 use axum::{
     extract::{Path, State},
     http::{HeaderMap, StatusCode},
@@ -14,12 +14,8 @@ pub async fn handle(
     headers: HeaderMap,
     raw: Json<Value>,
 ) -> Result<StatusCode, StatusCode> {
-    let token = headers
-        .get("authorization")
-        .and_then(|v| v.to_str().ok())
-        .and_then(|h| h.strip_prefix("Bearer "))
-        .unwrap_or("");
-    let source = db::sources::get_webhook_by_name_and_token(&state.pool, &name, token)
+    let token = auth_extract::extract_token(&headers);
+    let source = db::sources::get_webhook_by_name_and_token(&state.pool, &name, &token)
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
         .ok_or(StatusCode::UNAUTHORIZED)?;

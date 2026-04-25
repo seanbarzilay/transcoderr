@@ -3,6 +3,7 @@ use axum::{extract::State, routing::post, Extension, Router};
 use sqlx::SqlitePool;
 use std::{sync::Arc, time::Duration};
 
+pub mod auth_extract;
 pub mod dedup;
 pub mod webhook_generic;
 pub mod webhook_lidarr;
