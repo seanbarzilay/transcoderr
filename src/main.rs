@@ -1,6 +1,5 @@
-mod config;
-mod db;
-mod error;
+#[allow(unused_imports)]
+use transcoderr::{config, db, error};
 
 use clap::Parser;
 use std::path::PathBuf;

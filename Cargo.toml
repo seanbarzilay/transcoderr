@@ -32,3 +32,11 @@ serial_test = "3"
 lto = "thin"
 strip = true
 codegen-units = 1
+
+[lib]
+name = "transcoderr"
+path = "src/lib.rs"
+
+[[bin]]
+name = "transcoderr"
+path = "src/main.rs"
