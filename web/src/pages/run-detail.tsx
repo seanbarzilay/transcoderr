@@ -16,12 +16,16 @@ export default function RunDetail() {
   const liveProgress = useLive((s) => s.jobProgress[idNum]);
   const liveEvents = useLive((s) => s.jobEvents[idNum] ?? []);
 
+  // Initial fetch + a slow safety-net poll. Live updates come from SSE
+  // (jobStatus + jobEvents), so the heavy /api/runs/:id call doesn't need to
+  // run every second. While running we re-sync once every 15s in case the
+  // SSE stream missed something; once terminal we stop polling entirely.
   const q = useQuery({
     queryKey: ["run", idNum],
     queryFn: () => api.runs.get(idNum),
     refetchInterval: (query) => {
       const status = liveStatus ?? query.state.data?.run.status;
-      return status === "running" || status === "pending" ? 1000 : 5000;
+      return status === "running" || status === "pending" ? 15000 : false;
     },
   });
 
