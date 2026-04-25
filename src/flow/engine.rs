@@ -32,9 +32,9 @@ impl Engine {
         };
 
         let mut counter = 0u32;
-        match self.run_nodes(&flow.steps, job_id, &mut ctx, &mut counter, resume).await {
-            Ok(NodeOutcome::Continue) => Ok(Outcome { status: "completed".into(), label: None }),
-            Ok(NodeOutcome::Return(label)) => Ok(Outcome { status: "skipped".into(), label: Some(label) }),
+        let outcome = match self.run_nodes(&flow.steps, job_id, &mut ctx, &mut counter, resume).await {
+            Ok(NodeOutcome::Continue) => Outcome { status: "completed".into(), label: None },
+            Ok(NodeOutcome::Return(label)) => Outcome { status: "skipped".into(), label: Some(label) },
             Err(e) => {
                 db::run_events::append_with_bus_and_spill(&self.pool, &self.bus, &self.data_dir, job_id, None, "failed",
                     Some(&json!({ "error": e.to_string() }))).await?;
@@ -43,9 +43,18 @@ impl Engine {
                     let mut counter2 = u32::MAX / 2; // distinct space, never checkpointed
                     let _ = self.run_nodes(of, job_id, &mut ctx, &mut counter2, None).await;
                 }
-                Ok(Outcome { status: "failed".into(), label: None })
+                Outcome { status: "failed".into(), label: None }
             }
-        }
+        };
+
+        // Final cleanup of staged tmp files. On a successful run that included
+        // output:replace, the rename already consumed the tmp (so this is a
+        // no-op). On a failed run — or one whose output step never ran —
+        // ctx.steps["transcode"]["output_path"] points to a leftover .tcr-NN
+        // artifact next to the original file. Best-effort delete.
+        cleanup_staged_tmp(&ctx);
+
+        Ok(outcome)
     }
 
     fn run_nodes<'a>(
@@ -93,7 +102,8 @@ impl Engine {
                                     // ffmpeg-running steps can take hours on large files
                                     // (audio re-encode of a 2hr blu-ray rip easily exceeds
                                     // 10 minutes). Override with `with: { timeout: <secs> }`.
-                                    "transcode"
+                                    "plan.execute"
+                                    | "transcode"
                                     | "audio.ensure"
                                     | "remux"
                                     | "strip.tracks"
@@ -170,4 +180,29 @@ impl Engine {
 enum NodeOutcome {
     Continue,
     Return(String),
+}
+
+/// Best-effort cleanup of any leftover staged `.tcr-NN.tmp.*` file at the end
+/// of a run. The OutputStep on a successful run already consumed the file via
+/// rename; this only matters when the run failed or didn't reach output:replace.
+/// We restrict the path-shape check to `.tcr-` so we never accidentally remove
+/// a file the user might care about.
+fn cleanup_staged_tmp(ctx: &Context) {
+    let Some(output_path) = ctx
+        .steps
+        .get("transcode")
+        .and_then(|v| v.get("output_path"))
+        .and_then(|v| v.as_str())
+    else {
+        return;
+    };
+    if output_path == ctx.file.path {
+        return;
+    }
+    if !output_path.contains(".tcr-") {
+        return;
+    }
+    if std::path::Path::new(output_path).exists() {
+        let _ = std::fs::remove_file(output_path);
+    }
 }
