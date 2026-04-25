@@ -22,8 +22,11 @@ RUN echo "deb http://deb.debian.org/debian bookworm main contrib non-free non-fr
       vainfo libva-drm2 libva-x11-2 \
     && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
+COPY docker/entrypoint.sh /usr/local/bin/entrypoint.sh
+RUN chmod +x /usr/local/bin/entrypoint.sh
 COPY --from=rust /src/target/release/transcoderr /usr/local/bin/transcoderr
+COPY config.example.toml /app/config.example.toml
 EXPOSE 8080
 VOLUME ["/data"]
-ENTRYPOINT ["/usr/bin/tini", "--", "/usr/local/bin/transcoderr"]
+ENTRYPOINT ["/usr/bin/tini", "--", "/usr/local/bin/entrypoint.sh"]
 CMD ["serve", "--config", "/data/config.toml"]
