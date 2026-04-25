@@ -90,7 +90,14 @@ impl Engine {
                             let timeout_secs = with.get("timeout")
                                 .and_then(|v| v.as_u64())
                                 .unwrap_or_else(|| match use_.as_str() {
-                                    "transcode" => 86_400,
+                                    // ffmpeg-running steps can take hours on large files
+                                    // (audio re-encode of a 2hr blu-ray rip easily exceeds
+                                    // 10 minutes). Override with `with: { timeout: <secs> }`.
+                                    "transcode"
+                                    | "audio.ensure"
+                                    | "remux"
+                                    | "strip.tracks"
+                                    | "extract.subs" => 86_400,
                                     "probe" | "verify.playable" => 60,
                                     _ => 600,
                                 });
