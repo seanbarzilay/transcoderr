@@ -29,9 +29,29 @@ async fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
     match cli.cmd {
         Cmd::Serve { config } => {
-            let cfg = config::Config::from_path(&config)?;
-            tracing::info!(?cfg.bind, "loaded config");
-            // server boot wired in Task 5
+            let cfg = std::sync::Arc::new(transcoderr::config::Config::from_path(&config)?);
+            let pool = transcoderr::db::open(&cfg.data_dir).await?;
+            let worker = transcoderr::worker::Worker::new(pool.clone());
+            let reset = worker.recover_on_boot().await?;
+            if reset > 0 { tracing::warn!(reset, "recovered stale running jobs"); }
+
+            let (tx, rx) = tokio::sync::watch::channel(false);
+            let worker_task = tokio::spawn(async move { worker.run_loop(rx).await });
+
+            let state = transcoderr::http::AppState { pool, cfg: cfg.clone() };
+            let app = transcoderr::http::router(state);
+            let listener = tokio::net::TcpListener::bind(&cfg.bind).await?;
+            tracing::info!(bind = %cfg.bind, "serving");
+
+            let serve = async move { axum::serve(listener, app).await };
+            tokio::select! {
+                _ = tokio::signal::ctrl_c() => {
+                    tracing::info!("ctrl-c, shutting down");
+                    let _ = tx.send(true);
+                }
+                r = serve => { r?; }
+            }
+            let _ = worker_task.await;
             Ok(())
         }
     }
