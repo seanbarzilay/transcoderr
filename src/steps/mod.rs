@@ -4,10 +4,18 @@ use serde_json::Value;
 use std::collections::BTreeMap;
 
 pub mod builtin;
+pub mod copy_step;
+pub mod delete_step;
+pub mod extract_subs;
+pub mod move_step;
 pub mod output;
 pub mod probe;
 pub mod registry;
+pub mod remux;
+pub mod shell;
+pub mod strip_tracks;
 pub mod transcode;
+pub mod verify_playable;
 
 #[derive(Debug, Clone)]
 pub enum StepProgress {

@@ -1,4 +1,17 @@
-use crate::steps::{output::OutputStep, probe::ProbeStep, transcode::TranscodeStep, Step};
+use crate::steps::{
+    copy_step::CopyStep,
+    delete_step::DeleteStep,
+    extract_subs::ExtractSubsStep,
+    move_step::MoveStep,
+    output::OutputStep,
+    probe::ProbeStep,
+    remux::RemuxStep,
+    shell::ShellStep,
+    strip_tracks::StripTracksStep,
+    transcode::TranscodeStep,
+    verify_playable::VerifyPlayableStep,
+    Step,
+};
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -6,5 +19,12 @@ pub fn register_all(map: &mut HashMap<String, Arc<dyn Step>>) {
     map.insert("probe".into(), Arc::new(ProbeStep));
     map.insert("transcode".into(), Arc::new(TranscodeStep));
     map.insert("output".into(), Arc::new(OutputStep));
-    // verify.playable, remux, …, registered when their files are added (Tasks 8-9)
+    map.insert("verify.playable".into(), Arc::new(VerifyPlayableStep));
+    map.insert("remux".into(),           Arc::new(RemuxStep));
+    map.insert("extract.subs".into(),    Arc::new(ExtractSubsStep));
+    map.insert("strip.tracks".into(),    Arc::new(StripTracksStep));
+    map.insert("move".into(),   Arc::new(MoveStep));
+    map.insert("copy".into(),   Arc::new(CopyStep));
+    map.insert("delete".into(), Arc::new(DeleteStep));
+    map.insert("shell".into(),  Arc::new(ShellStep));
 }
