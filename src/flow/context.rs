@@ -1,5 +1,5 @@
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
+use serde_json::Value;
 use std::collections::BTreeMap;
 
 /// The evolving state passed between steps. Snapshotted to checkpoints.
@@ -40,6 +40,7 @@ impl Context {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde_json::json;
     #[test]
     fn snapshot_round_trip() {
         let mut c = Context::for_file("/m/Dune.mkv");
