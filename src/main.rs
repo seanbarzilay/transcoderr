@@ -43,14 +43,14 @@ async fn main() -> anyhow::Result<()> {
             let listener = tokio::net::TcpListener::bind(&cfg.bind).await?;
             tracing::info!(bind = %cfg.bind, "serving");
 
-            let serve = async move { axum::serve(listener, app).await };
-            tokio::select! {
-                _ = tokio::signal::ctrl_c() => {
-                    tracing::info!("ctrl-c, shutting down");
-                    let _ = tx.send(true);
-                }
-                r = serve => { r?; }
-            }
+            let serve = axum::serve(listener, app).with_graceful_shutdown(async move {
+                let _ = tokio::signal::ctrl_c().await;
+            });
+            let serve_task = tokio::spawn(async move { serve.await });
+            let _ = tokio::signal::ctrl_c().await;
+            tracing::info!("ctrl-c, shutting down");
+            let _ = tx.send(true);
+            let _ = serve_task.await;
             let _ = worker_task.await;
             Ok(())
         }
