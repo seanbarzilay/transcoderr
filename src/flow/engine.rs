@@ -78,14 +78,23 @@ impl Engine {
                                     let _ = db::run_events::append(&pool, job_id, Some(&step_id), kind, Some(&payload)).await;
                                 });
                             };
-                            match runner.execute(with, ctx, &mut cb).await {
-                                Ok(()) => {
+                            let timeout_secs = with.get("timeout")
+                                .and_then(|v| v.as_u64())
+                                .unwrap_or_else(|| match use_.as_str() {
+                                    "transcode" => 86_400,
+                                    "probe" | "verify.playable" => 60,
+                                    _ => 600,
+                                });
+                            let exec_fut = runner.execute(with, ctx, &mut cb);
+                            let result = tokio::time::timeout(std::time::Duration::from_secs(timeout_secs), exec_fut).await;
+                            match result {
+                                Ok(Ok(())) => {
                                     db::run_events::append(&self.pool, job_id, Some(&step_id), "completed", None).await?;
                                     db::checkpoints::upsert(&self.pool, job_id, my_index as i64, &ctx.to_snapshot()).await?;
                                     last_err = None;
                                     break;
                                 }
-                                Err(e) => {
+                                Ok(Err(e)) => {
                                     db::run_events::append(&self.pool, job_id, Some(&step_id), "failed",
                                         Some(&json!({ "error": e.to_string(), "attempt": attempt }))).await?;
                                     let should_retry = retry.as_ref().and_then(|r| r.on.as_deref())
@@ -96,6 +105,12 @@ impl Engine {
                                         break;
                                     }
                                     last_err = Some(e);
+                                }
+                                Err(_) => {
+                                    db::run_events::append(&self.pool, job_id, Some(&step_id), "failed",
+                                        Some(&json!({ "error": "timeout", "after_seconds": timeout_secs, "attempt": attempt }))).await?;
+                                    last_err = Some(anyhow::anyhow!("timeout after {timeout_secs}s"));
+                                    break;
                                 }
                             }
                         }
