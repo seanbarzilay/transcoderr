@@ -5,8 +5,28 @@ edition = "2021"
 rust-version = "1.78"
 
 [dependencies]
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "process", "signal", "fs", "time", "sync"] }
+axum = { version = "0.7", features = ["macros"] }
+tower = "0.5"
+tower-http = { version = "0.6", features = ["trace"] }
+sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio", "sqlite", "migrate", "chrono", "macros"] }
+libsqlite3-sys = { version = "0.30", features = ["bundled"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+serde_yaml = "0.9"
+toml = "0.8"
+thiserror = "1"
+anyhow = "1"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+clap = { version = "4", features = ["derive"] }
+chrono = { version = "0.4", features = ["serde"] }
 
 [dev-dependencies]
+tempfile = "3"
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+pretty_assertions = "1"
+serial_test = "3"
 
 [profile.release]
 lto = "thin"
