@@ -41,7 +41,7 @@ impl Step for ExtractSubsStep {
                         .and_then(|v| v.as_str())
                         .unwrap_or("")
                         .to_lowercase();
-                    is_sub && (s_lang == lang || s_lang.is_empty())
+                    is_sub && s_lang == lang
                 })
             })
             .unwrap_or(false);

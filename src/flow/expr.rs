@@ -11,25 +11,33 @@ pub fn eval_bool(expr: &str, ctx: &Context) -> anyhow::Result<bool> {
 }
 
 pub fn eval_string_template(template: &str, ctx: &Context) -> anyhow::Result<String> {
-    // Template is: literal text with {{ expr }} placeholders.
+    // Template is: literal text with {{ expr }} placeholders. Walk the string with
+    // UTF-8 aware indices so multibyte characters in the literal text (✗, ✓, em-dashes,
+    // accented letters) round-trip cleanly. The previous version cast each byte to a
+    // char, which mangled any non-ASCII char into per-byte Latin-1 codepoints.
     let mut out = String::with_capacity(template.len());
-    let bytes = template.as_bytes();
-    let mut i = 0;
-    while i < bytes.len() {
-        if i + 1 < bytes.len() && bytes[i] == b'{' && bytes[i + 1] == b'{' {
-            let end = template[i + 2..]
+    let mut i = 0usize;
+    while i < template.len() {
+        if template[i..].starts_with("{{") {
+            let after = i + 2;
+            let end = template[after..]
                 .find("}}")
                 .ok_or_else(|| anyhow::anyhow!("unterminated {{"))?;
-            let expr = template[i + 2..i + 2 + end].trim();
+            let expr = template[after..after + end].trim();
             let program = Program::compile(expr).map_err(|e| anyhow::anyhow!("compile: {e:?}"))?;
             let mut cel = CelCtx::default();
             bind_context(&mut cel, ctx);
             let v = program.execute(&cel).map_err(|e| anyhow::anyhow!("exec: {e:?}"))?;
             out.push_str(&format_cel(&v));
-            i = i + 2 + end + 2;
+            i = after + end + 2;
         } else {
-            out.push(bytes[i] as char);
-            i += 1;
+            // Push exactly one full UTF-8 char and advance by its byte length.
+            let next_char = template[i..]
+                .chars()
+                .next()
+                .expect("non-empty slice has at least one char");
+            out.push(next_char);
+            i += next_char.len_utf8();
         }
     }
     Ok(out)
@@ -75,5 +83,12 @@ mod tests {
         let ctx = Context::for_file("/m/Dune.mkv");
         let s = eval_string_template("file is {{ file.path }}", &ctx).unwrap();
         assert_eq!(s, "file is /m/Dune.mkv");
+    }
+
+    #[test]
+    fn template_preserves_multibyte_chars() {
+        let ctx = Context::for_file("/m/Dune.mkv");
+        let s = eval_string_template("✗ {{ file.path }} — ✓ done", &ctx).unwrap();
+        assert_eq!(s, "✗ /m/Dune.mkv — ✓ done");
     }
 }
