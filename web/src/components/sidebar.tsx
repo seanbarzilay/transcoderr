@@ -5,6 +5,7 @@ const links: [string, string][] = [
   ["/flows", "Flows"],
   ["/runs", "Runs"],
   ["/sources", "Sources"],
+  ["/notifiers", "Notifiers"],
   ["/plugins", "Plugins"],
   ["/settings", "Settings"],
 ];

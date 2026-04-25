@@ -10,6 +10,7 @@ import FlowDetail from "./pages/flow-detail";
 import RunsList from "./pages/runs-list";
 import RunDetail from "./pages/run-detail";
 import Sources from "./pages/sources";
+import Notifiers from "./pages/notifiers";
 import Plugins from "./pages/plugins";
 import Settings from "./pages/settings";
 import Login from "./pages/login";
@@ -39,6 +40,7 @@ export default function App() {
           <Route path="/runs" element={<RunsList />} />
           <Route path="/runs/:id" element={<RunDetail />} />
           <Route path="/sources" element={<Sources />} />
+          <Route path="/notifiers" element={<Notifiers />} />
           <Route path="/plugins" element={<Plugins />} />
           <Route path="/settings" element={<Settings />} />
         </Routes>
