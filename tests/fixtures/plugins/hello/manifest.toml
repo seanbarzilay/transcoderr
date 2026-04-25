@@ -1,0 +1,5 @@
+name = "hello"
+version = "0.1.0"
+kind = "subprocess"
+entrypoint = "bin/run"
+provides_steps = ["hello"]

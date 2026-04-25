@@ -1,0 +1,63 @@
+name: release
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+jobs:
+  bins:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: ubuntu-latest,  target: x86_64-unknown-linux-gnu,   suffix: linux-amd64 }
+          - { os: ubuntu-latest,  target: aarch64-unknown-linux-gnu,  suffix: linux-arm64,  cross: true }
+          - { os: macos-14,       target: aarch64-apple-darwin,        suffix: darwin-arm64 }
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 20 }
+      - run: npm --prefix web ci && npm --prefix web run build
+      - uses: dtolnay/rust-toolchain@stable
+        with: { targets: ${{ matrix.target }} }
+      - if: matrix.cross
+        run: cargo install cross --locked
+      - if: matrix.cross
+        run: cross build --release --target ${{ matrix.target }} --locked
+      - if: '!matrix.cross'
+        run: cargo build --release --target ${{ matrix.target }} --locked
+      - run: |
+          mkdir -p out
+          cp target/${{ matrix.target }}/release/transcoderr out/transcoderr-${{ matrix.suffix }}
+      - uses: softprops/action-gh-release@v2
+        if: startsWith(github.ref, 'refs/tags/')
+        with:
+          files: out/*
+
+  images:
+    needs: bins
+    runs-on: ubuntu-latest
+    permissions: { packages: write, contents: read }
+    strategy:
+      fail-fast: false
+      matrix:
+        flavor: [cpu, nvidia, intel, full]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/Dockerfile.${{ matrix.flavor }}
+          push: true
+          tags: |
+            ghcr.io/${{ github.repository }}:${{ matrix.flavor }}-latest
+            ghcr.io/${{ github.repository }}:${{ matrix.flavor }}-${{ github.ref_name }}
+          platforms: linux/amd64

@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+# Tiny test plugin: reads JSON-RPC, replies with success and one progress event.
+read INIT_LINE
+read EXEC_LINE
+echo '{"event":"progress","pct":50.0}'
+echo '{"event":"context_set","key":"hello","value":{"greeted":true}}'
+echo '{"event":"result","status":"ok","outputs":{}}'
