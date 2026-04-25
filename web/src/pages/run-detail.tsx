@@ -5,26 +5,18 @@ import { api } from "../api/client";
 import { useLive, type LiveRunEvent } from "../state/live";
 import RunTimeline from "../components/run-timeline";
 import LiveProgress from "../components/live-progress";
+import StatusPill from "../components/status-pill";
 
-// Stable references for empty fallbacks. Returning `?? []` from a Zustand
-// selector creates a fresh array each render, which Zustand sees as a changed
-// value and re-renders again — infinite loop (React error #185).
 const EMPTY_EVENTS: LiveRunEvent[] = [];
 
 export default function RunDetail() {
   const { id } = useParams();
   const idNum = Number(id);
 
-  // Faster polling while running so the timeline catches up to anything we
-  // missed via SSE; once the run reaches a terminal status we slow down.
   const liveStatus = useLive((s) => s.jobStatus[idNum]?.status);
   const liveProgress = useLive((s) => s.jobProgress[idNum]);
   const liveEvents = useLive((s) => s.jobEvents[idNum] ?? EMPTY_EVENTS);
 
-  // Initial fetch + a slow safety-net poll. Live updates come from SSE
-  // (jobStatus + jobEvents), so the heavy /api/runs/:id call doesn't need to
-  // run every second. While running we re-sync once every 15s in case the
-  // SSE stream missed something; once terminal we stop polling entirely.
   const q = useQuery({
     queryKey: ["run", idNum],
     queryFn: () => api.runs.get(idNum),
@@ -34,16 +26,21 @@ export default function RunDetail() {
     },
   });
 
-  // Merge polled events (authoritative, with id/ts) and live SSE events
-  // (timestamps are local clock, no id). Dedupe by (ts, kind, step_id, payload-stringified)
-  // so SSE events that later show up in a poll don't double-render.
   const merged = useMemo(() => {
     const fromPoll = q.data?.events ?? [];
     const seen = new Set(
-      fromPoll.map((e: any) => `${e.ts}|${e.kind}|${e.step_id ?? ""}|${JSON.stringify(e.payload ?? null)}`)
+      fromPoll.map(
+        (e: any) =>
+          `${e.ts}|${e.kind}|${e.step_id ?? ""}|${JSON.stringify(e.payload ?? null)}`
+      )
     );
     const liveOnly = liveEvents
-      .filter((e) => !seen.has(`${e.ts}|${e.kind}|${e.step_id ?? ""}|${JSON.stringify(e.payload ?? null)}`))
+      .filter(
+        (e) =>
+          !seen.has(
+            `${e.ts}|${e.kind}|${e.step_id ?? ""}|${JSON.stringify(e.payload ?? null)}`
+          )
+      )
       .map((e, i) => ({
         id: -1 - i,
         job_id: e.job_id,
@@ -55,60 +52,118 @@ export default function RunDetail() {
     return [...fromPoll, ...liveOnly].sort((a, b) => b.ts - a.ts);
   }, [q.data?.events, liveEvents]);
 
-  if (q.isLoading) return <div style={{ padding: 24 }}>Loading...</div>;
-  if (!q.data) return <div style={{ padding: 24 }}>Not found</div>;
+  if (q.isLoading)
+    return (
+      <div className="page">
+        <span className="muted">Loading…</span>
+      </div>
+    );
+  if (!q.data)
+    return (
+      <div className="page">
+        <span className="muted">Run not found.</span>
+      </div>
+    );
 
   const status = liveStatus ?? q.data.run.status;
   const isRunning = status === "running" || status === "pending";
+  const created = q.data.run.created_at * 1000;
+  const finished = (q.data.run.finished_at ?? 0) * 1000;
+  const duration = finished > created ? humanizeDuration(finished - created) : null;
 
   return (
-    <div style={{ padding: 24 }}>
-      <h2>Run #{idNum}</h2>
-      <p>
-        Status: <strong>{status}</strong>
-        {liveProgress?.lastStepId && isRunning && (
-          <> — currently <code>{liveProgress.lastStepId}</code></>
-        )}
-      </p>
-
-      {isRunning && (
-        <>
-          <LiveProgress jobId={idNum} />
-          {liveProgress?.lastFfmpegLine && (
-            <div
-              style={{
-                fontFamily: "monospace",
-                fontSize: 11,
-                opacity: 0.85,
-                background: "rgba(0,0,0,0.25)",
-                padding: "6px 10px",
-                borderRadius: 4,
-                marginBottom: 12,
-                whiteSpace: "nowrap",
-                overflow: "hidden",
-                textOverflow: "ellipsis",
-              }}
-              title={liveProgress.lastFfmpegLine}
-            >
-              ffmpeg: {liveProgress.lastFfmpegLine}
-            </div>
-          )}
-        </>
-      )}
-
-      <div style={{ marginBottom: 12 }}>
-        <button onClick={() => api.runs.cancel(idNum).then(() => q.refetch())}>Cancel</button>{" "}
-        <button onClick={() => api.runs.rerun(idNum)}>Rerun</button>
+    <div className="page">
+      <div className="page-header">
+        <div>
+          <div className="crumb">Operate / Runs</div>
+          <h2>
+            Run <span className="dim">#</span>
+            <span className="tnum">{idNum}</span>
+          </h2>
+        </div>
+        <div style={{ display: "flex", gap: 8 }}>
+          <button
+            className="btn-ghost"
+            onClick={() => api.runs.rerun(idNum)}
+            title="Rerun this job"
+          >
+            Rerun
+          </button>
+          <button
+            className="btn-danger"
+            onClick={() => api.runs.cancel(idNum).then(() => q.refetch())}
+            disabled={!isRunning}
+          >
+            Cancel
+          </button>
+        </div>
       </div>
 
-      <h3>
-        Timeline{" "}
-        <span style={{ fontSize: 12, fontWeight: 400, opacity: 0.6 }}>
-          {merged.length} events
-          {isRunning && " · live"}
-        </span>
-      </h3>
-      <RunTimeline events={merged} />
+      <div
+        className="surface"
+        style={{ padding: 16, marginBottom: 20, display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 16 }}
+      >
+        <Field label="Status" value={<StatusPill status={status} />} />
+        <Field label="Flow" value={<span className="mono">{q.data.run.flow_id}</span>} />
+        <Field
+          label="Started"
+          value={
+            <span className="dim tnum">
+              {new Date(created).toLocaleString()}
+            </span>
+          }
+        />
+        <Field
+          label="Duration"
+          value={<span className="dim tnum">{duration ?? (isRunning ? "…" : "—")}</span>}
+        />
+      </div>
+
+      {isRunning && (
+        <div style={{ marginBottom: 20 }}>
+          <div className="label" style={{ marginBottom: 8 }}>
+            Now: {liveProgress?.lastStepId ?? "—"}
+          </div>
+          <LiveProgress jobId={idNum} />
+          {liveProgress?.lastFfmpegLine && (
+            <div className="tail" title={liveProgress.lastFfmpegLine}>
+              {liveProgress.lastFfmpegLine}
+            </div>
+          )}
+        </div>
+      )}
+
+      <div className="page-header" style={{ marginBottom: 8 }}>
+        <h3>
+          Timeline <span className="muted" style={{ fontWeight: 400 }}>
+            {merged.length} events{isRunning && " · live"}
+          </span>
+        </h3>
+      </div>
+      <div className="surface" style={{ padding: "0 16px" }}>
+        <RunTimeline events={merged} />
+      </div>
     </div>
   );
+}
+
+function Field({ label, value }: { label: string; value: React.ReactNode }) {
+  return (
+    <div>
+      <div className="label" style={{ marginBottom: 6 }}>
+        {label}
+      </div>
+      <div>{value}</div>
+    </div>
+  );
+}
+
+function humanizeDuration(ms: number) {
+  const s = Math.round(ms / 1000);
+  if (s < 60) return `${s}s`;
+  const m = Math.floor(s / 60);
+  const r = s % 60;
+  if (m < 60) return `${m}m ${r}s`;
+  const h = Math.floor(m / 60);
+  return `${h}h ${m % 60}m`;
 }

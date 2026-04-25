@@ -102,18 +102,18 @@ export default function Notifiers() {
   }
 
   return (
-    <div style={{ padding: 24 }}>
-      <h2>Notifiers</h2>
+    <div className="page">
+      <div className="page-header">
+        <div>
+          <div className="crumb">Configure</div>
+          <h2>Notifiers</h2>
+        </div>
+      </div>
 
-      <div
-        style={{
-          background: "rgba(255,255,255,0.05)",
-          padding: 12,
-          borderRadius: 6,
-          marginBottom: 16,
-        }}
-      >
-        <div style={{ fontSize: 12, opacity: 0.7, marginBottom: 8 }}>Add notifier</div>
+      <div className="surface" style={{ padding: 16, marginBottom: 16 }}>
+        <div className="label" style={{ marginBottom: 8 }}>
+          Add notifier
+        </div>
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
           <select
             value={kind}
@@ -152,13 +152,14 @@ export default function Notifiers() {
         )}
       </div>
 
+      <div className="surface">
       <table>
         <thead>
           <tr>
-            <th style={{ width: 90 }}>Kind</th>
+            <th style={{ width: 100 }}>Kind</th>
             <th style={{ width: 220 }}>Name</th>
             <th>Config</th>
-            <th style={{ width: 220 }}></th>
+            <th style={{ width: 240 }}></th>
           </tr>
         </thead>
         <tbody>
@@ -167,7 +168,7 @@ export default function Notifiers() {
             const err = rowError[n.id];
             return (
               <tr key={n.id} style={{ verticalAlign: "top" }}>
-                <td><code>{n.kind}</code></td>
+                <td><span className="label">{n.kind}</span></td>
                 <td>
                   {draft ? (
                     <input
@@ -223,33 +224,27 @@ export default function Notifiers() {
                       >
                         Save
                       </button>{" "}
-                      <button
-                        onClick={() => cancelEdit(n.id)}
-                        style={{
-                          background: "transparent",
-                          border: "1px solid rgba(255,255,255,0.2)",
-                        }}
-                      >
+                      <button onClick={() => cancelEdit(n.id)} className="btn-ghost">
                         Cancel
                       </button>
                     </>
                   ) : (
                     <>
-                      <button onClick={() => startEdit(n)}>Edit</button>{" "}
+                      <button className="btn-ghost" onClick={() => startEdit(n)}>
+                        Edit
+                      </button>{" "}
                       <button
+                        className="btn-ghost"
                         onClick={() => test.mutate(n.id)}
                         disabled={test.isPending}
-                        style={{
-                          background: "rgba(72,187,120,0.2)",
-                        }}
                       >
                         Test
                       </button>{" "}
                       <button
+                        className="btn-danger"
                         onClick={() => {
                           if (confirm(`Delete notifier "${n.name}"?`)) del.mutate(n.id);
                         }}
-                        style={{ background: "rgba(248,128,128,0.2)" }}
                       >
                         Delete
                       </button>
@@ -261,13 +256,15 @@ export default function Notifiers() {
           })}
           {(list.data ?? []).length === 0 && !list.isLoading && (
             <tr>
-              <td colSpan={4} style={{ opacity: 0.6, padding: 16 }}>
-                No notifiers yet. Add one above.
+              <td colSpan={4} className="empty">
+                No notifiers yet.
+                <div className="hint">Add one above to get notifications on flow events.</div>
               </td>
             </tr>
           )}
         </tbody>
       </table>
+      </div>
     </div>
   );
 }

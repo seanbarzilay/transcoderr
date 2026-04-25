@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
 import { Routes, Route, Navigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { api } from "./api/client";
@@ -16,22 +16,18 @@ import Settings from "./pages/settings";
 import Login from "./pages/login";
 
 export default function App() {
-  useEffect(() => { const stop = startSSE(); return stop; }, []);
-  const [sidebarOpen, setSidebarOpen] = useState(window.innerWidth >= 640);
+  useEffect(() => {
+    const stop = startSSE();
+    return stop;
+  }, []);
   const me = useQuery({ queryKey: ["me"], queryFn: api.auth.me });
   if (me.isLoading) return null;
-  if (me.data?.auth_required && !me.data?.authed) return <Login onLoggedIn={() => me.refetch()} />;
+  if (me.data?.auth_required && !me.data?.authed)
+    return <Login onLoggedIn={() => me.refetch()} />;
   return (
-    <div style={{ display: "flex", height: "100vh" }}>
-      {sidebarOpen && <Sidebar />}
-      <main style={{ flex: 1, overflow: "auto" }}>
-        <button
-          aria-label="Toggle sidebar"
-          onClick={() => setSidebarOpen(o => !o)}
-          style={{ display: "block", margin: 8, background: "transparent", border: "1px solid rgba(255,255,255,0.2)" }}
-        >
-          ☰
-        </button>
+    <div className="app-shell">
+      <Sidebar />
+      <main className="main">
         <Routes>
           <Route path="/" element={<Navigate to="/dashboard" />} />
           <Route path="/dashboard" element={<Dashboard />} />

@@ -6,7 +6,14 @@ export default function Login({ onLoggedIn }: { onLoggedIn: () => void }) {
   const [err, setErr] = useState<string | null>(null);
 
   return (
-    <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100vh" }}>
+    <div
+      style={{
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        height: "100vh",
+      }}
+    >
       <form
         onSubmit={async (e) => {
           e.preventDefault();
@@ -18,18 +25,33 @@ export default function Login({ onLoggedIn }: { onLoggedIn: () => void }) {
             setErr(ex?.message ?? "login failed");
           }
         }}
-        style={{ background: "rgba(255,255,255,0.06)", padding: 24, borderRadius: 8, minWidth: 320 }}
+        className="surface"
+        style={{ padding: 28, minWidth: 340 }}
       >
-        <h2 style={{ marginTop: 0 }}>transcoderr</h2>
+        <div className="brand" style={{ marginBottom: 18 }}>
+          <span className="brand-dot" />
+          <span>
+            transcoder<span className="brand-x">/r</span>
+          </span>
+        </div>
+        <div className="label" style={{ marginBottom: 6 }}>
+          Password
+        </div>
         <input
           type="password"
-          placeholder="Password"
+          autoFocus
           value={pw}
           onChange={(e) => setPw(e.target.value)}
-          style={{ width: "100%", padding: 8, marginBottom: 12, fontSize: 14 }}
+          style={{ width: "100%", marginBottom: 14 }}
         />
-        <button type="submit" style={{ width: "100%", padding: 10, fontSize: 14 }}>Sign in</button>
-        {err && <div style={{ color: "#f88", marginTop: 8 }}>{err}</div>}
+        <button type="submit" style={{ width: "100%" }}>
+          Sign in
+        </button>
+        {err && (
+          <div style={{ color: "var(--bad)", marginTop: 10, fontSize: 11 }}>
+            {err}
+          </div>
+        )}
       </form>
     </div>
   );

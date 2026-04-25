@@ -1,9 +1,13 @@
 import { NavLink } from "react-router-dom";
+import { useLive } from "../state/live";
 
 const links: [string, string][] = [
   ["/dashboard", "Dashboard"],
   ["/flows", "Flows"],
   ["/runs", "Runs"],
+];
+
+const config: [string, string][] = [
   ["/sources", "Sources"],
   ["/notifiers", "Notifiers"],
   ["/plugins", "Plugins"],
@@ -11,22 +15,50 @@ const links: [string, string][] = [
 ];
 
 export default function Sidebar() {
+  const queue = useLive((s) => s.queue);
   return (
-    <nav style={{ width: 200, background: "rgba(255,255,255,0.04)", padding: 16, borderRight: "1px solid rgba(255,255,255,0.08)" }}>
-      <h3 style={{ marginTop: 0 }}>transcoderr</h3>
-      <ul style={{ listStyle: "none", padding: 0 }}>
+    <nav className="sidebar">
+      <div className="brand">
+        <span className="brand-dot" />
+        <span>transcoder<span className="brand-x">/r</span></span>
+      </div>
+
+      <div className="nav">
+        <div className="nav-section">Operate</div>
         {links.map(([href, label]) => (
-          <li key={href} style={{ marginBottom: 8 }}>
-            <NavLink to={href} style={({ isActive }) => ({
-              color: isActive ? "#fff" : "rgba(255,255,255,0.7)",
-              textDecoration: "none",
-              fontWeight: isActive ? 600 : 400,
-            })}>
-              {label}
-            </NavLink>
-          </li>
+          <NavLink
+            key={href}
+            to={href}
+            className={({ isActive }) =>
+              "nav-link" + (isActive ? " is-active" : "")
+            }
+          >
+            {label}
+          </NavLink>
         ))}
-      </ul>
+
+        <div className="nav-section">Configure</div>
+        {config.map(([href, label]) => (
+          <NavLink
+            key={href}
+            to={href}
+            className={({ isActive }) =>
+              "nav-link" + (isActive ? " is-active" : "")
+            }
+          >
+            {label}
+          </NavLink>
+        ))}
+      </div>
+
+      <div className="sidebar-foot">
+        <div>
+          Queue <span className="dim">{queue.pending}</span>
+          {"  "}·{"  "}
+          Running <span className="dim">{queue.running}</span>
+        </div>
+        <div className="muted">v0.5.x</div>
+      </div>
     </nav>
   );
 }
