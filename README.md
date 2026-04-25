@@ -25,3 +25,13 @@ Copy `config.example.toml` to `config.toml` and edit. The Radarr bearer token mu
 ```
 
 Then seed a flow into the DB (Phase 2 adds a CLI / UI for this) and POST a Radarr webhook at it.
+
+## Building with web UI
+
+```
+npm --prefix web ci
+npm --prefix web run build
+cargo build --release
+```
+
+The `cargo build` step embeds `web/dist/` into the binary via `include_dir!`. A `build.rs` script auto-runs `npm` if `web/dist/` is missing.

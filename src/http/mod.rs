@@ -30,6 +30,7 @@ pub fn router(state: AppState) -> Router {
         .nest("/api", crate::api::router(state.clone()))
         .layer(Extension(dedup))
         .with_state(state)
+        .fallback(crate::static_assets::serve)
 }
 
 async fn get_hw(State(state): State<AppState>) -> axum::Json<crate::hw::HwCaps> {
