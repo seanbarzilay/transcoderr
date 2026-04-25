@@ -188,20 +188,59 @@ where
     Ok(status_result?)
 }
 
-/// Drains ffmpeg's stderr line by line. For each ffmpeg progress line it emits a
-/// `Pct` event (parsed from `time=`); the same line is also forwarded as `Line`
-/// so callers can surface live ffmpeg output in the UI. Non-progress lines
-/// (warnings, errors, codec info) are emitted as `Line` only.
+/// Drains ffmpeg's stderr, emitting one `FfmpegEvent::Line` per logical line and
+/// one `FfmpegEvent::Pct` whenever the line carries `time=`. Splits on BOTH
+/// `\n` AND `\r` because ffmpeg writes its periodic progress updates with `\r`
+/// (carriage return) so they overwrite each other on a TTY. Tokio's `lines()`
+/// helper only splits on `\n`, which made the entire run's progress
+/// accumulate into a single multi-KB "line" delivered after the child exited
+/// — defeating live observability and bloating run_events.
 pub async fn drain_stderr<F>(stderr: ChildStderr, parser: ProgressParser, mut on_event: F)
 where
     F: FnMut(FfmpegEvent),
 {
-    let mut reader = BufReader::new(stderr).lines();
-    while let Ok(Some(line)) = reader.next_line().await {
-        if let Some(pct) = parser.parse_line(&line) {
+    use tokio::io::AsyncReadExt;
+    let mut reader = BufReader::new(stderr);
+    let mut chunk = [0u8; 1024];
+    let mut buf: Vec<u8> = Vec::with_capacity(1024);
+
+    let mut emit = |line: &str, on_event: &mut F| {
+        if line.is_empty() {
+            return;
+        }
+        if let Some(pct) = parser.parse_line(line) {
             on_event(FfmpegEvent::Pct(pct));
         }
-        on_event(FfmpegEvent::Line(line));
+        on_event(FfmpegEvent::Line(line.to_string()));
+    };
+
+    loop {
+        let n = match reader.read(&mut chunk).await {
+            Ok(0) => break,
+            Ok(n) => n,
+            Err(_) => break,
+        };
+        buf.extend_from_slice(&chunk[..n]);
+
+        let mut start = 0usize;
+        for i in 0..buf.len() {
+            let b = buf[i];
+            if b == b'\n' || b == b'\r' {
+                if i > start {
+                    let line = String::from_utf8_lossy(&buf[start..i]).to_string();
+                    emit(&line, &mut on_event);
+                }
+                start = i + 1;
+            }
+        }
+        if start > 0 {
+            buf.drain(..start);
+        }
+    }
+
+    if !buf.is_empty() {
+        let line = String::from_utf8_lossy(&buf).to_string();
+        emit(&line, &mut on_event);
     }
 }
 

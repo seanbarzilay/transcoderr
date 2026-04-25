@@ -2,9 +2,14 @@ import { useParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { useMemo } from "react";
 import { api } from "../api/client";
-import { useLive } from "../state/live";
+import { useLive, type LiveRunEvent } from "../state/live";
 import RunTimeline from "../components/run-timeline";
 import LiveProgress from "../components/live-progress";
+
+// Stable references for empty fallbacks. Returning `?? []` from a Zustand
+// selector creates a fresh array each render, which Zustand sees as a changed
+// value and re-renders again — infinite loop (React error #185).
+const EMPTY_EVENTS: LiveRunEvent[] = [];
 
 export default function RunDetail() {
   const { id } = useParams();
@@ -14,7 +19,7 @@ export default function RunDetail() {
   // missed via SSE; once the run reaches a terminal status we slow down.
   const liveStatus = useLive((s) => s.jobStatus[idNum]?.status);
   const liveProgress = useLive((s) => s.jobProgress[idNum]);
-  const liveEvents = useLive((s) => s.jobEvents[idNum] ?? []);
+  const liveEvents = useLive((s) => s.jobEvents[idNum] ?? EMPTY_EVENTS);
 
   // Initial fetch + a slow safety-net poll. Live updates come from SSE
   // (jobStatus + jobEvents), so the heavy /api/runs/:id call doesn't need to
