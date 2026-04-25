@@ -1,0 +1,15 @@
+services:
+  transcoderr:
+    image: ghcr.io/your-org/transcoderr:nvidia-latest
+    restart: unless-stopped
+    ports: ["8080:8080"]
+    volumes:
+      - ./data:/data
+      - /mnt/movies:/media/movies
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu, video]
