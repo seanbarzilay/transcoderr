@@ -1,6 +1,6 @@
 use crate::db;
-use crate::flow::{Context, Flow, Node};
-use crate::steps::{dispatch, StepProgress};
+use crate::flow::{expr, Context, Flow, Node};
+use crate::steps::{registry::resolve, StepProgress};
 use serde_json::json;
 use sqlx::SqlitePool;
 
@@ -18,58 +18,112 @@ impl Engine {
     pub fn new(pool: SqlitePool) -> Self { Self { pool } }
 
     pub async fn run(&self, flow: &Flow, job_id: i64, mut ctx: Context) -> anyhow::Result<Outcome> {
-        // Resume from checkpoint if any.
-        let resume_index = match db::checkpoints::get(&self.pool, job_id).await? {
+        // Resume.
+        let resume = match db::checkpoints::get(&self.pool, job_id).await? {
             Some((idx, snap)) => {
                 ctx = Context::from_snapshot(&snap)?;
-                idx + 1
+                Some(idx as u32 + 1)
             }
-            None => 0,
+            None => None,
         };
 
-        for (idx, node) in flow.steps.iter().enumerate().skip(resume_index as usize) {
-            let (step_id_opt, use_, with) = match node {
-                Node::Step { id, use_, with, .. } => (id.clone(), use_.clone(), with.clone()),
-                Node::Conditional { .. } | Node::Return { .. } => {
-                    // TODO(Phase 2 Task 5): handle conditionals + return in the recursive engine rewrite.
-                    anyhow::bail!("non-Step nodes not supported in Phase 1 engine — see Phase 2 Task 5");
+        let mut counter = 0u32;
+        match self.run_nodes(&flow.steps, job_id, &mut ctx, &mut counter, resume).await {
+            Ok(NodeOutcome::Continue) => Ok(Outcome { status: "completed".into(), label: None }),
+            Ok(NodeOutcome::Return(label)) => Ok(Outcome { status: "skipped".into(), label: Some(label) }),
+            Err(e) => {
+                db::run_events::append(&self.pool, job_id, None, "failed",
+                    Some(&json!({ "error": e.to_string() }))).await?;
+                if let Some(of) = &flow.on_failure {
+                    // Run failure handler with a small ctx extension.
+                    let mut counter2 = u32::MAX / 2; // distinct space, never checkpointed
+                    let _ = self.run_nodes(of, job_id, &mut ctx, &mut counter2, None).await;
                 }
-            };
-            let step_id = step_id_opt.unwrap_or_else(|| format!("step{idx}"));
-            db::jobs::set_current_step(&self.pool, job_id, idx as i64).await?;
-            db::run_events::append(&self.pool, job_id, Some(&step_id), "started",
-                Some(&json!({ "use": use_ }))).await?;
-
-            let runner = dispatch(&use_)
-                .ok_or_else(|| anyhow::anyhow!("unknown step `use:` {}", use_))?;
-
-            let pool = self.pool.clone();
-            let step_id_for_cb = step_id.clone();
-            let mut cb = move |ev: StepProgress| {
-                let pool = pool.clone();
-                let step_id = step_id_for_cb.clone();
-                tokio::spawn(async move {
-                    let (kind, payload) = match ev {
-                        StepProgress::Pct(p) => ("progress", json!({ "pct": p })),
-                        StepProgress::Log(l) => ("log", json!({ "msg": l })),
-                    };
-                    let _ = db::run_events::append(&pool, job_id, Some(&step_id), kind, Some(&payload)).await;
-                });
-            };
-
-            match runner.execute(&with, &mut ctx, &mut cb).await {
-                Ok(()) => {
-                    db::run_events::append(&self.pool, job_id, Some(&step_id), "completed", None).await?;
-                    db::checkpoints::upsert(&self.pool, job_id, idx as i64, &ctx.to_snapshot()).await?;
-                }
-                Err(e) => {
-                    db::run_events::append(&self.pool, job_id, Some(&step_id), "failed",
-                        Some(&json!({ "error": e.to_string() }))).await?;
-                    return Ok(Outcome { status: "failed".into(), label: None });
-                }
+                Ok(Outcome { status: "failed".into(), label: None })
             }
         }
-
-        Ok(Outcome { status: "completed".into(), label: None })
     }
+
+    fn run_nodes<'a>(
+        &'a self, nodes: &'a [Node], job_id: i64, ctx: &'a mut Context,
+        counter: &'a mut u32, resume_at: Option<u32>,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = anyhow::Result<NodeOutcome>> + Send + 'a>> {
+        Box::pin(async move {
+            for n in nodes {
+                let my_index = *counter;
+                *counter += 1;
+                if let Some(skip_below) = resume_at {
+                    if my_index < skip_below { continue; }
+                }
+                match n {
+                    Node::Step { id, use_, with, retry } => {
+                        let step_id = id.clone().unwrap_or_else(|| format!("{use_}_{my_index}"));
+                        let max_attempts = retry.as_ref().map(|r| r.max + 1).unwrap_or(1);
+                        let mut last_err: Option<anyhow::Error> = None;
+                        for attempt in 1..=max_attempts {
+                            db::run_events::append(&self.pool, job_id, Some(&step_id), "started",
+                                Some(&json!({ "use": use_, "attempt": attempt }))).await?;
+                            let runner = resolve(use_).await
+                                .ok_or_else(|| anyhow::anyhow!("unknown step `use:` {}", use_))?;
+                            let pool = self.pool.clone();
+                            let step_id_for_cb = step_id.clone();
+                            let mut cb = move |ev: StepProgress| {
+                                let pool = pool.clone();
+                                let step_id = step_id_for_cb.clone();
+                                tokio::spawn(async move {
+                                    let (kind, payload) = match ev {
+                                        StepProgress::Pct(p) => ("progress", json!({ "pct": p })),
+                                        StepProgress::Log(l) => ("log", json!({ "msg": l })),
+                                    };
+                                    let _ = db::run_events::append(&pool, job_id, Some(&step_id), kind, Some(&payload)).await;
+                                });
+                            };
+                            match runner.execute(with, ctx, &mut cb).await {
+                                Ok(()) => {
+                                    db::run_events::append(&self.pool, job_id, Some(&step_id), "completed", None).await?;
+                                    db::checkpoints::upsert(&self.pool, job_id, my_index as i64, &ctx.to_snapshot()).await?;
+                                    last_err = None;
+                                    break;
+                                }
+                                Err(e) => {
+                                    db::run_events::append(&self.pool, job_id, Some(&step_id), "failed",
+                                        Some(&json!({ "error": e.to_string(), "attempt": attempt }))).await?;
+                                    let should_retry = retry.as_ref().and_then(|r| r.on.as_deref())
+                                        .map(|on_expr| expr::eval_bool(on_expr, ctx).unwrap_or(true))
+                                        .unwrap_or(true);
+                                    if !should_retry || attempt == max_attempts {
+                                        last_err = Some(e);
+                                        break;
+                                    }
+                                    last_err = Some(e);
+                                }
+                            }
+                        }
+                        if let Some(e) = last_err { return Err(e); }
+                    }
+                    Node::Conditional { id, if_, then_, else_ } => {
+                        let step_id = id.clone().unwrap_or_else(|| format!("if_{my_index}"));
+                        let v = expr::eval_bool(if_, ctx)?;
+                        db::run_events::append(&self.pool, job_id, Some(&step_id), "condition_evaluated",
+                            Some(&json!({ "expr": if_, "result": v }))).await?;
+                        let branch = if v { then_.as_slice() } else { else_.as_deref().unwrap_or(&[]) };
+                        let outcome = self.run_nodes(branch, job_id, ctx, counter, resume_at).await?;
+                        if let NodeOutcome::Return(_) = &outcome { return Ok(outcome); }
+                    }
+                    Node::Return { return_ } => {
+                        db::run_events::append(&self.pool, job_id, None, "returned",
+                            Some(&json!({ "label": return_ }))).await?;
+                        return Ok(NodeOutcome::Return(return_.clone()));
+                    }
+                }
+            }
+            Ok(NodeOutcome::Continue)
+        })
+    }
+}
+
+#[derive(Debug)]
+enum NodeOutcome {
+    Continue,
+    Return(String),
 }
