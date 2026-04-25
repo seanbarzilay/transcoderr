@@ -3,6 +3,7 @@ pub mod db;
 pub mod error;
 pub mod ffmpeg;
 pub mod flow;
+pub mod hw;
 pub mod http;
 pub mod notifiers;
 pub mod plugins;
