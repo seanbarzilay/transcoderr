@@ -6,6 +6,7 @@ use transcoderr::{
     db,
     hw::{semaphores::DeviceRegistry, HwCaps},
     http,
+    ready::Readiness,
     worker::Worker,
 };
 
@@ -49,6 +50,9 @@ pub async fn boot() -> TestApp {
     let (tx, rx) = tokio::sync::watch::channel(false);
     let w = tokio::spawn(async move { worker.run_loop(rx).await });
 
+    let ready = Readiness::new();
+    ready.mark_ready().await;
+
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
     let app = http::router(http::AppState {
@@ -57,6 +61,7 @@ pub async fn boot() -> TestApp {
         hw_caps,
         hw_devices,
         bus,
+        ready,
     });
     let s = tokio::spawn(async move {
         axum::serve(listener, app).await.unwrap();

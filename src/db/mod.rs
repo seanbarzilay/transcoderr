@@ -13,7 +13,21 @@ pub async fn open(data_dir: &Path) -> anyhow::Result<SqlitePool> {
         .max_connections(8)
         .connect_with(opts).await?;
     sqlx::migrate!("./migrations").run(&pool).await?;
+    check_migrations_compatible(&pool).await?;
     Ok(pool)
+}
+
+pub async fn check_migrations_compatible(pool: &SqlitePool) -> anyhow::Result<()> {
+    let migrator = sqlx::migrate!("./migrations");
+    let known: std::collections::HashSet<i64> = migrator.iter().map(|m| m.version).collect();
+    let applied: Vec<(i64,)> = sqlx::query_as("SELECT version FROM _sqlx_migrations")
+        .fetch_all(pool).await.unwrap_or_default();
+    for (v,) in applied {
+        if !known.contains(&v) {
+            anyhow::bail!("DB has migration {v} unknown to this binary — refusing to start");
+        }
+    }
+    Ok(())
 }
 
 pub fn now_unix() -> i64 {

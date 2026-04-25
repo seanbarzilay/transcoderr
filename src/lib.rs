@@ -9,6 +9,7 @@ pub mod hw;
 pub mod http;
 pub mod notifiers;
 pub mod plugins;
+pub mod ready;
 pub mod static_assets;
 pub mod steps;
 pub mod worker;

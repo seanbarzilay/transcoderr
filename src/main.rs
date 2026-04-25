@@ -63,13 +63,18 @@ async fn main() -> anyhow::Result<()> {
             let worker_task =
                 tokio::spawn(async move { worker.run_loop(rx).await });
 
+            let ready = transcoderr::ready::Readiness::new();
+
             let state = transcoderr::http::AppState {
                 pool,
                 cfg: cfg.clone(),
                 hw_caps,
                 hw_devices: registry,
                 bus,
+                ready: ready.clone(),
             };
+            ready.mark_ready().await;
+
             let app = transcoderr::http::router(state);
             let listener =
                 tokio::net::TcpListener::bind(&cfg.bind).await?;
