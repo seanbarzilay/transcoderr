@@ -34,6 +34,11 @@ export default function FlowDetail() {
 
   return (
     <div style={{ padding: 24 }}>
+      {typeof window !== "undefined" && window.innerWidth < 1024 && (
+        <div style={{ background: "#822", padding: 8, marginBottom: 12, borderRadius: 4 }}>
+          The flow editor is desktop-only. Open this page on a wider screen.
+        </div>
+      )}
       <h2>{flow.data?.name}</h2>
       <div style={{ display: "flex", gap: 12, marginBottom: 12 }}>
         {(["editor","test"] as const).map(t =>

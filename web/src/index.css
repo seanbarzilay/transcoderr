@@ -13,3 +13,8 @@ table { border-collapse: collapse; width: 100%; }
 th, td { text-align: left; padding: 8px 12px; border-bottom: 1px solid rgba(255,255,255,0.08); }
 a { color: var(--accent); }
 pre { background: rgba(0,0,0,0.4); padding: 12px; border-radius: 6px; overflow-x: auto; }
+@media (max-width: 640px) {
+  table th, table td { padding: 4px 6px; font-size: 12px; }
+  h2 { font-size: 18px; }
+  h3 { font-size: 14px; }
+}
