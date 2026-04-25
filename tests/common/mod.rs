@@ -50,7 +50,7 @@ pub async fn boot() -> TestApp {
     });
 
     let bus = transcoderr::bus::Bus::default();
-    let worker = Worker::new(pool.clone(), bus.clone());
+    let worker = Worker::new(pool.clone(), bus.clone(), data_dir.clone());
     let (tx, rx) = tokio::sync::watch::channel(false);
     let w = tokio::spawn(async move { worker.run_loop(rx).await });
 

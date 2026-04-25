@@ -23,7 +23,7 @@ steps:
 
     let start = std::time::Instant::now();
     let bus = transcoderr::bus::Bus::default();
-    let outcome = Engine::new(pool.clone(), bus).run(&flow, job_id, Context::for_file("/x")).await.unwrap();
+    let outcome = Engine::new(pool.clone(), bus, dir.path().to_path_buf()).run(&flow, job_id, Context::for_file("/x")).await.unwrap();
     let elapsed = start.elapsed();
     assert_eq!(outcome.status, "failed");
     assert!(elapsed.as_secs() < 3, "timeout should fire within ~1-2s, took {:?}", elapsed);

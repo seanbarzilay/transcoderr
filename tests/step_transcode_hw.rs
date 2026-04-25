@@ -135,7 +135,7 @@ steps:
 
     let ctx = Context::for_file(src.to_str().unwrap());
     let bus = transcoderr::bus::Bus::default();
-    let outcome = Engine::new(pool.clone(), bus).run(&flow, job_id, ctx).await.unwrap();
+    let outcome = Engine::new(pool.clone(), bus, dir.path().to_path_buf()).run(&flow, job_id, ctx).await.unwrap();
     assert_eq!(outcome.status, "completed", "job should complete via CPU fallback");
 
     // Allow spawned db writes to flush.

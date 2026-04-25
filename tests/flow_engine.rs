@@ -34,7 +34,7 @@ steps:
 
     let ctx = Context::for_file(movie.to_string_lossy());
     let bus = transcoderr::bus::Bus::default();
-    let outcome = Engine::new(pool.clone(), bus).run(&flow, job_id, ctx).await.unwrap();
+    let outcome = Engine::new(pool.clone(), bus, dir.path().join("db")).run(&flow, job_id, ctx).await.unwrap();
     assert_eq!(outcome.status, "completed");
 
     // Original file replaced with transcoded output, and probe context recorded.

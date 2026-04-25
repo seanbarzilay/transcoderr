@@ -2,15 +2,17 @@ use crate::bus::Bus;
 use crate::db;
 use crate::flow::{Context, Engine, Flow};
 use sqlx::SqlitePool;
+use std::path::PathBuf;
 use std::time::Duration;
 
 pub struct Worker {
     pool: SqlitePool,
     bus: Bus,
+    data_dir: PathBuf,
 }
 
 impl Worker {
-    pub fn new(pool: SqlitePool, bus: Bus) -> Self { Self { pool, bus } }
+    pub fn new(pool: SqlitePool, bus: Bus, data_dir: PathBuf) -> Self { Self { pool, bus, data_dir } }
 
     /// On startup: reset stale 'running' rows back to 'pending'.
     pub async fn recover_on_boot(&self) -> anyhow::Result<u64> {
@@ -34,7 +36,7 @@ impl Worker {
 
         let ctx = Context::for_file(&job.file_path);
         let job_start = std::time::Instant::now();
-        let outcome = Engine::new(self.pool.clone(), self.bus.clone()).run(&flow, job.id, ctx).await?;
+        let outcome = Engine::new(self.pool.clone(), self.bus.clone(), self.data_dir.clone()).run(&flow, job.id, ctx).await?;
         let elapsed_secs = job_start.elapsed().as_secs_f64();
         crate::metrics::record_job_finished(&flow_name, &outcome.status, elapsed_secs);
         db::jobs::set_status_with_bus(&self.pool, &self.bus, job.id, &outcome.status, outcome.label.as_deref()).await?;
