@@ -1,12 +1,11 @@
 use super::{Step, StepProgress};
-use crate::ffmpeg::{drain_stderr_progress, ProgressParser};
+use crate::ffmpeg::FfmpegEvent;
 use crate::flow::{staging, Context};
 use crate::hw::{devices::Accel, semaphores::DeviceRegistry};
 use async_trait::async_trait;
 use serde_json::{json, Value};
 use std::collections::BTreeMap;
 use std::path::Path;
-use std::process::Stdio;
 use tokio::process::Command;
 
 pub struct TranscodeStep {
@@ -221,41 +220,23 @@ async fn run_ffmpeg(
     if force_10bit {
         cmd.args(["-profile:v", "main10", "-pix_fmt", "p010le"]);
     }
-    cmd.args(["-c:a", "copy", "-c:s", "copy"])
-        .arg(dest)
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::piped());
+    cmd.args(["-c:a", "copy", "-c:s", "copy"]).arg(dest);
 
-    let mut child = cmd.spawn()?;
-    let stderr = child.stderr.take().expect("piped");
-    let parser = ProgressParser { duration_sec };
+    let mut emitted_any_pct = false;
+    let status = crate::ffmpeg::run_with_live_events(cmd, duration_sec, |ev| match ev {
+        FfmpegEvent::Pct(p) => {
+            emitted_any_pct = true;
+            on_progress(StepProgress::Pct(p));
+        }
+        FfmpegEvent::Line(l) => {
+            on_progress(StepProgress::Log(format!("ffmpeg: {l}")));
+        }
+    })
+    .await?;
 
-    let parse_task = tokio::spawn(async move {
-        let mut last = 0.0;
-        let mut buf: Vec<f64> = vec![];
-        drain_stderr_progress(stderr, parser, |pct| {
-            if pct - last >= 1.0 {
-                last = pct;
-                buf.push(pct);
-            }
-        })
-        .await;
-        buf
-    });
-
-    let status = child.wait().await?;
-    let mut pcts = parse_task.await.unwrap_or_default();
-
-    // Emit a 100% sentinel if no progress was captured (e.g. unknown duration).
-    if pcts.is_empty() {
-        pcts.push(100.0);
+    if !emitted_any_pct {
+        on_progress(StepProgress::Pct(100.0));
     }
-
-    for p in pcts {
-        on_progress(StepProgress::Pct(p));
-    }
-
     if !status.success() {
         anyhow::bail!("ffmpeg exit {:?}", status.code());
     }

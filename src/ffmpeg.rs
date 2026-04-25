@@ -85,6 +85,103 @@ fn parse_hhmmss(s: &str) -> Option<f64> {
     Some(h * 3600.0 + m * 60.0 + sec)
 }
 
+/// Stream events emitted while draining ffmpeg's stderr.
+#[derive(Debug, Clone)]
+pub enum FfmpegEvent {
+    Pct(f64),
+    Line(String),
+}
+
+/// Spawn ffmpeg and drain its stderr LIVE, emitting `FfmpegEvent::Pct` (when the
+/// progress percentage advances by ≥1) and `FfmpegEvent::Line` (throttled to one
+/// progress line every ~1.5s) as the encode runs. Callers receive events while
+/// the child process is still running, which is what makes the run-detail page
+/// show live progress + the latest ffmpeg line in real time.
+pub async fn run_with_live_events<F>(
+    mut cmd: tokio::process::Command,
+    duration_sec: f64,
+    mut on_event: F,
+) -> anyhow::Result<std::process::ExitStatus>
+where
+    F: FnMut(FfmpegEvent),
+{
+    use std::process::Stdio;
+    cmd.stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::piped());
+    let mut child = cmd.spawn()?;
+    let stderr = child.stderr.take().expect("piped");
+    let parser = ProgressParser { duration_sec };
+
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<FfmpegEvent>();
+    let drain_handle = tokio::spawn(async move {
+        drain_stderr(stderr, parser, move |ev| {
+            let _ = tx.send(ev);
+        })
+        .await;
+    });
+
+    let mut waiter = Box::pin(child.wait());
+    let mut tick = tokio::time::interval(std::time::Duration::from_millis(200));
+    tick.tick().await;
+
+    let mut last_pct = 0.0_f64;
+    let mut last_line_at: Option<std::time::Instant> = None;
+    let mut throttle = |ev: FfmpegEvent, on_event: &mut F| match ev {
+        FfmpegEvent::Pct(pct) => {
+            if pct - last_pct >= 1.0 {
+                last_pct = pct;
+                on_event(FfmpegEvent::Pct(pct));
+            }
+        }
+        FfmpegEvent::Line(line) => {
+            let is_progress = line.contains("time=") && line.contains("speed=");
+            if !is_progress {
+                return;
+            }
+            let now = std::time::Instant::now();
+            if last_line_at.map_or(true, |t| now.duration_since(t).as_millis() >= 1500) {
+                last_line_at = Some(now);
+                on_event(FfmpegEvent::Line(line.trim().to_string()));
+            }
+        }
+    };
+
+    let status_result = loop {
+        tokio::select! {
+            biased;
+            _ = tick.tick() => {
+                while let Ok(ev) = rx.try_recv() {
+                    throttle(ev, &mut on_event);
+                }
+            }
+            res = &mut waiter => break res,
+        }
+    };
+
+    let _ = drain_handle.await;
+    while let Ok(ev) = rx.try_recv() {
+        throttle(ev, &mut on_event);
+    }
+
+    Ok(status_result?)
+}
+
+/// Drains ffmpeg's stderr line by line. For each ffmpeg progress line it emits a
+/// `Pct` event (parsed from `time=`); the same line is also forwarded as `Line`
+/// so callers can surface live ffmpeg output in the UI. Non-progress lines
+/// (warnings, errors, codec info) are emitted as `Line` only.
+pub async fn drain_stderr<F>(stderr: ChildStderr, parser: ProgressParser, mut on_event: F)
+where
+    F: FnMut(FfmpegEvent),
+{
+    let mut reader = BufReader::new(stderr).lines();
+    while let Ok(Some(line)) = reader.next_line().await {
+        if let Some(pct) = parser.parse_line(&line) {
+            on_event(FfmpegEvent::Pct(pct));
+        }
+        on_event(FfmpegEvent::Line(line));
+    }
+}
+
 pub async fn drain_stderr_progress<F>(stderr: ChildStderr, parser: ProgressParser, mut on_pct: F)
 where F: FnMut(f64) {
     let mut reader = BufReader::new(stderr).lines();

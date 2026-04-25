@@ -3,7 +3,6 @@ use crate::flow::{staging, Context};
 use async_trait::async_trait;
 use serde_json::{json, Value};
 use std::collections::BTreeMap;
-use std::process::Stdio;
 use tokio::process::Command;
 
 /// Audio codecs that can be passed through to most consumer players without re-encoding.
@@ -293,11 +292,22 @@ impl Step for AudioEnsureStep {
         }
 
         cmd.arg(&dest);
-        cmd.stdin(Stdio::null())
-            .stdout(Stdio::null())
-            .stderr(Stdio::null());
 
-        let status = cmd.status().await?;
+        // Try to read duration from probe so the live progress bar advances.
+        let duration_sec = ctx
+            .probe
+            .as_ref()
+            .and_then(|p| p["format"]["duration"].as_str())
+            .and_then(|s| s.parse::<f64>().ok())
+            .unwrap_or(0.0);
+
+        let status = crate::ffmpeg::run_with_live_events(cmd, duration_sec, |ev| match ev {
+            crate::ffmpeg::FfmpegEvent::Pct(p) => on_progress(StepProgress::Pct(p)),
+            crate::ffmpeg::FfmpegEvent::Line(l) => {
+                on_progress(StepProgress::Log(format!("ffmpeg: {l}")))
+            }
+        })
+        .await?;
         if !status.success() {
             anyhow::bail!("audio.ensure: ffmpeg failed");
         }
