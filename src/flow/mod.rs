@@ -1,5 +1,6 @@
 pub mod context;
 pub mod engine;
+pub mod expr;
 pub mod model;
 pub mod parser;
 
