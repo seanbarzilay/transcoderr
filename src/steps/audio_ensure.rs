@@ -8,6 +8,19 @@ use tokio::process::Command;
 /// Audio codecs that can be passed through to most consumer players without re-encoding.
 const PLAYABLE_AUDIO: &[&str] = &["aac", "ac3", "eac3", "mp3", "opus"];
 
+/// Render a human label for a channel count (5.1, 7.1, stereo, mono, ...) that
+/// matches what users see in players. Used in the metadata title we put on
+/// audio.ensure's freshly-encoded track.
+fn channel_layout_label(channels: i64) -> String {
+    match channels {
+        1 => "Mono".into(),
+        2 => "Stereo".into(),
+        6 => "5.1".into(),
+        8 => "7.1".into(),
+        n => format!("{n}ch"),
+    }
+}
+
 /// Subtitle codecs that survive standard mkv muxing.
 const SUPPORTED_SUB_CODECS: &[&str] = &[
     "srt",
@@ -132,10 +145,14 @@ impl Step for AudioEnsureStep {
             .get("drop_cover_art")
             .and_then(|v| v.as_bool())
             .unwrap_or(true);
+        // Default to keeping every subtitle stream — even ones with codecs we
+        // don't recognize. Opt-in via `drop_unsupported_subs: true` if you want
+        // the cleanup behavior. (Was previously default-true, but losing
+        // legitimate subtitle tracks silently is the worse default.)
         let drop_unsupported_subs = with
             .get("drop_unsupported_subs")
             .and_then(|v| v.as_bool())
-            .unwrap_or(true);
+            .unwrap_or(false);
         let drop_data_streams = with
             .get("drop_data_streams")
             .and_then(|v| v.as_bool())
@@ -277,6 +294,15 @@ impl Step for AudioEnsureStep {
                 other => anyhow::bail!("audio.ensure: unsupported target codec {other}"),
             };
             cmd.args(["-map", &format!("0:{seed_index}")]);
+            // Override metadata on the added stream so it doesn't inherit the
+            // seed's title (e.g. "DTS-HD MA 5.1" was leaking onto a freshly
+            // encoded AC3 6ch track). Set a fresh title that describes what
+            // the new stream actually is.
+            let synthesized_title = format!(
+                "{} {}",
+                target_codec.to_uppercase(),
+                channel_layout_label(target_channels),
+            );
             cmd.args([
                 &format!("-c:a:{audio_out_idx}"),
                 encoder,
@@ -284,6 +310,8 @@ impl Step for AudioEnsureStep {
                 &target_channels.to_string(),
                 &format!("-metadata:s:a:{audio_out_idx}"),
                 &format!("language={target_lang}"),
+                &format!("-metadata:s:a:{audio_out_idx}"),
+                &format!("title={synthesized_title}"),
             ]);
             new_audio_out_idx = Some(audio_out_idx);
             on_progress(StepProgress::Log(format!(

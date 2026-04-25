@@ -41,9 +41,11 @@ steps:
           codec: ac3
           channels: 6
           drop_cover_art: true
-          drop_unsupported_subs: true
           drop_data_streams: true
           tolerate_errors: true
+          # drop_unsupported_subs defaults to false now — every subtitle stream
+          # is preserved regardless of codec. Set to true if you specifically
+          # want to drop fringe sub formats.
 
     else:
       # Full re-encode: normalize streams first, then x265 fast crf=19 with 10-bit
@@ -60,9 +62,11 @@ steps:
           codec: ac3
           channels: 6
           drop_cover_art: true
-          drop_unsupported_subs: true
           drop_data_streams: true
           tolerate_errors: true
+          # drop_unsupported_subs defaults to false now — every subtitle stream
+          # is preserved regardless of codec. Set to true if you specifically
+          # want to drop fringe sub formats.
 
       - id: encode
         use: transcode
