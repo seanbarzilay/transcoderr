@@ -2,7 +2,6 @@ use tempfile::tempdir;
 use transcoderr::{db, flow::{parse_flow, Context, Engine}};
 
 #[tokio::test]
-#[ignore]
 async fn on_failure_handler_runs() {
     let dir = tempdir().unwrap();
     let pool = db::open(dir.path()).await.unwrap();
