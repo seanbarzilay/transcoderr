@@ -9,7 +9,7 @@ COPY web/ .
 RUN npm run build
 
 # Rust builder
-FROM rust:1.83-bookworm AS rust
+FROM rust:bookworm AS rust
 WORKDIR /src
 COPY . .
 COPY --from=web /web/dist /src/web/dist
