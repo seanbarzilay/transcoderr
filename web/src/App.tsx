@@ -1,6 +1,8 @@
+import { useEffect } from "react";
 import { Routes, Route, Navigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { api } from "./api/client";
+import { startSSE } from "./state/live";
 import Sidebar from "./components/sidebar";
 import Dashboard from "./pages/dashboard";
 import FlowsList from "./pages/flows-list";
@@ -13,6 +15,7 @@ import Settings from "./pages/settings";
 import Login from "./pages/login";
 
 export default function App() {
+  useEffect(() => { const stop = startSSE(); return stop; }, []);
   const me = useQuery({ queryKey: ["me"], queryFn: api.auth.me });
   if (me.isLoading) return null;
   if (me.data?.auth_required && !me.data?.authed) return <Login onLoggedIn={() => me.refetch()} />;
