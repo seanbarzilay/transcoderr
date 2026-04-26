@@ -8,6 +8,7 @@ use rmcp::{
 };
 
 mod client;
+mod tools;
 use client::ApiClient;
 
 #[derive(Parser, Debug, Clone)]
@@ -25,15 +26,16 @@ struct Cli {
 }
 
 #[derive(Clone)]
-struct Server {
-    api: ApiClient,
+pub(crate) struct Server {
+    pub(crate) api: ApiClient,
     tool_router: ToolRouter<Self>,
 }
 
 #[tool_router]
 impl Server {
     pub fn new(api: ApiClient) -> Self {
-        Self { api, tool_router: Self::tool_router() }
+        let tool_router = Self::tool_router() + Self::runs_router();
+        Self { api, tool_router }
     }
 }
 
