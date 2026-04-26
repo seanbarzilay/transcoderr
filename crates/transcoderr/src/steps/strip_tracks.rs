@@ -7,12 +7,14 @@ use std::process::Stdio;
 use tokio::process::Command;
 
 /// Subtitle codecs we keep; everything else is dropped when `drop_unsupported_subs` is on.
+/// Excludes `mov_text` — it's MP4-native and the MKV muxer rejects it with
+/// "Function not implemented" at header write time. Keep this list in sync
+/// with the matching one in `plan_steps.rs` and `audio_ensure.rs`.
 const SUPPORTED_SUB_CODECS: &[&str] = &[
     "srt",
     "subrip",
     "ass",
     "ssa",
-    "mov_text",
     "hdmv_pgs_subtitle",
     "pgssub",
     "dvd_subtitle",
