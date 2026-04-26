@@ -1,24 +1,8 @@
 use crate::{db, flow::parse_flow, http::AppState};
 use axum::{extract::{Path, State}, http::StatusCode, Json};
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use sqlx::Row;
-
-#[derive(Serialize)]
-pub struct FlowSummary {
-    pub id: i64, pub name: String, pub enabled: bool, pub version: i64
-}
-
-#[derive(Serialize)]
-pub struct FlowDetail {
-    pub id: i64, pub name: String, pub enabled: bool, pub version: i64,
-    pub yaml_source: String, pub parsed_json: serde_json::Value,
-}
-
-#[derive(Deserialize)]
-pub struct CreateFlowReq { pub name: String, pub yaml: String }
-
-#[derive(Deserialize)]
-pub struct UpdateFlowReq { pub yaml: String, pub enabled: Option<bool> }
+use transcoderr_api_types::{CreateFlowReq, FlowDetail, FlowSummary, UpdateFlowReq};
 
 #[derive(Serialize)]
 pub struct ParseResult {

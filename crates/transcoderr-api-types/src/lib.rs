@@ -20,6 +20,158 @@ impl ApiError {
     }
 }
 
+// ─── Runs ────────────────────────────────────────────────────────────────
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct RunSummary {
+    pub id: i64,
+    pub flow_id: i64,
+    pub status: String,
+    pub created_at: i64,
+    pub finished_at: Option<i64>,
+    pub file_path: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct RunEvent {
+    pub id: i64,
+    pub job_id: i64,
+    pub ts: i64,
+    pub step_id: Option<String>,
+    pub kind: String,
+    pub payload: Option<serde_json::Value>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct RunDetail {
+    pub run: RunSummary,
+    pub events: Vec<RunEvent>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct RerunResp {
+    pub id: i64,
+}
+
+// ─── Flows ───────────────────────────────────────────────────────────────
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct FlowSummary {
+    pub id: i64,
+    pub name: String,
+    pub enabled: bool,
+    pub version: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct FlowDetail {
+    pub id: i64,
+    pub name: String,
+    pub enabled: bool,
+    pub version: i64,
+    pub yaml_source: String,
+    pub parsed_json: serde_json::Value,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct CreateFlowReq {
+    pub name: String,
+    pub yaml: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct UpdateFlowReq {
+    pub yaml: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub enabled: Option<bool>,
+}
+
+// ─── Sources ─────────────────────────────────────────────────────────────
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct SourceSummary {
+    pub id: i64,
+    pub kind: String,
+    pub name: String,
+    pub config: serde_json::Value,
+    /// `"***"` when the request was authenticated by API token.
+    /// The cleartext token is returned only to UI session callers.
+    pub secret_token: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct CreateSourceReq {
+    pub kind: String,
+    pub name: String,
+    pub config: serde_json::Value,
+    pub secret_token: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct UpdateSourceReq {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub config: Option<serde_json::Value>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub secret_token: Option<String>,
+}
+
+// ─── Notifiers ───────────────────────────────────────────────────────────
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct NotifierSummary {
+    pub id: i64,
+    pub name: String,
+    pub kind: String,
+    /// Secret-bearing keys (e.g. `bot_token`, `webhook_url`) are replaced
+    /// with `"***"` for token-authed callers.
+    pub config: serde_json::Value,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct NotifierReq {
+    pub name: String,
+    pub kind: String,
+    pub config: serde_json::Value,
+}
+
+// ─── Tokens ──────────────────────────────────────────────────────────────
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct ApiTokenSummary {
+    pub id: i64,
+    pub name: String,
+    pub prefix: String,
+    pub created_at: i64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_used_at: Option<i64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct CreateTokenReq {
+    pub name: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct CreateTokenResp {
+    pub id: i64,
+    pub token: String,
+}
+
+// ─── Misc ────────────────────────────────────────────────────────────────
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct CreatedIdResp {
+    pub id: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct Health {
+    pub healthy: bool,
+    pub ready: bool,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

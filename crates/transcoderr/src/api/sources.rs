@@ -1,36 +1,10 @@
 use crate::http::AppState;
 use axum::{extract::{Path, State}, http::StatusCode, Json};
-use serde::{Deserialize, Serialize};
 use sqlx::Row;
-
-#[derive(Serialize)]
-pub struct SourceSummary {
-    pub id: i64,
-    pub kind: String,
-    pub name: String,
-    pub config: serde_json::Value,
-}
-
-#[derive(Deserialize)]
-pub struct CreateSourceReq {
-    pub kind: String,
-    pub name: String,
-    pub config: serde_json::Value,
-    pub secret_token: String,
-}
-
-#[derive(Deserialize)]
-pub struct UpdateSourceReq {
-    pub name: Option<String>,
-    pub config: Option<serde_json::Value>,
-    pub secret_token: Option<String>,
-}
-
-#[derive(Serialize)]
-pub struct CreateResp { pub id: i64 }
+use transcoderr_api_types::{CreatedIdResp as CreateResp, CreateSourceReq, SourceSummary, UpdateSourceReq};
 
 pub async fn list(State(state): State<AppState>) -> Result<Json<Vec<SourceSummary>>, StatusCode> {
-    let rows = sqlx::query("SELECT id, kind, name, config_json FROM sources ORDER BY name")
+    let rows = sqlx::query("SELECT id, kind, name, config_json, secret_token FROM sources ORDER BY name")
         .fetch_all(&state.pool).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     let out = rows.into_iter().map(|r| {
         let config_str: String = r.get(3);
@@ -39,6 +13,7 @@ pub async fn list(State(state): State<AppState>) -> Result<Json<Vec<SourceSummar
             kind: r.get(1),
             name: r.get(2),
             config: serde_json::from_str(&config_str).unwrap_or_default(),
+            secret_token: r.get(4),
         }
     }).collect();
     Ok(Json(out))
@@ -63,7 +38,7 @@ pub async fn get(
     State(state): State<AppState>,
     Path(id): Path<i64>,
 ) -> Result<Json<SourceSummary>, StatusCode> {
-    let row = sqlx::query("SELECT id, kind, name, config_json FROM sources WHERE id = ?")
+    let row = sqlx::query("SELECT id, kind, name, config_json, secret_token FROM sources WHERE id = ?")
         .bind(id).fetch_optional(&state.pool).await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
         .ok_or(StatusCode::NOT_FOUND)?;
@@ -73,6 +48,7 @@ pub async fn get(
         kind: row.get(1),
         name: row.get(2),
         config: serde_json::from_str(&config_str).unwrap_or_default(),
+        secret_token: row.get(4),
     }))
 }
 

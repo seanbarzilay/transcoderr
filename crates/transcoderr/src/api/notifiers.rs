@@ -1,25 +1,7 @@
 use crate::{db, http::AppState, notifiers};
 use axum::{extract::{Path, State}, http::StatusCode, Json};
-use serde::{Deserialize, Serialize};
 use sqlx::Row;
-
-#[derive(Serialize)]
-pub struct NotifierSummary {
-    pub id: i64,
-    pub name: String,
-    pub kind: String,
-    pub config: serde_json::Value,
-}
-
-#[derive(Deserialize)]
-pub struct NotifierReq {
-    pub name: String,
-    pub kind: String,
-    pub config: serde_json::Value,
-}
-
-#[derive(Serialize)]
-pub struct CreateResp { pub id: i64 }
+use transcoderr_api_types::{CreatedIdResp as CreateResp, NotifierReq, NotifierSummary};
 
 pub async fn list(State(state): State<AppState>) -> Result<Json<Vec<NotifierSummary>>, StatusCode> {
     let rows = sqlx::query("SELECT id, name, kind, config_json FROM notifiers ORDER BY name")
