@@ -52,6 +52,17 @@ impl Step for PlanExecuteStep {
             .ok_or_else(|| anyhow::anyhow!("plan.execute: no probe data"))?
             .clone();
 
+        // Tonemap requires re-encode. If the flow set plan.video.tonemap but
+        // left video.mode = Copy (e.g. a flow that gates plan.video.encode on
+        // a non-HEVC check, but adds tonemap unconditionally for HDR), the
+        // tonemap intent will be silently dropped — the encoder is never
+        // invoked, so no -filter:v fires. Warn loudly so the operator notices.
+        if plan.video.tonemap.is_some() && matches!(plan.video.mode, VideoMode::Copy) {
+            on_progress(StepProgress::Log(
+                "warn: plan.video.tonemap is set but video.mode=copy — tonemap requires re-encode and will not be applied. Place plan.video.tonemap inside the same branch as plan.video.encode.".into()
+            ));
+        }
+
         let (src, dest) = staging::next_io(ctx, &plan.container);
         let _ = std::fs::remove_file(&dest);
 

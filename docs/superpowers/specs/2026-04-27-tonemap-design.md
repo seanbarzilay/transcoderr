@@ -337,8 +337,13 @@ The branch is ready to merge when:
   types defined.
 - `PlanVideoTonemapStep` registered as `plan.video.tonemap` in
   `builtin.rs`. SDR sources no-op; HDR sources mark the plan.
-- `FfmpegCaps::probe` runs at boot in `main.rs::serve`; result stored
-  in `AppState::ffmpeg_caps`.
+- `FfmpegCaps::probe` runs at boot in `main.rs::serve`; the resulting
+  `Arc<FfmpegCaps>` is threaded through `registry::init` →
+  `builtin::register_all` → `PlanExecuteStep::ffmpeg_caps` (mirroring
+  the existing `DeviceRegistry` plumbing). Not stored in `AppState`
+  because no HTTP handler currently needs it; if a future `/api/hw`
+  expansion wants to surface filter caps, threading it through there
+  is a one-line addition.
 - `plan.execute::build_command` emits a `-filter:v:N` filter and
   `-pix_fmt yuv420p` when `plan.video.tonemap` is set; bypasses the
   10-bit preserve branch.
