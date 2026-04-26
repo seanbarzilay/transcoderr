@@ -107,7 +107,7 @@ impl Server {
             .map_err(|e| e.into_error_data())
     }
 
-    #[tool(name = "cancel_run", description = "Cancel a pending or running job. Sends SIGKILL to ffmpeg if running.")]
+    #[tool(name = "cancel_run", description = "Destructive: terminates a running job mid-encode. Sends SIGKILL to ffmpeg if running. Cannot be undone — the run state becomes 'cancelled'.")]
     pub async fn cancel_run(
         &self,
         Parameters(a): Parameters<IdArgs>,
@@ -118,11 +118,11 @@ impl Server {
                 &serde_json::Value::Null,
             )
             .await
-            .map(Json)
-            .map_err(|e| e.into_error_data())
+            .map_err(|e| e.into_error_data())?;
+        Ok(Json(serde_json::json!({"cancelled": true, "id": a.id})))
     }
 
-    #[tool(name = "rerun_run", description = "Create a new pending job from this one's flow + file. Returns the new run id.")]
+    #[tool(name = "rerun_run", description = "Enqueue a new pending job using the same flow + file as the given run. Side effect: starts a new transcode in the queue. Returns the new run id.")]
     pub async fn rerun_run(
         &self,
         Parameters(a): Parameters<IdArgs>,
