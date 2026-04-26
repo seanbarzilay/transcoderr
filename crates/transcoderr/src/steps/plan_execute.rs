@@ -3,7 +3,7 @@
 //! file in the new "plan-then-execute" pipeline.
 
 use crate::ffmpeg::FfmpegEvent;
-use crate::flow::plan::{require_plan, VideoMode};
+use crate::flow::plan::{require_plan, VideoMode, TonemapEngine};
 use crate::flow::{staging, Context};
 use crate::hw::{devices::Accel, semaphores::DeviceRegistry};
 use crate::steps::{Step, StepProgress};
@@ -11,6 +11,24 @@ use async_trait::async_trait;
 use serde_json::{json, Value};
 use std::collections::BTreeMap;
 use tokio::process::Command;
+
+/// Build the `-filter:v` value for an HDR→SDR tonemap. Picks libplacebo
+/// when the engine is `Libplacebo`, or `Auto` and the boot probe found
+/// libplacebo in the local ffmpeg. Otherwise returns the zscale chain
+/// (always available — uses ffmpeg's built-in `tonemap` + `zscale`
+/// filters).
+pub(crate) fn build_tonemap_vf(engine: TonemapEngine, has_libplacebo: bool) -> &'static str {
+    let resolved = match engine {
+        TonemapEngine::Libplacebo => true,
+        TonemapEngine::Zscale => false,
+        TonemapEngine::Auto => has_libplacebo,
+    };
+    if resolved {
+        "libplacebo=tonemapping=auto:colorspace=bt709:color_primaries=bt709:color_trc=bt709:format=yuv420p"
+    } else {
+        "zscale=t=linear:npl=100,format=gbrpf32le,zscale=p=bt709,tonemap=tonemap=hable:desat=0,zscale=t=bt709:m=bt709:r=tv,format=yuv420p"
+    }
+}
 
 pub struct PlanExecuteStep {
     pub hw: DeviceRegistry,
@@ -304,4 +322,34 @@ fn pick_codec_arg(codec: &str, acquired_key: Option<&str>) -> anyhow::Result<&'s
         ("x265" | "hevc", _) => "libx265",
         (other, _) => anyhow::bail!("plan.execute: unsupported video codec {other}"),
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn build_tonemap_vf_libplacebo_uses_libplacebo_filter() {
+        let vf = build_tonemap_vf(TonemapEngine::Libplacebo, false);
+        assert!(vf.starts_with("libplacebo="), "got {vf}");
+    }
+
+    #[test]
+    fn build_tonemap_vf_zscale_uses_zscale_chain() {
+        let vf = build_tonemap_vf(TonemapEngine::Zscale, true);
+        assert!(vf.starts_with("zscale="), "got {vf}");
+        assert!(vf.contains("tonemap=hable"), "got {vf}");
+    }
+
+    #[test]
+    fn build_tonemap_vf_auto_picks_libplacebo_when_present() {
+        let vf = build_tonemap_vf(TonemapEngine::Auto, true);
+        assert!(vf.starts_with("libplacebo="), "got {vf}");
+    }
+
+    #[test]
+    fn build_tonemap_vf_auto_falls_back_to_zscale() {
+        let vf = build_tonemap_vf(TonemapEngine::Auto, false);
+        assert!(vf.starts_with("zscale="), "got {vf}");
+    }
 }
