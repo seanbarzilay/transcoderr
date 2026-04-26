@@ -36,7 +36,8 @@ impl Server {
     pub fn new(api: ApiClient) -> Self {
         let tool_router = Self::tool_router()
             + Self::runs_router()
-            + Self::flows_router();
+            + Self::flows_router()
+            + Self::sources_router();
         Self { api, tool_router }
     }
 }
