@@ -19,8 +19,7 @@ reqwest = { workspace = true }
 anyhow = { workspace = true }
 thiserror = { workspace = true }
 tracing = { workspace = true }
-tracing-subscriber = { workspace = true, features = ["env-filter"] }
-clap = { version = "4", features = ["derive", "env"] }
+clap = { workspace = true }
 
 [dev-dependencies]
 # Used by Task 16's end-to-end stdio integration test.

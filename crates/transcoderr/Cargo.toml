@@ -19,8 +19,7 @@ toml = "0.8"
 thiserror = { workspace = true }
 anyhow = { workspace = true }
 tracing = { workspace = true }
-tracing-subscriber = { workspace = true, features = ["env-filter", "json"] }
-clap = { version = "4", features = ["derive"] }
+clap = { workspace = true }
 chrono = { workspace = true }
 async-trait = "0.1"
 cel-interpreter = "0.10"

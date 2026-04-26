@@ -3209,7 +3209,6 @@ dependencies = [
  "tower-cookies",
  "tower-http",
  "tracing",
- "tracing-subscriber",
  "transcoderr-api-types",
  "uuid",
 ]
@@ -3245,7 +3244,6 @@ dependencies = [
  "thiserror 1.0.69",
  "tokio",
  "tracing",
- "tracing-subscriber",
  "transcoderr",
  "transcoderr-api-types",
 ]
