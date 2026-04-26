@@ -76,7 +76,11 @@ pub fn record_output(
 
     if let Some(prev) = previous_output {
         let new_str = output_path.to_string_lossy().to_string();
-        if prev != new_str && prev != ctx.file.path {
+        // Skip URL-shaped chain heads (e.g. `bluray:/path/to.iso` written by
+        // iso.extract). They aren't real filesystem paths, so there's nothing
+        // to delete. Keeping the guard explicit avoids a no-op ENOENT call on
+        // every chain step that follows iso.extract.
+        if prev != new_str && prev != ctx.file.path && !prev.starts_with("bluray:") {
             // Best-effort: ignore errors. If it's already gone or in use, fine.
             let _ = std::fs::remove_file(&prev);
         }
