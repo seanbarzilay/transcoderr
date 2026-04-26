@@ -55,5 +55,10 @@ export const api = {
     me:     () => req<{ auth_required: boolean; authed: boolean }>("/auth/me"),
     login:  (password: string) => req<void>("/auth/login", { method: "POST", body: JSON.stringify({ password }) }),
     logout: () => req<void>("/auth/logout", { method: "POST" }),
+    tokens: {
+      list:   () => req<import("../types").ApiTokenSummary[]>("/auth/tokens"),
+      create: (name: string) => req<{ id: number; token: string }>("/auth/tokens", { method: "POST", body: JSON.stringify({ name }) }),
+      remove: (id: number) => req<void>(`/auth/tokens/${id}`, { method: "DELETE" }),
+    },
   },
 };

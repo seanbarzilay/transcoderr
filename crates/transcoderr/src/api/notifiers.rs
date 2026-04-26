@@ -1,37 +1,21 @@
+use crate::api::auth::{redact_notifier_config, unredact_notifier_config, AuthSource};
 use crate::{db, http::AppState, notifiers};
+use axum::Extension;
 use axum::{extract::{Path, State}, http::StatusCode, Json};
-use serde::{Deserialize, Serialize};
 use sqlx::Row;
+use transcoderr_api_types::{CreatedIdResp as CreateResp, NotifierReq, NotifierSummary};
 
-#[derive(Serialize)]
-pub struct NotifierSummary {
-    pub id: i64,
-    pub name: String,
-    pub kind: String,
-    pub config: serde_json::Value,
-}
-
-#[derive(Deserialize)]
-pub struct NotifierReq {
-    pub name: String,
-    pub kind: String,
-    pub config: serde_json::Value,
-}
-
-#[derive(Serialize)]
-pub struct CreateResp { pub id: i64 }
-
-pub async fn list(State(state): State<AppState>) -> Result<Json<Vec<NotifierSummary>>, StatusCode> {
+pub async fn list(
+    State(state): State<AppState>,
+    Extension(auth): Extension<AuthSource>,
+) -> Result<Json<Vec<NotifierSummary>>, StatusCode> {
     let rows = sqlx::query("SELECT id, name, kind, config_json FROM notifiers ORDER BY name")
         .fetch_all(&state.pool).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     let out = rows.into_iter().map(|r| {
         let config_str: String = r.get(3);
-        NotifierSummary {
-            id: r.get(0),
-            name: r.get(1),
-            kind: r.get(2),
-            config: serde_json::from_str(&config_str).unwrap_or_default(),
-        }
+        let mut config: serde_json::Value = serde_json::from_str(&config_str).unwrap_or_default();
+        if auth == AuthSource::Token { redact_notifier_config(&mut config); }
+        NotifierSummary { id: r.get(0), name: r.get(1), kind: r.get(2), config }
     }).collect();
     Ok(Json(out))
 }
@@ -47,6 +31,7 @@ pub async fn create(
 
 pub async fn get(
     State(state): State<AppState>,
+    Extension(auth): Extension<AuthSource>,
     Path(id): Path<i64>,
 ) -> Result<Json<NotifierSummary>, StatusCode> {
     let row = sqlx::query("SELECT id, name, kind, config_json FROM notifiers WHERE id = ?")
@@ -54,25 +39,24 @@ pub async fn get(
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
         .ok_or(StatusCode::NOT_FOUND)?;
     let config_str: String = row.get(3);
-    Ok(Json(NotifierSummary {
-        id: row.get(0),
-        name: row.get(1),
-        kind: row.get(2),
-        config: serde_json::from_str(&config_str).unwrap_or_default(),
-    }))
+    let mut config: serde_json::Value = serde_json::from_str(&config_str).unwrap_or_default();
+    if auth == AuthSource::Token { redact_notifier_config(&mut config); }
+    Ok(Json(NotifierSummary { id: row.get(0), name: row.get(1), kind: row.get(2), config }))
 }
 
 pub async fn update(
     State(state): State<AppState>,
     Path(id): Path<i64>,
-    Json(req): Json<NotifierReq>,
+    Json(mut req): Json<NotifierReq>,
 ) -> Result<StatusCode, StatusCode> {
-    let exists: Option<i64> = sqlx::query_scalar("SELECT id FROM notifiers WHERE id = ?")
+    let row = sqlx::query("SELECT config_json FROM notifiers WHERE id = ?")
         .bind(id).fetch_optional(&state.pool).await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    if exists.is_none() {
-        return Err(StatusCode::NOT_FOUND);
-    }
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .ok_or(StatusCode::NOT_FOUND)?;
+    let current_config_str: String = row.get(0);
+    let current_config: serde_json::Value = serde_json::from_str(&current_config_str).unwrap_or_default();
+    unredact_notifier_config(&mut req.config, &current_config);
+
     db::notifiers::upsert(&state.pool, &req.name, &req.kind, &req.config).await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     Ok(StatusCode::NO_CONTENT)

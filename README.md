@@ -157,9 +157,34 @@ step's checkpoint.
 | `/healthz` / `/readyz` | k8s-friendly probes |
 | `/metrics` | Prometheus exposition |
 
+## MCP server
+
+`transcoderr-mcp` is a stdio MCP binary that lets AI clients (Claude Desktop,
+Cursor) drive transcoderr's read & write surface. Download the binary for
+your platform from the latest GitHub Release, then point your AI client at
+it.
+
+```json
+{
+  "mcpServers": {
+    "transcoderr": {
+      "command": "/usr/local/bin/transcoderr-mcp",
+      "env": {
+        "TRANSCODERR_URL": "http://192.168.1.176:8099",
+        "TRANSCODERR_TOKEN": "tcr_xxxxxxxxxxxxxxxx"
+      }
+    }
+  }
+}
+```
+
+Create the token under **Settings → API tokens** in the web UI. See
+[`docs/mcp.md`](docs/mcp.md) for the full tool reference.
+
 ## Documentation
 
 - [`docs/deploy.md`](docs/deploy.md) — production deploy notes
+- [`docs/mcp.md`](docs/mcp.md) — MCP server reference
 - [`docs/flows/`](docs/flows/) — example flow YAMLs
 - [`docs/superpowers/specs/`](docs/superpowers/specs/) — original design spec
 - [`docs/superpowers/plans/`](docs/superpowers/plans/) — phase-by-phase

@@ -1,44 +1,25 @@
+use crate::api::auth::AuthSource;
 use crate::http::AppState;
+use axum::Extension;
 use axum::{extract::{Path, State}, http::StatusCode, Json};
-use serde::{Deserialize, Serialize};
 use sqlx::Row;
+use transcoderr_api_types::{CreatedIdResp as CreateResp, CreateSourceReq, SourceSummary, UpdateSourceReq};
 
-#[derive(Serialize)]
-pub struct SourceSummary {
-    pub id: i64,
-    pub kind: String,
-    pub name: String,
-    pub config: serde_json::Value,
-}
-
-#[derive(Deserialize)]
-pub struct CreateSourceReq {
-    pub kind: String,
-    pub name: String,
-    pub config: serde_json::Value,
-    pub secret_token: String,
-}
-
-#[derive(Deserialize)]
-pub struct UpdateSourceReq {
-    pub name: Option<String>,
-    pub config: Option<serde_json::Value>,
-    pub secret_token: Option<String>,
-}
-
-#[derive(Serialize)]
-pub struct CreateResp { pub id: i64 }
-
-pub async fn list(State(state): State<AppState>) -> Result<Json<Vec<SourceSummary>>, StatusCode> {
-    let rows = sqlx::query("SELECT id, kind, name, config_json FROM sources ORDER BY name")
+pub async fn list(
+    State(state): State<AppState>,
+    Extension(auth): Extension<AuthSource>,
+) -> Result<Json<Vec<SourceSummary>>, StatusCode> {
+    let rows = sqlx::query("SELECT id, kind, name, config_json, secret_token FROM sources ORDER BY name")
         .fetch_all(&state.pool).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     let out = rows.into_iter().map(|r| {
         let config_str: String = r.get(3);
+        let secret: String = r.get(4);
         SourceSummary {
             id: r.get(0),
             kind: r.get(1),
             name: r.get(2),
             config: serde_json::from_str(&config_str).unwrap_or_default(),
+            secret_token: if auth == AuthSource::Token { "***".into() } else { secret },
         }
     }).collect();
     Ok(Json(out))
@@ -61,18 +42,21 @@ pub async fn create(
 
 pub async fn get(
     State(state): State<AppState>,
+    Extension(auth): Extension<AuthSource>,
     Path(id): Path<i64>,
 ) -> Result<Json<SourceSummary>, StatusCode> {
-    let row = sqlx::query("SELECT id, kind, name, config_json FROM sources WHERE id = ?")
+    let row = sqlx::query("SELECT id, kind, name, config_json, secret_token FROM sources WHERE id = ?")
         .bind(id).fetch_optional(&state.pool).await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
         .ok_or(StatusCode::NOT_FOUND)?;
     let config_str: String = row.get(3);
+    let secret: String = row.get(4);
     Ok(Json(SourceSummary {
         id: row.get(0),
         kind: row.get(1),
         name: row.get(2),
         config: serde_json::from_str(&config_str).unwrap_or_default(),
+        secret_token: if auth == AuthSource::Token { "***".into() } else { secret },
     }))
 }
 
@@ -92,7 +76,11 @@ pub async fn update(
         Some(c) => serde_json::to_string(&c).map_err(|_| StatusCode::BAD_REQUEST)?,
         None => row.get(1),
     };
-    let secret_token: String = req.secret_token.unwrap_or_else(|| row.get(2));
+    let secret_token: String = match req.secret_token {
+        Some(s) if s == "***" => row.get(2),  // ignore redaction sentinel from token-authed callers
+        Some(s) => s,
+        None => row.get(2),
+    };
 
     sqlx::query("UPDATE sources SET name = ?, config_json = ?, secret_token = ? WHERE id = ?")
         .bind(&name).bind(&config_json).bind(&secret_token).bind(id)

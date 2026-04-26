@@ -4,37 +4,9 @@ use axum::{
     http::StatusCode,
     Json,
 };
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use sqlx::Row;
-
-#[derive(Serialize)]
-pub struct RunSummary {
-    pub id: i64,
-    pub flow_id: i64,
-    pub status: String,
-    pub created_at: i64,
-    pub finished_at: Option<i64>,
-    /// The input file the run was processing — what `ctx.file.path` started
-    /// at. Surfaced everywhere a run is identified so the user doesn't have
-    /// to drill in just to see "which one is this".
-    pub file_path: String,
-}
-
-#[derive(Serialize)]
-pub struct RunEvent {
-    pub id: i64,
-    pub job_id: i64,
-    pub ts: i64,
-    pub step_id: Option<String>,
-    pub kind: String,
-    pub payload: Option<serde_json::Value>,
-}
-
-#[derive(Serialize)]
-pub struct RunDetail {
-    pub run: RunSummary,
-    pub events: Vec<RunEvent>,
-}
+use transcoderr_api_types::{RerunResp, RunDetail, RunEvent, RunSummary};
 
 #[derive(Deserialize)]
 pub struct ListParams {
@@ -48,11 +20,6 @@ pub struct ListParams {
 pub struct EventsParams {
     pub limit: Option<i64>,
     pub offset: Option<i64>,
-}
-
-#[derive(Serialize)]
-pub struct RerunResp {
-    pub id: i64,
 }
 
 pub async fn list(

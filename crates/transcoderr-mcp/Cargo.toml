@@ -1,0 +1,34 @@
+[package]
+name = "transcoderr-mcp"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+
+[[bin]]
+name = "transcoderr-mcp"
+path = "src/main.rs"
+
+[dependencies]
+transcoderr-api-types = { path = "../transcoderr-api-types" }
+rmcp = { version = "0.3", features = ["server", "macros", "transport-io"] }
+schemars = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tokio = { workspace = true }
+reqwest = { workspace = true }
+anyhow = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true, features = ["env-filter"] }
+clap = { version = "4", features = ["derive", "env"] }
+
+[dev-dependencies]
+# Used by Task 16's end-to-end stdio integration test.
+tempfile = "3"
+serial_test = "3"
+transcoderr = { path = "../transcoderr" }
+sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio", "sqlite"] }
+chrono = { workspace = true }
+reqwest = { version = "0.12", default-features = false, features = ["blocking", "rustls-tls"] }
+tokio = { workspace = true }
+serde_json = { workspace = true }

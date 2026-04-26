@@ -27,6 +27,7 @@ async fn main() -> anyhow::Result<()> {
             tracing_subscriber::EnvFilter::try_from_default_env()
                 .unwrap_or_else(|_| "transcoderr=info,tower_http=info".into()),
         )
+        .with_writer(std::io::stderr)
         .init();
     let cli = Cli::parse();
     match cli.cmd {
@@ -91,7 +92,8 @@ async fn main() -> anyhow::Result<()> {
             let app = transcoderr::http::router(state);
             let listener =
                 tokio::net::TcpListener::bind(&cfg.bind).await?;
-            tracing::info!(bind = %cfg.bind, "serving");
+            let addr = listener.local_addr()?;
+            tracing::info!(addr = %addr, "serving");
 
             let serve = axum::serve(listener, app).with_graceful_shutdown(
                 async move {
