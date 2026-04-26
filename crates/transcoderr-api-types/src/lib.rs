@@ -1,6 +1,8 @@
 use schemars::{JsonSchema, Schema, SchemaGenerator, json_schema};
 use serde::{Deserialize, Serialize};
 
+pub mod logging;
+
 /// `schema_with` helper for fields whose Rust type is `serde_json::Value`
 /// but whose schema must be a typed object. schemars defaults `Value` to
 /// `Schema::Bool(true)` ("any"), which Claude Code's Zod-based MCP tool
