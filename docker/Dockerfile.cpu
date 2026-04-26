@@ -18,7 +18,7 @@ RUN cargo build --release --locked
 # Runtime
 FROM debian:bookworm-slim AS runtime
 RUN apt-get update && apt-get install -y --no-install-recommends \
-      ffmpeg ca-certificates tini \
+      ca-certificates ffmpeg p7zip-full tini \
     && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 COPY docker/entrypoint.sh /usr/local/bin/entrypoint.sh

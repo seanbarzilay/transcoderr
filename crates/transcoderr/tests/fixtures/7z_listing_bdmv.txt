@@ -1,0 +1,40 @@
+
+7-Zip [64] 17.04 : Copyright (c) 1999-2017 Igor Pavlov : 2017-08-28
+p7zip Version 17.04 (locale=en_US.UTF-8,Utf16=on,HugeFiles=on,64 bits,4 CPUs)
+
+Listing archive: /movies/Unlocked.iso
+
+--
+Path = /movies/Unlocked.iso
+Type = Iso
+Physical Size = 36608360448
+
+----------
+Path = BDMV/index.bdmv
+Folder = -
+Size = 110
+
+----------
+Path = BDMV/STREAM
+Folder = +
+Size = 0
+
+----------
+Path = BDMV/STREAM/00000.m2ts
+Folder = -
+Size = 1572864
+
+----------
+Path = BDMV/STREAM/00001.m2ts
+Folder = -
+Size = 36507942912
+
+----------
+Path = BDMV/STREAM/00002.m2ts
+Folder = -
+Size = 1572864
+
+----------
+Path = CERTIFICATE/ID.BDMV
+Folder = -
+Size = 110

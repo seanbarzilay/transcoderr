@@ -107,7 +107,8 @@ impl Engine {
                                     | "audio.ensure"
                                     | "remux"
                                     | "strip.tracks"
-                                    | "extract.subs" => 86_400,
+                                    | "extract.subs"
+                                    | "iso.extract" => 86_400,
                                     "probe" | "verify.playable" => 60,
                                     _ => 600,
                                 });

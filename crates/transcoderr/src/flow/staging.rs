@@ -91,6 +91,18 @@ pub fn record_output(
         .insert("_tcr_chain".into(), serde_json::json!(counter + 1));
 }
 
+/// The current input path for steps that consume the staging chain.
+/// Returns the latest staged tmp file (chain head) if one exists, else the
+/// original `ctx.file.path`. Used by `probe` so it sees what transformer
+/// steps have produced upstream (e.g. an extracted M2TS from `iso.extract`).
+pub fn current_input(ctx: &Context) -> &str {
+    ctx.steps
+        .get("transcode")
+        .and_then(|v| v.get("output_path"))
+        .and_then(|v| v.as_str())
+        .unwrap_or(&ctx.file.path)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -114,5 +126,18 @@ mod tests {
         assert_eq!(input, first_out);
         assert_ne!(input, second_out);
         assert_eq!(second_out.to_string_lossy(), "/m/Dune.mkv.tcr-01.tmp.mkv");
+    }
+
+    #[test]
+    fn current_input_returns_file_path_when_no_chain() {
+        let ctx = Context::for_file("/m/Dune.mkv");
+        assert_eq!(current_input(&ctx), "/m/Dune.mkv");
+    }
+
+    #[test]
+    fn current_input_returns_chain_head_when_present() {
+        let mut ctx = Context::for_file("/m/Dune.iso");
+        record_output(&mut ctx, std::path::Path::new("/m/Dune.iso.tcr-00.tmp.m2ts"), json!({}));
+        assert_eq!(current_input(&ctx), "/m/Dune.iso.tcr-00.tmp.m2ts");
     }
 }

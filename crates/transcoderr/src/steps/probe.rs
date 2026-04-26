@@ -1,6 +1,6 @@
 use super::{Step, StepProgress};
 use crate::ffmpeg::ffprobe_json;
-use crate::flow::Context;
+use crate::flow::{staging, Context};
 use async_trait::async_trait;
 use serde_json::Value;
 use std::collections::BTreeMap;
@@ -18,7 +18,8 @@ impl Step for ProbeStep {
         ctx: &mut Context,
         on_progress: &mut (dyn FnMut(StepProgress) + Send),
     ) -> anyhow::Result<()> {
-        let path = Path::new(&ctx.file.path);
+        let input = staging::current_input(ctx).to_string();
+        let path = Path::new(&input);
         on_progress(StepProgress::Log(format!("probing {}", path.display())));
         let v = ffprobe_json(path).await?;
         ctx.probe = Some(v);
