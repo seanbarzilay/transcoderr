@@ -59,9 +59,17 @@ Behavior:
    tmp file. Emit `StepProgress::Log` periodically with bytes-out so
    the run UI shows progress.
 7. Record outputs in the context:
-   - `ctx.steps["iso_extract"]["output_path"]` = staged tmp path.
-   - `ctx.steps["iso_extract"]["replaced_input_path"]` = original ISO
-     path (consumed by `output:replace`).
+   - The staged M2TS path goes through the existing
+     `staging::record_output(ctx, &output, json!({}))` helper, which
+     writes it to `ctx.steps["transcode"]["output_path"]` (the
+     codebase's single staging-chain key — historical name, treated
+     as generic). This makes the M2TS the chain head so subsequent
+     transformer steps and the updated `probe` see it.
+   - The original ISO path goes into `ctx.steps["iso_extract"]["replaced_input_path"]`
+     as its own dedicated key (NOT inside `transcode`, because
+     `staging::record_output` overwrites the `transcode` map on
+     subsequent chain steps and would wipe it). Consumed by
+     `output:replace`.
 8. Mutate `ctx.file.path` from `Unlocked.iso` to `Unlocked.{ext}` where
    `{ext}` comes from the step's `with.target_extension` YAML
    parameter, defaulting to `"mkv"`. (Note: `iso.extract` runs *before*
@@ -87,17 +95,18 @@ the transformer steps already use):
 
 ```rust
 fn current_input(ctx: &Context) -> &str {
-    ctx.steps.get("iso_extract")
+    ctx.steps.get("transcode")
         .and_then(|s| s.get("output_path"))
-        .or_else(|| ctx.steps.get("transcode").and_then(|s| s.get("output_path")))
         .and_then(|v| v.as_str())
         .unwrap_or(&ctx.file.path)
 }
 ```
 
-This generalizes to a `staging::current_input(ctx)` helper used by
-`probe`. The transformer steps already get this for free via
-`staging::next_io`.
+Lives as `staging::current_input(ctx)` next to the existing
+`staging::next_io` and `staging::record_output`. One-line change in
+`probe.rs` to use it instead of reading `ctx.file.path` directly. The
+existing transformer steps already have this fallback baked into
+`staging::next_io` so they need no change.
 
 ### `output:replace` deletes the replaced input on success
 
@@ -116,10 +125,18 @@ if let Some(replaced) = ctx.steps.get("iso_extract")
     .and_then(|s| s.get("replaced_input_path"))
     .and_then(|v| v.as_str())
 {
-    std::fs::remove_file(replaced)?;
+    if let Err(e) = std::fs::remove_file(replaced) {
+        on_progress(StepProgress::Log(format!(
+            "warn: failed to delete replaced input {replaced}: {e}"
+        )));
+    }
 }
 Ok(())
 ```
+
+Best-effort delete: if the .iso can't be removed (permission, race) we
+log and continue — the .mkv is already in the user's library, so the
+operation succeeded in the meaningful sense.
 
 When `iso.extract` ran, `ctx.file.path` is `Unlocked.mkv`, the staged
 tmp is the transcoded `.mkv`, and `replaced_input_path` is the original
