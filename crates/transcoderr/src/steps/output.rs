@@ -1,8 +1,9 @@
 use super::{Step, StepProgress};
-use crate::flow::Context;
+use crate::flow::{plan::load_plan, Context};
 use async_trait::async_trait;
 use serde_json::Value;
 use std::collections::BTreeMap;
+use std::path::PathBuf;
 
 pub struct OutputStep;
 
@@ -29,30 +30,55 @@ impl Step for OutputStep {
             .to_string();
 
         let original = ctx.file.path.clone();
-        on_progress(StepProgress::Log(format!("replacing {} with {}", original, staged)));
 
-        // Same-filesystem atomic rename. (For Phase 1 we assume staged is sibling of original.)
-        std::fs::rename(&staged, &original)?;
+        // If a plan exists, the planned container determines the final
+        // extension. mp4 sources transcoded to mkv land at <stem>.mkv
+        // and the .mp4 is deleted. Same-extension flows (mkv -> mkv)
+        // keep today's atomic in-place rename. No plan -> no extension
+        // swap.
+        let final_path = match plan_container(ctx) {
+            Some(container) => swap_extension(&original, &container),
+            None => original.clone(),
+        };
 
-        // If iso.extract ran upstream, delete the original ISO it preserved. Best-effort:
-        // the .mkv is already in place at this point, so a delete failure is non-fatal.
-        if let Some(replaced) = ctx
-            .steps
-            .get("iso_extract")
-            .and_then(|s| s.get("replaced_input_path"))
-            .and_then(|v| v.as_str())
-        {
-            match std::fs::remove_file(replaced) {
+        on_progress(StepProgress::Log(format!(
+            "replacing {original} with {staged} -> {final_path}"
+        )));
+        std::fs::rename(&staged, &final_path)?;
+
+        // Best-effort delete of the source when the final path differs
+        // (extension change). The new file is already in place, so a
+        // delete failure is non-fatal -- we log and continue.
+        if final_path != original {
+            match std::fs::remove_file(&original) {
                 Ok(()) => on_progress(StepProgress::Log(format!(
-                    "removed replaced input {replaced}"
+                    "removed source {original}"
                 ))),
                 Err(e) => on_progress(StepProgress::Log(format!(
-                    "warn: failed to delete replaced input {replaced}: {e}"
+                    "warn: failed to delete source {original}: {e}"
                 ))),
             }
         }
         Ok(())
     }
+}
+
+/// Pull the planned container ext (e.g. "mkv") from `ctx.steps["_plan"]`.
+/// Goes through `load_plan` rather than a raw JSON walk so that any
+/// future `serde` rename/transform on `StreamPlan` is automatically
+/// respected — a raw `v.get("container")` lookup would silently break
+/// if `StreamPlan` ever gained `#[serde(rename_all = "camelCase")]`.
+fn plan_container(ctx: &Context) -> Option<String> {
+    load_plan(ctx).map(|p| p.container)
+}
+
+/// Replace the trailing extension on `path` with `new_ext`. Used to
+/// align the output filename with the planned container.
+fn swap_extension(path: &str, new_ext: &str) -> String {
+    let pb = PathBuf::from(path);
+    let parent = pb.parent().map(|p| p.to_path_buf()).unwrap_or_else(|| PathBuf::from("."));
+    let stem = pb.file_stem().and_then(|s| s.to_str()).unwrap_or("output");
+    parent.join(format!("{stem}.{new_ext}")).to_string_lossy().into_owned()
 }
 
 #[cfg(test)]
@@ -62,8 +88,20 @@ mod tests {
     use std::io::Write;
     use tempfile::tempdir;
 
+    fn seed_plan(ctx: &mut Context, container: &str) {
+        // Go through `save_plan` (rather than seeding raw JSON) so the
+        // shape in ctx.steps["_plan"] is a real serialized StreamPlan.
+        // This keeps these tests honest if StreamPlan ever gains new
+        // required fields or `#[serde(rename_all = ...)]`.
+        let plan = crate::flow::plan::StreamPlan {
+            container: container.to_string(),
+            ..Default::default()
+        };
+        crate::flow::plan::save_plan(ctx, &plan);
+    }
+
     #[tokio::test]
-    async fn replace_renames_staged_to_original() {
+    async fn replace_in_place_when_extensions_match() {
         let dir = tempdir().unwrap();
         let original = dir.path().join("Movie.mkv");
         let staged = dir.path().join("Movie.mkv.tcr-00.tmp.mkv");
@@ -71,6 +109,7 @@ mod tests {
         std::fs::File::create(&staged).unwrap().write_all(b"new").unwrap();
 
         let mut ctx = Context::for_file(original.to_string_lossy().to_string());
+        seed_plan(&mut ctx, "mkv");
         ctx.steps.insert(
             "transcode".into(),
             json!({"output_path": staged.to_string_lossy()}),
@@ -83,27 +122,24 @@ mod tests {
             .unwrap();
 
         assert!(!staged.exists(), "staged should be moved");
-        assert_eq!(std::fs::read(&original).unwrap(), b"new");
+        assert_eq!(std::fs::read(&original).unwrap(), b"new",
+            "in-place atomic rename should overwrite original with staged content");
     }
 
     #[tokio::test]
-    async fn replace_deletes_replaced_input_when_iso_extract_ran() {
+    async fn replace_swaps_extension_and_deletes_source() {
         let dir = tempdir().unwrap();
-        let iso = dir.path().join("Movie.iso");
+        let source_mp4 = dir.path().join("Movie.mp4");
         let final_mkv = dir.path().join("Movie.mkv");
-        let staged = dir.path().join("Movie.mkv.tcr-01.tmp.mkv");
-        std::fs::File::create(&iso).unwrap().write_all(b"iso bytes").unwrap();
+        let staged = dir.path().join("Movie.mp4.tcr-00.tmp.mkv");
+        std::fs::File::create(&source_mp4).unwrap().write_all(b"mp4 bytes").unwrap();
         std::fs::File::create(&staged).unwrap().write_all(b"mkv bytes").unwrap();
 
-        // Simulate post-iso.extract context state.
-        let mut ctx = Context::for_file(final_mkv.to_string_lossy().to_string());
+        let mut ctx = Context::for_file(source_mp4.to_string_lossy().to_string());
+        seed_plan(&mut ctx, "mkv");
         ctx.steps.insert(
             "transcode".into(),
             json!({"output_path": staged.to_string_lossy()}),
-        );
-        ctx.steps.insert(
-            "iso_extract".into(),
-            json!({"replaced_input_path": iso.to_string_lossy()}),
         );
 
         let mut noop = |_p: StepProgress| {};
@@ -113,12 +149,13 @@ mod tests {
             .unwrap();
 
         assert!(!staged.exists(), "staged should be moved");
-        assert!(!iso.exists(), "original ISO should be deleted");
-        assert_eq!(std::fs::read(&final_mkv).unwrap(), b"mkv bytes");
+        assert!(!source_mp4.exists(), "source .mp4 should be deleted on extension change");
+        assert_eq!(std::fs::read(&final_mkv).unwrap(), b"mkv bytes",
+            "the .mkv should land at the swapped-extension path");
     }
 
     #[tokio::test]
-    async fn replace_skips_iso_delete_when_not_set() {
+    async fn replace_no_plan_falls_back_to_in_place_rename() {
         let dir = tempdir().unwrap();
         let original = dir.path().join("Movie.mkv");
         let staged = dir.path().join("Movie.mkv.tcr-00.tmp.mkv");
@@ -126,11 +163,11 @@ mod tests {
         std::fs::File::create(&staged).unwrap().write_all(b"new").unwrap();
 
         let mut ctx = Context::for_file(original.to_string_lossy().to_string());
+        // NO _plan key — this test exercises the no-plan fallback.
         ctx.steps.insert(
             "transcode".into(),
             json!({"output_path": staged.to_string_lossy()}),
         );
-        // No iso_extract entry — should behave exactly like before.
 
         let mut noop = |_p: StepProgress| {};
         OutputStep
@@ -138,6 +175,38 @@ mod tests {
             .await
             .unwrap();
 
-        assert!(original.exists());
+        assert!(!staged.exists(), "staged should be moved");
+        assert_eq!(std::fs::read(&original).unwrap(), b"new",
+            "no plan -> verbatim rename to ctx.file.path");
+        assert!(original.exists(), "original path still exists (in-place rename)");
+    }
+
+    #[tokio::test]
+    async fn replace_renames_staged_to_original() {
+        // Tweaked from the v0.8.1 version: now seeds _plan { container: "mkv" }
+        // matching the source's .mkv extension. Equivalent to the in-place
+        // case above but kept as a more general "the staged content lands at
+        // the destination path" assertion.
+        let dir = tempdir().unwrap();
+        let original = dir.path().join("Show.S01E02.mkv");
+        let staged = dir.path().join("Show.S01E02.mkv.tcr-00.tmp.mkv");
+        std::fs::File::create(&original).unwrap().write_all(b"old").unwrap();
+        std::fs::File::create(&staged).unwrap().write_all(b"transcoded").unwrap();
+
+        let mut ctx = Context::for_file(original.to_string_lossy().to_string());
+        seed_plan(&mut ctx, "mkv");
+        ctx.steps.insert(
+            "transcode".into(),
+            json!({"output_path": staged.to_string_lossy()}),
+        );
+
+        let mut noop = |_p: StepProgress| {};
+        OutputStep
+            .execute(&BTreeMap::new(), &mut ctx, &mut noop)
+            .await
+            .unwrap();
+
+        assert!(!staged.exists(), "staged should be moved");
+        assert_eq!(std::fs::read(&original).unwrap(), b"transcoded");
     }
 }

@@ -16,9 +16,11 @@ match:
   expr: file.size_gb > 0.001
 
 steps:
-  # Demux the largest BDMV/STREAM/*.m2ts out of any .iso input. No-ops for
-  # non-ISO inputs. Threads the m2ts through the staging chain so probe sees
-  # it; output:replace deletes the original .iso on success.
+  # Route .iso inputs through ffmpeg's bluray: protocol (libbluray reads
+  # the disc directly — no on-disk extraction). No-ops for non-ISO inputs.
+  # The chain head becomes a bluray:URL; output:replace later swaps the
+  # final filename's extension to match plan.container and deletes the
+  # source .iso on success.
   - id: iso-extract
     use: iso.extract
 
