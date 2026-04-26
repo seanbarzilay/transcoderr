@@ -1,57 +1,27 @@
-[package]
-name = "transcoderr"
-version = "0.6.3"
+[workspace]
+resolver = "2"
+members = [
+  "crates/transcoderr",
+]
+
+[workspace.package]
+version = "0.7.0"
 edition = "2021"
 rust-version = "1.78"
 
-[dependencies]
-tokio = { version = "1", features = ["macros", "rt-multi-thread", "process", "signal", "fs", "time", "sync"] }
-axum = { version = "0.7", features = ["macros"] }
-tower = "0.5"
-tower-http = { version = "0.6", features = ["trace"] }
-sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio", "sqlite", "migrate", "chrono", "macros"] }
-libsqlite3-sys = { version = "0.30", features = ["bundled"] }
+[workspace.dependencies]
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-serde_yaml = "0.9"
-toml = "0.8"
-thiserror = "1"
-anyhow = "1"
-tracing = "0.1"
-tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
-clap = { version = "4", features = ["derive"] }
+schemars = "0.8"
 chrono = { version = "0.4", features = ["serde"] }
-async-trait = "0.1"
-cel-interpreter = "0.10"
-reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "cookies", "stream"] }
-tokio-stream = { version = "0.1", features = ["sync"] }
-tokio-util = { version = "0.7", default-features = false }
-futures = "0.3"
-argon2 = "0.5"
-base64 = "0.22"
-rand = "0.8"
-tower-cookies = "0.10"
-time = "0.3"
-uuid = { version = "1", features = ["v4"] }
-include_dir = "0.7"
-mime_guess = "2"
-metrics = "0.23"
-metrics-exporter-prometheus = "0.15"
-
-[dev-dependencies]
-tempfile = "3"
-pretty_assertions = "1"
-serial_test = "3"
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "io-util"] }
+anyhow = "1"
+thiserror = "1"
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
 [profile.release]
 lto = "thin"
 strip = true
 codegen-units = 1
-
-[lib]
-name = "transcoderr"
-path = "src/lib.rs"
-
-[[bin]]
-name = "transcoderr"
-path = "src/main.rs"

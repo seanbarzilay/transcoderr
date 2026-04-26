@@ -1,0 +1,52 @@
+[package]
+name = "transcoderr"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "process", "signal", "fs", "time", "sync"] }
+axum = { version = "0.7", features = ["macros"] }
+tower = "0.5"
+tower-http = { version = "0.6", features = ["trace"] }
+sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio", "sqlite", "migrate", "chrono", "macros"] }
+libsqlite3-sys = { version = "0.30", features = ["bundled"] }
+serde = { workspace = true }
+serde_json = { workspace = true }
+serde_yaml = "0.9"
+toml = "0.8"
+thiserror = { workspace = true }
+anyhow = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true, features = ["env-filter", "json"] }
+clap = { version = "4", features = ["derive"] }
+chrono = { workspace = true }
+async-trait = "0.1"
+cel-interpreter = "0.10"
+reqwest = { workspace = true, features = ["json", "rustls-tls", "cookies", "stream"] }
+tokio-stream = { version = "0.1", features = ["sync"] }
+tokio-util = { version = "0.7", default-features = false }
+futures = "0.3"
+argon2 = "0.5"
+base64 = "0.22"
+rand = "0.8"
+tower-cookies = "0.10"
+time = "0.3"
+uuid = { version = "1", features = ["v4"] }
+include_dir = "0.7"
+mime_guess = "2"
+metrics = "0.23"
+metrics-exporter-prometheus = "0.15"
+
+[dev-dependencies]
+tempfile = "3"
+pretty_assertions = "1"
+serial_test = "3"
+
+[lib]
+name = "transcoderr"
+path = "src/lib.rs"
+
+[[bin]]
+name = "transcoderr"
+path = "src/main.rs"

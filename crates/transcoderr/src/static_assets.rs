@@ -5,7 +5,7 @@ use axum::{
 };
 use include_dir::{include_dir, Dir};
 
-static DIST: Dir<'_> = include_dir!("$CARGO_MANIFEST_DIR/web/dist");
+static DIST: Dir<'_> = include_dir!("$CARGO_MANIFEST_DIR/../../web/dist");
 
 pub async fn serve(uri: Uri) -> Result<Response<Body>, StatusCode> {
     let path = uri.path().trim_start_matches('/');
