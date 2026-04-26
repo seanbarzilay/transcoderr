@@ -12,6 +12,7 @@ use crate::steps::{
     plan_steps::{
         PlanAudioEnsureStep, PlanContainerStep, PlanDropCoverArtStep, PlanDropDataStep,
         PlanDropUnsupportedSubsStep, PlanInitStep, PlanTolerateErrorsStep, PlanVideoEncodeStep,
+        PlanVideoTonemapStep,
     },
     probe::ProbeStep,
     remux::RemuxStep,
@@ -52,6 +53,7 @@ pub fn register_all(
     map.insert("plan.subs.drop_unsupported".into(), Arc::new(PlanDropUnsupportedSubsStep));
     map.insert("plan.container".into(), Arc::new(PlanContainerStep));
     map.insert("plan.video.encode".into(), Arc::new(PlanVideoEncodeStep));
+    map.insert("plan.video.tonemap".into(), Arc::new(PlanVideoTonemapStep));
     map.insert("plan.audio.ensure".into(), Arc::new(PlanAudioEnsureStep));
     map.insert("plan.execute".into(), Arc::new(PlanExecuteStep { hw: hw.clone() }));
     map.insert("move".into(), Arc::new(MoveStep));
