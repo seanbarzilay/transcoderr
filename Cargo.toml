@@ -3,6 +3,7 @@ resolver = "2"
 members = [
   "crates/transcoderr",
   "crates/transcoderr-api-types",
+  "crates/transcoderr-mcp",
 ]
 
 [workspace.package]
