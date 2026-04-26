@@ -1,19 +1,25 @@
+use crate::api::auth::AuthSource;
 use crate::http::AppState;
+use axum::Extension;
 use axum::{extract::{Path, State}, http::StatusCode, Json};
 use sqlx::Row;
 use transcoderr_api_types::{CreatedIdResp as CreateResp, CreateSourceReq, SourceSummary, UpdateSourceReq};
 
-pub async fn list(State(state): State<AppState>) -> Result<Json<Vec<SourceSummary>>, StatusCode> {
+pub async fn list(
+    State(state): State<AppState>,
+    Extension(auth): Extension<AuthSource>,
+) -> Result<Json<Vec<SourceSummary>>, StatusCode> {
     let rows = sqlx::query("SELECT id, kind, name, config_json, secret_token FROM sources ORDER BY name")
         .fetch_all(&state.pool).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     let out = rows.into_iter().map(|r| {
         let config_str: String = r.get(3);
+        let secret: String = r.get(4);
         SourceSummary {
             id: r.get(0),
             kind: r.get(1),
             name: r.get(2),
             config: serde_json::from_str(&config_str).unwrap_or_default(),
-            secret_token: r.get(4),
+            secret_token: if auth == AuthSource::Token { "***".into() } else { secret },
         }
     }).collect();
     Ok(Json(out))
@@ -36,6 +42,7 @@ pub async fn create(
 
 pub async fn get(
     State(state): State<AppState>,
+    Extension(auth): Extension<AuthSource>,
     Path(id): Path<i64>,
 ) -> Result<Json<SourceSummary>, StatusCode> {
     let row = sqlx::query("SELECT id, kind, name, config_json, secret_token FROM sources WHERE id = ?")
@@ -43,12 +50,13 @@ pub async fn get(
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
         .ok_or(StatusCode::NOT_FOUND)?;
     let config_str: String = row.get(3);
+    let secret: String = row.get(4);
     Ok(Json(SourceSummary {
         id: row.get(0),
         kind: row.get(1),
         name: row.get(2),
         config: serde_json::from_str(&config_str).unwrap_or_default(),
-        secret_token: row.get(4),
+        secret_token: if auth == AuthSource::Token { "***".into() } else { secret },
     }))
 }
 

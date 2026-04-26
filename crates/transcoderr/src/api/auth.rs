@@ -152,3 +152,19 @@ pub async fn delete_token(
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     if removed { Ok(StatusCode::NO_CONTENT) } else { Err(StatusCode::NOT_FOUND) }
 }
+
+/// Replaces secret-bearing JSON fields in-place with `"***"`. Used in
+/// notifier `config` blobs where the schema varies by `kind`.
+pub fn redact_notifier_config(config: &mut serde_json::Value) {
+    const SECRET_KEYS: &[&str] = &[
+        "bot_token", "token", "secret", "password", "api_key", "webhook_url",
+        "url", "auth_token",
+    ];
+    if let Some(obj) = config.as_object_mut() {
+        for k in SECRET_KEYS {
+            if obj.contains_key(*k) {
+                obj.insert((*k).into(), serde_json::Value::String("***".into()));
+            }
+        }
+    }
+}
