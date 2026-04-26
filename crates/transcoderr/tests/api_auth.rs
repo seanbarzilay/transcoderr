@@ -101,3 +101,29 @@ async fn token_endpoints_create_list_delete() {
         .json().await.unwrap();
     assert!(listed2.is_empty());
 }
+
+#[tokio::test]
+async fn bearer_token_authenticates_to_protected_endpoint() {
+    let app = boot().await;
+    let h = hash_password("hunter2").unwrap();
+    db::settings::set(&app.pool, "auth.enabled", "true").await.unwrap();
+    db::settings::set(&app.pool, "auth.password_hash", &h).await.unwrap();
+
+    let made = transcoderr::db::api_tokens::create(&app.pool, "test").await.unwrap();
+
+    // No auth → 401
+    let r0 = reqwest::Client::new().get(format!("{}/api/flows", app.url)).send().await.unwrap();
+    assert_eq!(r0.status(), 401);
+
+    // Wrong token → 401
+    let r1 = reqwest::Client::new().get(format!("{}/api/flows", app.url))
+        .bearer_auth("tcr_definitelynotreal000000000000000")
+        .send().await.unwrap();
+    assert_eq!(r1.status(), 401);
+
+    // Correct token → 200
+    let r2 = reqwest::Client::new().get(format!("{}/api/flows", app.url))
+        .bearer_auth(&made.token)
+        .send().await.unwrap();
+    assert!(r2.status().is_success(), "got {}", r2.status());
+}

@@ -67,19 +67,50 @@ async fn session_valid(pool: &sqlx::SqlitePool, sid: &str) -> anyhow::Result<boo
     Ok(matches!(row, Some((e,)) if e > chrono::Utc::now().timestamp()))
 }
 
+/// Marker placed on the request via Extension when auth was satisfied.
+/// Downstream handlers consult this to decide whether to redact secrets.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum AuthSource {
+    /// Auth disabled globally — treat as session-equivalent (no redaction).
+    Disabled,
+    /// Authenticated via session cookie (UI).
+    Session,
+    /// Authenticated via Bearer API token (e.g. MCP).
+    Token,
+}
+
 pub async fn require_auth(
     State(state): State<AppState>,
     cookies: Cookies,
-    request: axum::http::Request<axum::body::Body>,
+    mut request: axum::http::Request<axum::body::Body>,
     next: axum::middleware::Next,
 ) -> Result<axum::response::Response, StatusCode> {
     let enabled = db::settings::get(&state.pool, "auth.enabled").await
         .ok().flatten().unwrap_or_default() == "true";
-    if !enabled { return Ok(next.run(request).await); }
+    if !enabled {
+        request.extensions_mut().insert(AuthSource::Disabled);
+        return Ok(next.run(request).await);
+    }
+
+    // Bearer first (cheap header read, no DB if absent).
+    if let Some(h) = request.headers().get(axum::http::header::AUTHORIZATION) {
+        if let Ok(s) = h.to_str() {
+            if let Some(token) = s.strip_prefix("Bearer ") {
+                if crate::db::api_tokens::verify(&state.pool, token).await.is_some() {
+                    request.extensions_mut().insert(AuthSource::Token);
+                    return Ok(next.run(request).await);
+                }
+                return Err(StatusCode::UNAUTHORIZED);
+            }
+        }
+    }
+
+    // Fall back to session cookie.
     let sid = cookies.get("transcoderr_sid").ok_or(StatusCode::UNAUTHORIZED)?;
     if !session_valid(&state.pool, sid.value()).await.unwrap_or(false) {
         return Err(StatusCode::UNAUTHORIZED);
     }
+    request.extensions_mut().insert(AuthSource::Session);
     Ok(next.run(request).await)
 }
 
