@@ -58,6 +58,24 @@ fn channel_layout_label(channels: i64) -> String {
     }
 }
 
+/// Returns `Some("hdr10")` | `Some("hlg")` | `None` based on the first
+/// video stream's `color_transfer` field. Dolby Vision detection (via
+/// stream side data) is deferred — for now we treat DV the same as the
+/// base HDR10 layer it falls back to.
+fn detect_hdr_kind(probe: &serde_json::Value) -> Option<&'static str> {
+    let streams = probe.get("streams")?.as_array()?;
+    for s in streams {
+        if s.get("codec_type")?.as_str()? != "video" { continue; }
+        let transfer = s.get("color_transfer")?.as_str()?;
+        return match transfer {
+            "smpte2084" => Some("hdr10"),
+            "arib-std-b67" => Some("hlg"),
+            _ => None,
+        };
+    }
+    None
+}
+
 // ---------------------------------------------------------------------------
 // plan.init — seeds StreamPlan from probe (every stream copied, container=mkv)
 // ---------------------------------------------------------------------------
@@ -612,5 +630,49 @@ mod tests {
         PlanAudioEnsureStep.execute(&with, &mut ctx, &mut cb).await.unwrap();
         let plan = load_plan(&ctx).unwrap();
         assert_eq!(plan.audio_added.len(), 1, "commentary by title should not satisfy target");
+    }
+
+    #[test]
+    fn detect_hdr_kind_returns_none_for_sdr_probe() {
+        let probe = json!({
+            "streams": [{
+                "codec_type": "video",
+                "color_transfer": "bt709"
+            }]
+        });
+        assert!(detect_hdr_kind(&probe).is_none());
+    }
+
+    #[test]
+    fn detect_hdr_kind_returns_hdr10_for_smpte2084() {
+        let probe = json!({
+            "streams": [{
+                "codec_type": "video",
+                "color_transfer": "smpte2084"
+            }]
+        });
+        assert_eq!(detect_hdr_kind(&probe), Some("hdr10"));
+    }
+
+    #[test]
+    fn detect_hdr_kind_returns_hlg_for_arib_std_b67() {
+        let probe = json!({
+            "streams": [{
+                "codec_type": "video",
+                "color_transfer": "arib-std-b67"
+            }]
+        });
+        assert_eq!(detect_hdr_kind(&probe), Some("hlg"));
+    }
+
+    #[test]
+    fn detect_hdr_kind_ignores_audio_streams() {
+        let probe = json!({
+            "streams": [{
+                "codec_type": "audio",
+                "channels": 6
+            }]
+        });
+        assert!(detect_hdr_kind(&probe).is_none());
     }
 }
