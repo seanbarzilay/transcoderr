@@ -9,6 +9,9 @@ use std::path::PathBuf;
 struct Cli {
     #[command(subcommand)]
     cmd: Cmd,
+    /// Log output format.
+    #[arg(long, env = "LOG_FORMAT", value_enum, default_value_t = transcoderr_api_types::logging::LogFormat::Text, global = true)]
+    log_format: transcoderr_api_types::logging::LogFormat,
 }
 
 #[derive(clap::Subcommand)]
@@ -22,14 +25,8 @@ enum Cmd {
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    tracing_subscriber::fmt()
-        .with_env_filter(
-            tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| "transcoderr=info,tower_http=info".into()),
-        )
-        .with_writer(std::io::stderr)
-        .init();
     let cli = Cli::parse();
+    transcoderr_api_types::logging::init(cli.log_format, "transcoderr=info,tower_http=info");
     match cli.cmd {
         Cmd::Serve { config } => {
             let cfg = std::sync::Arc::new(
