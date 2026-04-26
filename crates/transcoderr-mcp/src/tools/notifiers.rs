@@ -31,7 +31,7 @@ pub struct DeleteNotifierArgs {
 #[tool_router(router = notifiers_router, vis = "pub")]
 impl Server {
     #[tool(name = "list_notifiers", description = "List notifier channels (discord/ntfy/telegram/webhook). Secret-bearing config keys are redacted to `***` for token-authed callers.")]
-    pub async fn list_notifiers(&self, _: Parameters<()>) -> Result<Json<Vec<NotifierSummary>>, ErrorData> {
+    pub async fn list_notifiers(&self, _: Parameters<super::NoArgs>) -> Result<Json<Vec<NotifierSummary>>, ErrorData> {
         self.api
             .get::<Vec<NotifierSummary>>("/api/notifiers")
             .await

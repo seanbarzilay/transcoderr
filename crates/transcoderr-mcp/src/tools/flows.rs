@@ -34,13 +34,14 @@ pub struct DryRunArgs {
     pub yaml: String,
     pub file_path: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(schema_with = "transcoderr_api_types::optional_json_object_schema")]
     pub probe: Option<serde_json::Value>,
 }
 
 #[tool_router(router = flows_router, vis = "pub")]
 impl Server {
     #[tool(name = "list_flows", description = "List all configured transcode flows.")]
-    pub async fn list_flows(&self, _: Parameters<()>) -> Result<Json<Vec<FlowSummary>>, ErrorData> {
+    pub async fn list_flows(&self, _: Parameters<super::NoArgs>) -> Result<Json<Vec<FlowSummary>>, ErrorData> {
         self.api
             .get::<Vec<FlowSummary>>("/api/flows")
             .await

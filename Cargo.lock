@@ -3174,7 +3174,7 @@ dependencies = [
 
 [[package]]
 name = "transcoderr"
-version = "0.7.0"
+version = "0.7.1"
 dependencies = [
  "anyhow",
  "argon2",
@@ -3216,7 +3216,7 @@ dependencies = [
 
 [[package]]
 name = "transcoderr-api-types"
-version = "0.7.0"
+version = "0.7.1"
 dependencies = [
  "chrono",
  "schemars",
@@ -3226,7 +3226,7 @@ dependencies = [
 
 [[package]]
 name = "transcoderr-mcp"
-version = "0.7.0"
+version = "0.7.1"
 dependencies = [
  "anyhow",
  "chrono",

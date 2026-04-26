@@ -1,5 +1,26 @@
-use schemars::JsonSchema;
+use schemars::{JsonSchema, Schema, SchemaGenerator, json_schema};
 use serde::{Deserialize, Serialize};
+
+/// `schema_with` helper for fields whose Rust type is `serde_json::Value`
+/// but whose schema must be a typed object. schemars defaults `Value` to
+/// `Schema::Bool(true)` ("any"), which Claude Code's Zod-based MCP tool
+/// validator rejects with `Invalid input: expected "object"`, dropping
+/// the entire server's tool list.
+pub fn json_object_schema(_g: &mut SchemaGenerator) -> Schema {
+    json_schema!({
+        "type": "object",
+        "additionalProperties": true
+    })
+}
+
+/// As [`json_object_schema`] but for `Option<serde_json::Value>` fields.
+pub fn optional_json_object_schema(_g: &mut SchemaGenerator) -> Schema {
+    json_schema!({
+        "type": "object",
+        "additionalProperties": true,
+        "nullable": true
+    })
+}
 
 /// Stable error wire format. The HTTP API returns this body on failures;
 /// the MCP binary deserializes it and maps to ToolError.
@@ -103,6 +124,7 @@ pub struct SourceSummary {
 pub struct CreateSourceReq {
     pub kind: String,
     pub name: String,
+    #[schemars(schema_with = "json_object_schema")]
     pub config: serde_json::Value,
     pub secret_token: String,
 }
@@ -112,6 +134,7 @@ pub struct UpdateSourceReq {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(schema_with = "optional_json_object_schema")]
     pub config: Option<serde_json::Value>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub secret_token: Option<String>,
@@ -133,6 +156,7 @@ pub struct NotifierSummary {
 pub struct NotifierReq {
     pub name: String,
     pub kind: String,
+    #[schemars(schema_with = "json_object_schema")]
     pub config: serde_json::Value,
 }
 

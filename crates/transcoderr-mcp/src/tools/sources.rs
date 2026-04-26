@@ -31,7 +31,7 @@ pub struct DeleteSourceArgs {
 #[tool_router(router = sources_router, vis = "pub")]
 impl Server {
     #[tool(name = "list_sources", description = "List webhook sources (radarr/sonarr/lidarr/generic). Secret tokens are redacted to `***` in the response (token-authed callers can't recover them).")]
-    pub async fn list_sources(&self, _: Parameters<()>) -> Result<Json<Vec<SourceSummary>>, ErrorData> {
+    pub async fn list_sources(&self, _: Parameters<super::NoArgs>) -> Result<Json<Vec<SourceSummary>>, ErrorData> {
         self.api
             .get::<Vec<SourceSummary>>("/api/sources")
             .await
