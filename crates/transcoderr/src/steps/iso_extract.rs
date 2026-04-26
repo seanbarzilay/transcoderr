@@ -1,6 +1,15 @@
 //! `iso.extract` step: detects Blu-ray ISO inputs, demuxes the largest
 //! `BDMV/STREAM/*.m2ts`, and threads it through the staging chain.
 
+use crate::flow::{staging, Context};
+use crate::steps::{Step, StepProgress};
+use async_trait::async_trait;
+use serde_json::{json, Value};
+use std::collections::BTreeMap;
+use std::path::PathBuf;
+use std::process::Stdio;
+use tokio::io::AsyncWriteExt;
+
 #[derive(Debug, PartialEq, Eq)]
 pub struct Entry {
     pub path: String,
@@ -45,15 +54,6 @@ pub fn pick_largest_m2ts(entries: &[Entry]) -> Option<&Entry> {
         })
         .max_by_key(|e| e.size)
 }
-
-use crate::flow::{staging, Context};
-use crate::steps::{Step, StepProgress};
-use async_trait::async_trait;
-use serde_json::{json, Value};
-use std::collections::BTreeMap;
-use std::path::PathBuf;
-use std::process::Stdio;
-use tokio::io::AsyncWriteExt;
 
 pub struct IsoExtractStep;
 
@@ -101,7 +101,7 @@ impl Step for IsoExtractStep {
         let (_, output_path) = staging::next_io(ctx, "m2ts");
 
         // 4. Stream-extract the chosen entry to the staged tmp.
-        run_7z_extract_to(&input_path, &pick_path, &output_path, on_progress).await?;
+        run_7z_extract_to(&input_path, &pick_path, &output_path, ctx.cancel.as_ref(), on_progress).await?;
 
         // 5. Record the staged output in the chain (so probe + downstream see it).
         staging::record_output(ctx, &output_path, json!({}));
@@ -163,6 +163,7 @@ async fn run_7z_extract_to(
     iso_path: &str,
     entry_path: &str,
     output_path: &std::path::Path,
+    cancel: Option<&tokio_util::sync::CancellationToken>,
     on_progress: &mut (dyn FnMut(StepProgress) + Send),
 ) -> anyhow::Result<()> {
     on_progress(StepProgress::Log(format!(
@@ -180,6 +181,25 @@ async fn run_7z_extract_to(
             ),
             _ => anyhow::anyhow!("iso.extract: failed to spawn 7z: {e}"),
         })?;
+
+    // Spawn a SIGKILL killer that fires on cancellation. Same pattern as
+    // ffmpeg.rs uses for ffmpeg children. tokio::process::Child does not
+    // SIGKILL on drop, so without this a Cancel mid-extract leaves 7z
+    // running in the background and the .tcr-NN.tmp.m2ts growing on disk.
+    let pid = child.id();
+    let cancel_for_killer = cancel.cloned();
+    let killer_handle = tokio::spawn(async move {
+        let (Some(token), Some(p)) = (cancel_for_killer, pid) else { return };
+        token.cancelled().await;
+        let _ = tokio::process::Command::new("kill")
+            .arg("-KILL")
+            .arg(p.to_string())
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()
+            .await;
+    });
 
     let mut stdout = child.stdout.take().expect("stdout piped");
     let mut stderr = child.stderr.take().expect("stderr piped");
@@ -199,14 +219,14 @@ async fn run_7z_extract_to(
     file.flush().await?;
     let stderr_buf = stderr_task.await.unwrap_or_default();
     let status = child.wait().await?;
+    killer_handle.abort();
 
     copy_result?;
     if !status.success() {
-        // If extraction half-completed, the partial file lives at output_path.
-        // It is NOT in ctx.steps["transcode"] yet (record_output runs after this
-        // function returns), so engine::cleanup_staged_tmp won't see it on
-        // failure. The file path matches the .tcr-NN.tmp.m2ts pattern so an
-        // operator can identify and remove it manually if needed.
+        // Best-effort cleanup of the partial extract. The partial file isn't
+        // yet recorded in ctx.steps["transcode"], so engine::cleanup_staged_tmp
+        // won't see it on flow failure — clean it up here instead.
+        let _ = tokio::fs::remove_file(output_path).await;
         anyhow::bail!(
             "iso.extract: 7z extract exit code {:?}: {}",
             status.code(),
