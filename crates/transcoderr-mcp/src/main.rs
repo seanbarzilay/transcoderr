@@ -23,6 +23,9 @@ struct Cli {
     /// Per-call HTTP timeout, seconds.
     #[arg(long, env = "TRANSCODERR_TIMEOUT_SECS", default_value_t = 30)]
     timeout_secs: u64,
+    /// Log output format.
+    #[arg(long, env = "LOG_FORMAT", value_enum, default_value_t = transcoderr_api_types::logging::LogFormat::Text)]
+    log_format: transcoderr_api_types::logging::LogFormat,
 }
 
 #[derive(Clone)]
@@ -59,11 +62,7 @@ impl ServerHandler for Server {
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<()> {
     let cli = Cli::parse();
-    tracing_subscriber::fmt()
-        .with_env_filter(tracing_subscriber::EnvFilter::try_from_default_env()
-            .unwrap_or_else(|_| "info".into()))
-        .with_writer(std::io::stderr)
-        .init();
+    transcoderr_api_types::logging::init(cli.log_format, "info");
 
     // Build the API client, then probe an auth-gated endpoint to validate
     // URL reachability AND token authority before announcing capabilities.
