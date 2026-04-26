@@ -59,8 +59,8 @@ export default function ApiTokensCard() {
               </td>
             </tr>
           ))}
-          {(list.data ?? []).length === 0 && (
-            <tr><td colSpan={5} className="muted">No tokens.</td></tr>
+          {(list.data ?? []).length === 0 && !list.isLoading && (
+            <tr><td colSpan={5} className="empty">No tokens.</td></tr>
           )}
         </tbody>
       </table>
@@ -80,6 +80,12 @@ export default function ApiTokensCard() {
         </button>
       </div>
 
+      {create.isError && (
+        <div style={{ color: "#f88", fontSize: 12, marginTop: 6 }}>
+          {(create.error as Error)?.message ?? "create failed"}
+        </div>
+      )}
+
       {revealed && (
         <div className="surface" style={{ padding: 12, marginTop: 12, borderColor: "var(--ok)" }}>
           <div className="label" style={{ marginBottom: 6 }}>
@@ -90,6 +96,12 @@ export default function ApiTokensCard() {
             <button onClick={() => navigator.clipboard.writeText(revealed)}>Copy</button>
             <button className="btn-ghost" onClick={() => setRevealed(null)}>I've saved it</button>
           </div>
+        </div>
+      )}
+
+      {remove.isError && (
+        <div style={{ color: "#f88", fontSize: 12, marginTop: 6 }}>
+          {(remove.error as Error)?.message ?? "revoke failed"}
         </div>
       )}
     </div>
