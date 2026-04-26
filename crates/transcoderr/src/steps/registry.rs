@@ -22,10 +22,11 @@ impl Registry {
 pub async fn init(
     pool: SqlitePool,
     hw: DeviceRegistry,
+    ffmpeg_caps: std::sync::Arc<crate::ffmpeg_caps::FfmpegCaps>,
     discovered: Vec<DiscoveredPlugin>,
 ) {
     let mut reg = Registry::empty();
-    builtin::register_all(&mut reg.by_name, pool, hw);
+    builtin::register_all(&mut reg.by_name, pool, hw, ffmpeg_caps);
     for d in discovered {
         if d.manifest.kind != "subprocess" {
             continue;
@@ -58,6 +59,7 @@ pub async fn resolve(name: &str) -> Option<Arc<dyn Step>> {
         &mut map,
         SqlitePool::connect_lazy("sqlite::memory:").unwrap(),
         DeviceRegistry::empty(),
+        std::sync::Arc::new(crate::ffmpeg_caps::FfmpegCaps::default()),
     );
     map.remove(name)
 }

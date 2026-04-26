@@ -31,6 +31,32 @@ pub struct VideoPlan {
     pub preserve_10bit: bool,
     pub hw_prefer: Vec<String>,
     pub hw_fallback_cpu: bool,
+    /// Set by `plan.video.tonemap` when the source is HDR10 / HLG. None
+    /// means no tonemap will be applied. Serialized to `_plan` as
+    /// `null` when absent — old checkpoints without this field
+    /// deserialize to `None`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tonemap: Option<TonemapPlan>,
+}
+
+/// Engine choice for HDR→SDR conversion.
+/// - `Auto`: boot-probe picks `Libplacebo` if present, else `Zscale`.
+/// - `Libplacebo`: single-filter, GPU-accelerated when available.
+/// - `Zscale`: software zscale + tonemap chain. Always available.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, Default, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum TonemapEngine {
+    #[default]
+    Auto,
+    Libplacebo,
+    Zscale,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct TonemapPlan {
+    pub engine: TonemapEngine,
+    /// "hdr10" or "hlg" — surfaced in the run UI for clarity.
+    pub source_kind: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq)]
@@ -123,4 +149,46 @@ pub fn require_plan(ctx: &crate::flow::Context) -> anyhow::Result<StreamPlan> {
     load_plan(ctx).ok_or_else(|| {
         anyhow::anyhow!("no plan in context — run `plan.init` first to seed the stream plan")
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn video_plan_serializes_without_tonemap_when_absent() {
+        let plan = VideoPlan::default();
+        let json = serde_json::to_string(&plan).unwrap();
+        // skip_serializing_if drops the field entirely when None.
+        assert!(!json.contains("tonemap"), "got {json}");
+    }
+
+    #[test]
+    fn video_plan_round_trips_with_tonemap() {
+        let plan = VideoPlan {
+            tonemap: Some(TonemapPlan {
+                engine: TonemapEngine::Zscale,
+                source_kind: "hdr10".into(),
+            }),
+            ..VideoPlan::default()
+        };
+        let json = serde_json::to_string(&plan).unwrap();
+        let back: VideoPlan = serde_json::from_str(&json).unwrap();
+        assert_eq!(plan.tonemap, back.tonemap);
+    }
+
+    #[test]
+    fn video_plan_deserializes_old_checkpoint_without_tonemap_field() {
+        // Simulates a snapshot persisted by the v0.8.3 binary.
+        let json = r#"{
+            "mode": "copy",
+            "crf": null,
+            "preset": null,
+            "preserve_10bit": false,
+            "hw_prefer": [],
+            "hw_fallback_cpu": false
+        }"#;
+        let plan: VideoPlan = serde_json::from_str(json).unwrap();
+        assert!(plan.tonemap.is_none());
+    }
 }

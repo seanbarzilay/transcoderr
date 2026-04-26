@@ -58,6 +58,24 @@ fn channel_layout_label(channels: i64) -> String {
     }
 }
 
+/// Returns `Some("hdr10")` | `Some("hlg")` | `None` based on the first
+/// video stream's `color_transfer` field. Dolby Vision detection (via
+/// stream side data) is deferred — for now we treat DV the same as the
+/// base HDR10 layer it falls back to.
+fn detect_hdr_kind(probe: &serde_json::Value) -> Option<&'static str> {
+    let streams = probe.get("streams")?.as_array()?;
+    for s in streams {
+        if s.get("codec_type")?.as_str()? != "video" { continue; }
+        let transfer = s.get("color_transfer")?.as_str()?;
+        return match transfer {
+            "smpte2084" => Some("hdr10"),
+            "arib-std-b67" => Some("hlg"),
+            _ => None,
+        };
+    }
+    None
+}
+
 // ---------------------------------------------------------------------------
 // plan.init — seeds StreamPlan from probe (every stream copied, container=mkv)
 // ---------------------------------------------------------------------------
@@ -322,6 +340,66 @@ impl Step for PlanVideoEncodeStep {
 }
 
 // ---------------------------------------------------------------------------
+// plan.video.tonemap — mark HDR sources for HDR→SDR conversion at execute time
+// ---------------------------------------------------------------------------
+
+pub struct PlanVideoTonemapStep;
+
+#[async_trait]
+impl Step for PlanVideoTonemapStep {
+    fn name(&self) -> &'static str { "plan.video.tonemap" }
+
+    async fn execute(
+        &self,
+        with: &BTreeMap<String, Value>,
+        ctx: &mut Context,
+        on_progress: &mut (dyn FnMut(StepProgress) + Send),
+    ) -> anyhow::Result<()> {
+        let probe = ctx
+            .probe
+            .as_ref()
+            .ok_or_else(|| anyhow::anyhow!("plan.video.tonemap: no probe data"))?
+            .clone();
+
+        let Some(kind) = detect_hdr_kind(&probe) else {
+            on_progress(StepProgress::Log(
+                "plan.video.tonemap: no HDR detected, skipping".into(),
+            ));
+            return Ok(());
+        };
+
+        let engine: crate::flow::plan::TonemapEngine = with
+            .get("engine")
+            .and_then(|v| v.as_str())
+            .map(parse_tonemap_engine)
+            .unwrap_or(crate::flow::plan::TonemapEngine::Auto);
+
+        let mut plan = require_plan(ctx)?;
+        plan.video.tonemap = Some(crate::flow::plan::TonemapPlan {
+            engine,
+            source_kind: kind.to_string(),
+        });
+        save_plan(ctx, &plan);
+
+        on_progress(StepProgress::Log(format!(
+            "plan.video.tonemap: {kind} source detected, engine={engine:?}"
+        )));
+        Ok(())
+    }
+}
+
+fn parse_tonemap_engine(s: &str) -> crate::flow::plan::TonemapEngine {
+    use crate::flow::plan::TonemapEngine;
+    match s {
+        "libplacebo" => TonemapEngine::Libplacebo,
+        "zscale" => TonemapEngine::Zscale,
+        // "auto" or anything unrecognized → Auto. The serde rename_all is
+        // snake_case, so the YAML strings line up.
+        _ => TonemapEngine::Auto,
+    }
+}
+
+// ---------------------------------------------------------------------------
 // plan.audio.ensure — add a transcoded audio stream if no existing track meets the spec
 // ---------------------------------------------------------------------------
 
@@ -469,7 +547,7 @@ impl Step for PlanAudioEnsureStep {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::flow::plan::{load_plan, save_plan, StreamPlan};
+    use crate::flow::plan::{load_plan, save_plan, StreamPlan, TonemapEngine};
     use serde_json::json;
 
     #[tokio::test]
@@ -612,5 +690,117 @@ mod tests {
         PlanAudioEnsureStep.execute(&with, &mut ctx, &mut cb).await.unwrap();
         let plan = load_plan(&ctx).unwrap();
         assert_eq!(plan.audio_added.len(), 1, "commentary by title should not satisfy target");
+    }
+
+    #[test]
+    fn detect_hdr_kind_returns_none_for_sdr_probe() {
+        let probe = json!({
+            "streams": [{
+                "codec_type": "video",
+                "color_transfer": "bt709"
+            }]
+        });
+        assert!(detect_hdr_kind(&probe).is_none());
+    }
+
+    #[test]
+    fn detect_hdr_kind_returns_hdr10_for_smpte2084() {
+        let probe = json!({
+            "streams": [{
+                "codec_type": "video",
+                "color_transfer": "smpte2084"
+            }]
+        });
+        assert_eq!(detect_hdr_kind(&probe), Some("hdr10"));
+    }
+
+    #[test]
+    fn detect_hdr_kind_returns_hlg_for_arib_std_b67() {
+        let probe = json!({
+            "streams": [{
+                "codec_type": "video",
+                "color_transfer": "arib-std-b67"
+            }]
+        });
+        assert_eq!(detect_hdr_kind(&probe), Some("hlg"));
+    }
+
+    #[test]
+    fn detect_hdr_kind_ignores_audio_streams() {
+        let probe = json!({
+            "streams": [{
+                "codec_type": "audio",
+                "channels": 6
+            }]
+        });
+        assert!(detect_hdr_kind(&probe).is_none());
+    }
+
+    fn seed_empty_plan(ctx: &mut Context) {
+        save_plan(ctx, &StreamPlan::default());
+    }
+
+    #[tokio::test]
+    async fn tonemap_step_skips_sdr_source() {
+        let mut ctx = Context::for_file("/m/Movie.mkv");
+        seed_empty_plan(&mut ctx);
+        ctx.probe = Some(json!({
+            "streams": [{"codec_type": "video", "color_transfer": "bt709"}]
+        }));
+
+        let mut log_count = 0usize;
+        let mut on_progress = |p: StepProgress| {
+            if matches!(p, StepProgress::Log(_)) { log_count += 1; }
+        };
+        PlanVideoTonemapStep
+            .execute(&BTreeMap::new(), &mut ctx, &mut on_progress)
+            .await
+            .expect("ok");
+
+        let plan = load_plan(&ctx).expect("plan present");
+        assert!(plan.video.tonemap.is_none(), "SDR -> no tonemap");
+        assert!(log_count >= 1);
+    }
+
+    #[tokio::test]
+    async fn tonemap_step_marks_hdr10_source() {
+        let mut ctx = Context::for_file("/m/Movie.mkv");
+        seed_empty_plan(&mut ctx);
+        ctx.probe = Some(json!({
+            "streams": [{"codec_type": "video", "color_transfer": "smpte2084"}]
+        }));
+
+        let mut on_progress = |_p: StepProgress| {};
+        PlanVideoTonemapStep
+            .execute(&BTreeMap::new(), &mut ctx, &mut on_progress)
+            .await
+            .expect("ok");
+
+        let plan = load_plan(&ctx).expect("plan present");
+        let tm = plan.video.tonemap.expect("HDR10 -> tonemap set");
+        assert_eq!(tm.engine, TonemapEngine::Auto);
+        assert_eq!(tm.source_kind, "hdr10");
+    }
+
+    #[tokio::test]
+    async fn tonemap_step_respects_yaml_engine_override() {
+        let mut ctx = Context::for_file("/m/Movie.mkv");
+        seed_empty_plan(&mut ctx);
+        ctx.probe = Some(json!({
+            "streams": [{"codec_type": "video", "color_transfer": "smpte2084"}]
+        }));
+
+        let mut with: BTreeMap<String, Value> = BTreeMap::new();
+        with.insert("engine".into(), json!("zscale"));
+
+        let mut on_progress = |_p: StepProgress| {};
+        PlanVideoTonemapStep
+            .execute(&with, &mut ctx, &mut on_progress)
+            .await
+            .expect("ok");
+
+        let plan = load_plan(&ctx).expect("plan present");
+        let tm = plan.video.tonemap.expect("tonemap set");
+        assert_eq!(tm.engine, TonemapEngine::Zscale);
     }
 }

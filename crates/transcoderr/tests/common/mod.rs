@@ -39,6 +39,7 @@ pub async fn boot() -> TestApp {
     transcoderr::steps::registry::init(
         pool.clone(),
         hw_devices.clone(),
+        std::sync::Arc::new(transcoderr::ffmpeg_caps::FfmpegCaps::default()),
         vec![],
     )
     .await;

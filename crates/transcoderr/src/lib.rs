@@ -5,6 +5,7 @@ pub mod config;
 pub mod db;
 pub mod error;
 pub mod ffmpeg;
+pub mod ffmpeg_caps;
 pub mod flow;
 pub mod hw;
 pub mod http;

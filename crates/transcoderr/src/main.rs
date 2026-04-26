@@ -46,9 +46,18 @@ async fn main() -> anyhow::Result<()> {
             // Discover plugins and initialize the step registry.
             let plugins_dir = cfg.data_dir.join("plugins");
             let discovered = transcoderr::plugins::discover(&plugins_dir)?;
+            let ffmpeg_caps = std::sync::Arc::new(
+                transcoderr::ffmpeg_caps::FfmpegCaps::probe().await,
+            );
+            tracing::info!(
+                libplacebo = ffmpeg_caps.has_libplacebo,
+                "ffmpeg caps probed",
+            );
+
             transcoderr::steps::registry::init(
                 pool.clone(),
                 registry.clone(),
+                ffmpeg_caps.clone(),
                 discovered,
             )
             .await;
