@@ -23,3 +23,43 @@ async fn login_with_correct_password_succeeds() {
         .send().await.unwrap().json().await.unwrap();
     assert_eq!(me["authed"], true);
 }
+
+#[tokio::test]
+async fn api_tokens_table_round_trips() {
+    let app = boot().await;
+    sqlx::query("INSERT INTO api_tokens (name, hash, prefix, created_at) VALUES (?, ?, ?, ?)")
+        .bind("claude-desktop")
+        .bind("$argon2id$dummy")
+        .bind("tcr_a1b2c3d4")
+        .bind(123_i64)
+        .execute(&app.pool).await.unwrap();
+    let n: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM api_tokens")
+        .fetch_one(&app.pool).await.unwrap();
+    assert_eq!(n, 1);
+}
+
+#[tokio::test]
+async fn api_token_create_verify_delete_round_trip() {
+    use transcoderr::db::api_tokens;
+    let app = boot().await;
+
+    let made = api_tokens::create(&app.pool, "claude-desktop").await.unwrap();
+    assert!(made.token.starts_with("tcr_"));
+    assert_eq!(made.token.len(), 4 + 32);
+
+    let id = api_tokens::verify(&app.pool, &made.token).await.expect("verify");
+    assert_eq!(id, made.id);
+
+    let bad = api_tokens::verify(&app.pool, "tcr_NOTREAL000000000000000000000000").await;
+    assert!(bad.is_none());
+
+    let listed = api_tokens::list(&app.pool).await.unwrap();
+    assert_eq!(listed.len(), 1);
+    assert_eq!(listed[0].prefix.len(), 12);
+
+    let removed = api_tokens::delete(&app.pool, made.id).await.unwrap();
+    assert!(removed);
+
+    let after = api_tokens::verify(&app.pool, &made.token).await;
+    assert!(after.is_none());
+}

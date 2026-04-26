@@ -41,6 +41,7 @@ pub mod run_events;
 pub mod checkpoints;
 pub mod sources;
 pub mod settings;
+pub mod api_tokens;
 
 pub async fn snapshot_hw_caps(
     pool: &SqlitePool,
