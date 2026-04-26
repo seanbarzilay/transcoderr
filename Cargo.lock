@@ -2060,6 +2060,7 @@ dependencies = [
  "bytes",
  "cookie",
  "cookie_store",
+ "futures-channel",
  "futures-core",
  "futures-util",
  "http",
@@ -3228,6 +3229,7 @@ name = "transcoderr-mcp"
 version = "0.7.0"
 dependencies = [
  "anyhow",
+ "chrono",
  "clap",
  "reqwest",
  "rmcp",
@@ -3235,11 +3237,13 @@ dependencies = [
  "serde",
  "serde_json",
  "serial_test",
+ "sqlx",
  "tempfile",
  "thiserror 1.0.69",
  "tokio",
  "tracing",
  "tracing-subscriber",
+ "transcoderr",
  "transcoderr-api-types",
 ]
 

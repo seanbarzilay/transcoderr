@@ -26,3 +26,9 @@ clap = { version = "4", features = ["derive", "env"] }
 # Used by Task 16's end-to-end stdio integration test.
 tempfile = "3"
 serial_test = "3"
+transcoderr = { path = "../transcoderr" }
+sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio", "sqlite"] }
+chrono = { workspace = true }
+reqwest = { version = "0.12", default-features = false, features = ["blocking", "rustls-tls"] }
+tokio = { workspace = true }
+serde_json = { workspace = true }
