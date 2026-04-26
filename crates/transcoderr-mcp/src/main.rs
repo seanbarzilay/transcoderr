@@ -7,6 +7,9 @@ use rmcp::{
     tool_handler, tool_router, ServerHandler, ServiceExt,
 };
 
+mod client;
+use client::ApiClient;
+
 #[derive(Parser, Debug, Clone)]
 #[command(name = "transcoderr-mcp", version)]
 struct Cli {
@@ -23,13 +26,14 @@ struct Cli {
 
 #[derive(Clone)]
 struct Server {
+    api: ApiClient,
     tool_router: ToolRouter<Self>,
 }
 
 #[tool_router]
 impl Server {
-    pub fn new() -> Self {
-        Self { tool_router: Self::tool_router() }
+    pub fn new(api: ApiClient) -> Self {
+        Self { api, tool_router: Self::tool_router() }
     }
 }
 
@@ -68,7 +72,8 @@ async fn main() -> Result<()> {
     }
     tracing::info!(url = %cli.url, "transcoderr-mcp starting");
 
-    let server = Server::new();
+    let api = ApiClient::new(cli.url.clone(), cli.token.clone(), cli.timeout_secs)?;
+    let server = Server::new(api);
     let (stdin, stdout) = stdio();
     server.serve((stdin, stdout)).await?.waiting().await?;
     Ok(())
