@@ -112,7 +112,7 @@ impl Step for PlanExecuteStep {
                     });
                     let _ = std::fs::remove_file(&dest);
                     let cpu_cmd = build_command(&src, &dest, &plan, &probe, None)?;
-                    let _ = crate::ffmpeg::run_with_live_events(
+                    let cpu_status = crate::ffmpeg::run_with_live_events(
                         cpu_cmd,
                         duration_sec,
                         ctx.cancel.as_ref(),
@@ -124,6 +124,13 @@ impl Step for PlanExecuteStep {
                         },
                     )
                     .await?;
+                    if !cpu_status.success() {
+                        anyhow::bail!(
+                            "plan.execute: cpu fallback also failed (hw exited {:?}, cpu exited {:?})",
+                            status.code(),
+                            cpu_status.code()
+                        );
+                    }
                     staging::record_output(
                         ctx,
                         &dest,

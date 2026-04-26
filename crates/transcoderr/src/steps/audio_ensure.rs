@@ -21,13 +21,16 @@ fn channel_layout_label(channels: i64) -> String {
     }
 }
 
-/// Subtitle codecs that survive standard mkv muxing.
+/// Subtitle codecs that ffmpeg can mux into Matroska (`-c:s copy` to mkv).
+/// Notably absent: `mov_text` — it's the MP4-native text-subs format and
+/// the MKV muxer rejects it with "Function not implemented" at header
+/// write time. Keep this list in sync with the matching one in
+/// `plan_steps.rs` and `strip_tracks.rs`.
 const SUPPORTED_SUB_CODECS: &[&str] = &[
     "srt",
     "subrip",
     "ass",
     "ssa",
-    "mov_text",
     "hdmv_pgs_subtitle",
     "pgssub",
     "dvd_subtitle",

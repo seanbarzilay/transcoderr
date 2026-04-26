@@ -9,14 +9,15 @@ use async_trait::async_trait;
 use serde_json::Value;
 use std::collections::BTreeMap;
 
-/// Allow-list of subtitle codecs that mux into a typical mkv. Used by
-/// `plan.subs.drop_unsupported` to mark fringe codecs for removal.
+/// Subtitle codecs that ffmpeg can mux into Matroska (`-c:s copy` to mkv).
+/// Notably absent: `mov_text` — it's the MP4-native text-subs format and
+/// the MKV muxer rejects it with "Function not implemented" at header
+/// write time. plan.subs.drop_unsupported drops mov_text streams.
 const SUPPORTED_SUB_CODECS: &[&str] = &[
     "srt",
     "subrip",
     "ass",
     "ssa",
-    "mov_text",
     "hdmv_pgs_subtitle",
     "pgssub",
     "dvd_subtitle",

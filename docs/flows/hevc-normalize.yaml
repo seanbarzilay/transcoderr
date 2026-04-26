@@ -47,6 +47,13 @@ steps:
   - id: plan-drop-data
     use: plan.streams.drop_data
 
+  # Drop subtitle streams whose codec doesn't mux into the planned container
+  # (e.g. mov_text from MP4 sources can't go into MKV). Without this, ffmpeg
+  # bails at MKV muxer init with "Function not implemented" before any
+  # encoding starts, and the broken near-empty tmp file confuses verify.
+  - id: plan-drop-unsupported-subs
+    use: plan.subs.drop_unsupported
+
   # If the video is NOT already hevc, mark it for re-encode.
   # (When already hevc, the plan keeps video as `copy` and we only do the
   # audio + container work in plan.execute.)
