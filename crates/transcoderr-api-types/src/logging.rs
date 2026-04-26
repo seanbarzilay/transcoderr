@@ -1,11 +1,18 @@
 use clap::ValueEnum;
 
+/// Log output format selectable at startup.
 #[derive(Clone, Copy, Debug, ValueEnum)]
 pub enum LogFormat {
     Text,
     Json,
 }
 
+/// Initialize the global tracing subscriber.
+///
+/// `default_filter` is used when `RUST_LOG` is unset
+/// (e.g. `"transcoderr=info,tower_http=info"`).
+///
+/// Installs a process-wide singleton subscriber and panics if called more than once.
 pub fn init(format: LogFormat, default_filter: &str) {
     let filter = tracing_subscriber::EnvFilter::try_from_default_env()
         .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new(default_filter));
