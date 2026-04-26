@@ -32,6 +32,7 @@ pub(crate) fn build_tonemap_vf(engine: TonemapEngine, has_libplacebo: bool) -> &
 
 pub struct PlanExecuteStep {
     pub hw: DeviceRegistry,
+    pub ffmpeg_caps: std::sync::Arc<crate::ffmpeg_caps::FfmpegCaps>,
 }
 
 #[async_trait]
@@ -87,7 +88,7 @@ impl Step for PlanExecuteStep {
             }
         }
 
-        let cmd = build_command(&src, &dest, &plan, &probe, acquired_key.as_deref())?;
+        let cmd = build_command(&src, &dest, &plan, &probe, acquired_key.as_deref(), &self.ffmpeg_caps)?;
 
         let mut emitted_any_pct = false;
         let result = crate::ffmpeg::run_with_live_events(
@@ -129,7 +130,7 @@ impl Step for PlanExecuteStep {
                         payload: json!({ "device": acquired_key }),
                     });
                     let _ = std::fs::remove_file(&dest);
-                    let cpu_cmd = build_command(&src, &dest, &plan, &probe, None)?;
+                    let cpu_cmd = build_command(&src, &dest, &plan, &probe, None, &self.ffmpeg_caps)?;
                     let cpu_status = crate::ffmpeg::run_with_live_events(
                         cpu_cmd,
                         duration_sec,
@@ -171,6 +172,7 @@ fn build_command(
     plan: &crate::flow::plan::StreamPlan,
     probe: &Value,
     acquired_key: Option<&str>,
+    ffmpeg_caps: &crate::ffmpeg_caps::FfmpegCaps,
 ) -> anyhow::Result<Command> {
     let mut cmd = Command::new("ffmpeg");
     cmd.args(["-hide_banner", "-y"]);
@@ -222,7 +224,14 @@ fn build_command(
                     if let Some(preset) = plan.video.preset.as_deref() {
                         cmd.args([&format!("-preset:v:{v_out}"), preset]);
                     }
-                    if force_10bit {
+                    if let Some(tm) = &plan.video.tonemap {
+                        // Tonemap to BT.709 SDR. Forces 8-bit yuv420p
+                        // output, overriding any preserve_10bit setting
+                        // — HDR→SDR fundamentally produces 8-bit.
+                        let vf = build_tonemap_vf(tm.engine, ffmpeg_caps.has_libplacebo);
+                        cmd.args([&format!("-filter:v:{v_out}"), vf]);
+                        cmd.args([&format!("-pix_fmt:v:{v_out}"), "yuv420p"]);
+                    } else if force_10bit {
                         cmd.args([&format!("-profile:v:{v_out}"), "main10"]);
                         cmd.args([&format!("-pix_fmt:v:{v_out}"), "p010le"]);
                     }

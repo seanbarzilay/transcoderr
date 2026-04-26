@@ -103,7 +103,7 @@ async fn engine_records_hw_unavailable_event() {
     let _hold = reg.acquire_preferred(&[Accel::Nvenc]).await.unwrap();
 
     // Init step registry with this registry so transcode step is aware of it.
-    transcoderr::steps::registry::init(pool.clone(), reg, vec![]).await;
+    transcoderr::steps::registry::init(pool.clone(), reg, std::sync::Arc::new(transcoderr::ffmpeg_caps::FfmpegCaps::default()), vec![]).await;
 
     // Make a source file.
     let src = dir.path().join("in.mkv");
