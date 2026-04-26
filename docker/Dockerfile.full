@@ -15,7 +15,7 @@ RUN cargo build --release --locked
 FROM jrottenberg/ffmpeg:6.0-nvidia2204 AS runtime
 RUN sed -i 's/^# deb /deb /; s/main$/main universe multiverse/' /etc/apt/sources.list \
     && apt-get update && apt-get install -y --no-install-recommends \
-      ca-certificates tini \
+      ca-certificates p7zip-full tini \
       intel-media-va-driver-non-free i965-va-driver-shaders \
       vainfo libva-drm2 libva-x11-2 \
     && rm -rf /var/lib/apt/lists/*
