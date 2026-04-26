@@ -63,3 +63,41 @@ async fn api_token_create_verify_delete_round_trip() {
     let after = api_tokens::verify(&app.pool, &made.token).await;
     assert!(after.is_none());
 }
+
+#[tokio::test]
+async fn token_endpoints_create_list_delete() {
+    let app = boot().await;
+    let h = hash_password("hunter2").unwrap();
+    db::settings::set(&app.pool, "auth.enabled", "true").await.unwrap();
+    db::settings::set(&app.pool, "auth.password_hash", &h).await.unwrap();
+
+    let client = reqwest::Client::builder().cookie_store(true).build().unwrap();
+    let _ = client.post(format!("{}/api/auth/login", app.url))
+        .json(&json!({"password":"hunter2"})).send().await.unwrap();
+
+    // Create
+    let made: serde_json::Value = client.post(format!("{}/api/auth/tokens", app.url))
+        .json(&json!({"name":"claude-desktop"}))
+        .send().await.unwrap()
+        .json().await.unwrap();
+    let token = made["token"].as_str().unwrap().to_string();
+    assert!(token.starts_with("tcr_"));
+
+    // List
+    let listed: Vec<serde_json::Value> = client.get(format!("{}/api/auth/tokens", app.url))
+        .send().await.unwrap()
+        .json().await.unwrap();
+    assert_eq!(listed.len(), 1);
+    assert!(!listed[0].get("token").is_some(), "list must NOT include the secret");
+
+    // Delete
+    let id = made["id"].as_i64().unwrap();
+    let del = client.delete(format!("{}/api/auth/tokens/{id}", app.url))
+        .send().await.unwrap();
+    assert!(del.status().is_success());
+
+    let listed2: Vec<serde_json::Value> = client.get(format!("{}/api/auth/tokens", app.url))
+        .send().await.unwrap()
+        .json().await.unwrap();
+    assert!(listed2.is_empty());
+}

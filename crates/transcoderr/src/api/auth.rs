@@ -1,9 +1,10 @@
 use crate::{db, http::AppState};
 use argon2::{password_hash::{PasswordHash, PasswordHasher, PasswordVerifier, SaltString}, Argon2};
-use axum::{extract::State, http::StatusCode, Json};
+use axum::{extract::{Path, State}, http::StatusCode, Json};
 use rand::rngs::OsRng;
 use serde::{Deserialize, Serialize};
 use tower_cookies::{Cookie, Cookies};
+use transcoderr_api_types::{ApiTokenSummary, CreateTokenReq, CreateTokenResp};
 
 #[derive(Deserialize)]
 pub struct LoginReq { pub password: String }
@@ -87,4 +88,36 @@ pub fn hash_password(p: &str) -> anyhow::Result<String> {
     Ok(Argon2::default().hash_password(p.as_bytes(), &salt)
         .map_err(|e| anyhow::anyhow!("hash: {e}"))?
         .to_string())
+}
+
+pub async fn list_tokens(
+    State(state): State<AppState>,
+) -> Result<Json<Vec<ApiTokenSummary>>, StatusCode> {
+    db::api_tokens::list(&state.pool)
+        .await
+        .map(Json)
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)
+}
+
+pub async fn create_token(
+    State(state): State<AppState>,
+    Json(req): Json<CreateTokenReq>,
+) -> Result<Json<CreateTokenResp>, StatusCode> {
+    if req.name.trim().is_empty() {
+        return Err(StatusCode::BAD_REQUEST);
+    }
+    let made = db::api_tokens::create(&state.pool, req.name.trim())
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    Ok(Json(CreateTokenResp { id: made.id, token: made.token }))
+}
+
+pub async fn delete_token(
+    State(state): State<AppState>,
+    Path(id): Path<i64>,
+) -> Result<StatusCode, StatusCode> {
+    let removed = db::api_tokens::delete(&state.pool, id)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    if removed { Ok(StatusCode::NO_CONTENT) } else { Err(StatusCode::NOT_FOUND) }
 }

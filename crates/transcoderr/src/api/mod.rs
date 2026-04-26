@@ -11,7 +11,7 @@ pub mod sources;
 use crate::http::AppState;
 use axum::{
     middleware::from_fn_with_state,
-    routing::{get, patch, post},
+    routing::{delete, get, patch, post},
     Router,
 };
 use tower_cookies::CookieManagerLayer;
@@ -23,6 +23,8 @@ pub fn router(state: AppState) -> Router<AppState> {
         .route("/auth/me",     get(auth::me));
 
     let protected = Router::new()
+        .route("/auth/tokens",        get(auth::list_tokens).post(auth::create_token))
+        .route("/auth/tokens/:id",    delete(auth::delete_token))
         .route("/flows",              get(flows::list).post(flows::create))
         .route("/flows/:id",          get(flows::get).put(flows::update).delete(flows::delete))
         .route("/flows/parse",        post(flows::parse))
