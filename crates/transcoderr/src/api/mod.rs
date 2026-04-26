@@ -10,6 +10,7 @@ pub mod sources;
 
 use crate::http::AppState;
 use axum::{
+    extract::State,
     middleware::from_fn_with_state,
     routing::{delete, get, patch, post},
     Router,
@@ -28,6 +29,8 @@ pub fn router(state: AppState) -> Router<AppState> {
         .route("/flows",              get(flows::list).post(flows::create))
         .route("/flows/:id",          get(flows::get).put(flows::update).delete(flows::delete))
         .route("/flows/parse",        post(flows::parse))
+        .route("/hw",                 get(hw_get))
+        .route("/hw/reprobe",         post(hw_reprobe))
         .route("/runs",               get(runs::list))
         .route("/runs/:id",           get(runs::get))
         .route("/runs/:id/events",    get(runs::events))
@@ -48,4 +51,16 @@ pub fn router(state: AppState) -> Router<AppState> {
         .route_layer(from_fn_with_state(state.clone(), auth::require_auth));
 
     public.merge(protected).layer(CookieManagerLayer::new())
+}
+
+async fn hw_get(State(state): State<AppState>) -> axum::Json<crate::hw::HwCaps> {
+    let g = state.hw_caps.read().await.clone();
+    axum::Json(g)
+}
+
+async fn hw_reprobe(State(state): State<AppState>) -> axum::Json<crate::hw::HwCaps> {
+    let new_caps = crate::hw::probe::probe().await;
+    let _ = crate::db::snapshot_hw_caps(&state.pool, &new_caps).await;
+    *state.hw_caps.write().await = new_caps.clone();
+    axum::Json(new_caps)
 }
