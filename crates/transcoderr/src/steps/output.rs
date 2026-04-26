@@ -1,5 +1,5 @@
 use super::{Step, StepProgress};
-use crate::flow::Context;
+use crate::flow::{plan::load_plan, Context};
 use async_trait::async_trait;
 use serde_json::Value;
 use std::collections::BTreeMap;
@@ -63,12 +63,13 @@ impl Step for OutputStep {
     }
 }
 
+/// Pull the planned container ext (e.g. "mkv") from `ctx.steps["_plan"]`.
+/// Goes through `load_plan` rather than a raw JSON walk so that any
+/// future `serde` rename/transform on `StreamPlan` is automatically
+/// respected — a raw `v.get("container")` lookup would silently break
+/// if `StreamPlan` ever gained `#[serde(rename_all = "camelCase")]`.
 fn plan_container(ctx: &Context) -> Option<String> {
-    ctx.steps
-        .get("_plan")
-        .and_then(|v| v.get("container"))
-        .and_then(|v| v.as_str())
-        .map(|s| s.to_string())
+    load_plan(ctx).map(|p| p.container)
 }
 
 /// Replace the trailing extension on `path` with `new_ext`. Used to
