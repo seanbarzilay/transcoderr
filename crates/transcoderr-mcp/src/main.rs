@@ -34,7 +34,9 @@ pub(crate) struct Server {
 #[tool_router]
 impl Server {
     pub fn new(api: ApiClient) -> Self {
-        let tool_router = Self::tool_router() + Self::runs_router();
+        let tool_router = Self::tool_router()
+            + Self::runs_router()
+            + Self::flows_router();
         Self { api, tool_router }
     }
 }
