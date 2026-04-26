@@ -123,4 +123,12 @@ impl ApiClient {
         }
         resp.text().await.map_err(|e| McpHttpError::Other(e.to_string()))
     }
+
+    /// Validate URL reachability AND token authority by hitting an
+    /// auth-gated endpoint. Used at startup to fail-fast on misconfig.
+    pub async fn probe(&self) -> Result<(), McpHttpError> {
+        // /api/settings is auth-gated, side-effect-free, and cheap.
+        let _: serde_json::Value = self.get("/api/settings").await?;
+        Ok(())
+    }
 }

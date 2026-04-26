@@ -1,4 +1,4 @@
-use anyhow::{anyhow, Context, Result};
+use anyhow::{Context, Result};
 use clap::Parser;
 use rmcp::{
     handler::server::router::tool::ToolRouter,
@@ -58,21 +58,15 @@ async fn main() -> Result<()> {
         .with_writer(std::io::stderr)
         .init();
 
-    // Probe an auth-gated endpoint to validate URL reachability AND token
-    // authority before announcing capabilities. /healthz wouldn't fail-fast
-    // on a bad token (it's not behind require_auth).
-    let probe = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(cli.timeout_secs))
-        .build().context("build reqwest client")?;
-    let url = format!("{}/api/settings", cli.url.trim_end_matches('/'));
-    let resp = probe.get(&url).bearer_auth(&cli.token).send().await
-        .with_context(|| format!("connect to {url}"))?;
-    if !resp.status().is_success() {
-        return Err(anyhow!("auth probe to {url} returned {} — check TRANSCODERR_URL and TRANSCODERR_TOKEN", resp.status()));
-    }
-    tracing::info!(url = %cli.url, "transcoderr-mcp starting");
-
+    // Build the API client, then probe an auth-gated endpoint to validate
+    // URL reachability AND token authority before announcing capabilities.
+    // /healthz alone wouldn't fail-fast on a bad token (it's not behind
+    // require_auth).
     let api = ApiClient::new(cli.url.clone(), cli.token.clone(), cli.timeout_secs)?;
+    api.probe().await.with_context(|| {
+        format!("auth probe failed against {} — check TRANSCODERR_URL and TRANSCODERR_TOKEN", cli.url)
+    })?;
+    tracing::info!(url = %cli.url, "transcoderr-mcp starting");
     let server = Server::new(api);
     let (stdin, stdout) = stdio();
     server.serve((stdin, stdout)).await?.waiting().await?;
