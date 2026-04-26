@@ -40,7 +40,7 @@ impl ServerHandler for Server {
             protocol_version: ProtocolVersion::V_2025_03_26,
             capabilities: ServerCapabilities::builder().enable_tools().build(),
             server_info: Implementation::from_build_env(),
-            instructions: Some("transcoderr MCP proxy — drives runs, flows, sources, notifiers.".into()),
+            instructions: Some("transcoderr MCP proxy -- drives runs, flows, sources, notifiers.".into()),
         }
     }
 }
@@ -54,15 +54,17 @@ async fn main() -> Result<()> {
         .with_writer(std::io::stderr)
         .init();
 
-    // Probe healthz before announcing capabilities — fail-fast on misconfig.
+    // Probe an auth-gated endpoint to validate URL reachability AND token
+    // authority before announcing capabilities. /healthz wouldn't fail-fast
+    // on a bad token (it's not behind require_auth).
     let probe = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(cli.timeout_secs))
         .build().context("build reqwest client")?;
-    let url = format!("{}/healthz", cli.url.trim_end_matches('/'));
+    let url = format!("{}/api/settings", cli.url.trim_end_matches('/'));
     let resp = probe.get(&url).bearer_auth(&cli.token).send().await
         .with_context(|| format!("connect to {url}"))?;
     if !resp.status().is_success() {
-        return Err(anyhow!("health probe to {url} returned {}", resp.status()));
+        return Err(anyhow!("auth probe to {url} returned {} — check TRANSCODERR_URL and TRANSCODERR_TOKEN", resp.status()));
     }
     tracing::info!(url = %cli.url, "transcoderr-mcp starting");
 

@@ -23,5 +23,6 @@ tracing-subscriber = { workspace = true, features = ["env-filter"] }
 clap = { version = "4", features = ["derive", "env"] }
 
 [dev-dependencies]
+# Used by Task 16's end-to-end stdio integration test.
 tempfile = "3"
 serial_test = "3"
