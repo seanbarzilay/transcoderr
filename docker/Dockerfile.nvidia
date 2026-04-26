@@ -17,6 +17,7 @@ FROM jrottenberg/ffmpeg:6.0-nvidia2204 AS runtime
 RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates tini \
     && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
+ENV LOG_FORMAT=json
 COPY docker/entrypoint.sh /usr/local/bin/entrypoint.sh
 RUN chmod +x /usr/local/bin/entrypoint.sh
 COPY --from=rust /src/target/release/transcoderr /usr/local/bin/transcoderr

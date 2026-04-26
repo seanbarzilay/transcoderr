@@ -20,6 +20,7 @@ RUN sed -i 's/^# deb /deb /; s/main$/main universe multiverse/' /etc/apt/sources
       vainfo libva-drm2 libva-x11-2 \
     && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
+ENV LOG_FORMAT=json
 COPY docker/entrypoint.sh /usr/local/bin/entrypoint.sh
 RUN chmod +x /usr/local/bin/entrypoint.sh
 COPY --from=rust /src/target/release/transcoderr /usr/local/bin/transcoderr
