@@ -180,19 +180,33 @@ async fn run_7z_extract_to(
             ),
             _ => anyhow::anyhow!("iso.extract: failed to spawn 7z: {e}"),
         })?;
+
     let mut stdout = child.stdout.take().expect("stdout piped");
+    let mut stderr = child.stderr.take().expect("stderr piped");
     let mut file = tokio::fs::File::create(output_path).await?;
-    tokio::io::copy(&mut stdout, &mut file).await?;
+
+    // Drain stdout (extracted bytes) and stderr (diagnostic output) concurrently
+    // so a chatty 7z (e.g. a corrupted ISO emitting >64KB of warnings) can't
+    // deadlock on its stderr pipe filling while we're stuck on stdout.
+    let stderr_task = tokio::spawn(async move {
+        use tokio::io::AsyncReadExt;
+        let mut buf = String::new();
+        let _ = stderr.read_to_string(&mut buf).await;
+        buf
+    });
+    let copy_result = tokio::io::copy(&mut stdout, &mut file).await;
+
     file.flush().await?;
+    let stderr_buf = stderr_task.await.unwrap_or_default();
     let status = child.wait().await?;
+
+    copy_result?;
     if !status.success() {
-        let mut stderr_buf = String::new();
-        if let Some(mut err) = child.stderr.take() {
-            use tokio::io::AsyncReadExt;
-            let _ = err.read_to_string(&mut stderr_buf).await;
-        }
-        // If extraction half-completed, leave the partial file for the engine's
-        // cleanup_staged_tmp to remove on flow failure.
+        // If extraction half-completed, the partial file lives at output_path.
+        // It is NOT in ctx.steps["transcode"] yet (record_output runs after this
+        // function returns), so engine::cleanup_staged_tmp won't see it on
+        // failure. The file path matches the .tcr-NN.tmp.m2ts pattern so an
+        // operator can identify and remove it manually if needed.
         anyhow::bail!(
             "iso.extract: 7z extract exit code {:?}: {}",
             status.code(),
