@@ -38,7 +38,8 @@ impl Server {
             + Self::runs_router()
             + Self::flows_router()
             + Self::sources_router()
-            + Self::notifiers_router();
+            + Self::notifiers_router()
+            + Self::system_router();
         Self { api, tool_router }
     }
 }
