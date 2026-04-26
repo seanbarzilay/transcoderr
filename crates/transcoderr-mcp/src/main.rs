@@ -37,7 +37,8 @@ impl Server {
         let tool_router = Self::tool_router()
             + Self::runs_router()
             + Self::flows_router()
-            + Self::sources_router();
+            + Self::sources_router()
+            + Self::notifiers_router();
         Self { api, tool_router }
     }
 }
