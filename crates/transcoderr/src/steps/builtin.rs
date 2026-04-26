@@ -4,6 +4,7 @@ use crate::steps::{
     copy_step::CopyStep,
     delete_step::DeleteStep,
     extract_subs::ExtractSubsStep,
+    iso_extract::IsoExtractStep,
     move_step::MoveStep,
     notify::NotifyStep,
     output::OutputStep,
@@ -37,6 +38,7 @@ pub fn register_all(
     map.insert("extract.subs".into(), Arc::new(ExtractSubsStep));
     map.insert("strip.tracks".into(), Arc::new(StripTracksStep));
     map.insert("audio.ensure".into(), Arc::new(AudioEnsureStep));
+    map.insert("iso.extract".into(), Arc::new(IsoExtractStep));
 
     // New plan-then-execute pipeline. Mutator steps are pure (no ffmpeg), the
     // executor materializes everything into one ffmpeg pass.
