@@ -89,10 +89,15 @@ mod tests {
     use tempfile::tempdir;
 
     fn seed_plan(ctx: &mut Context, container: &str) {
-        ctx.steps.insert(
-            "_plan".into(),
-            json!({"container": container}),
-        );
+        // Go through `save_plan` (rather than seeding raw JSON) so the
+        // shape in ctx.steps["_plan"] is a real serialized StreamPlan.
+        // This keeps these tests honest if StreamPlan ever gains new
+        // required fields or `#[serde(rename_all = ...)]`.
+        let plan = crate::flow::plan::StreamPlan {
+            container: container.to_string(),
+            ..Default::default()
+        };
+        crate::flow::plan::save_plan(ctx, &plan);
     }
 
     #[tokio::test]
