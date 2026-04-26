@@ -17,7 +17,7 @@ RUN echo "deb http://deb.debian.org/debian bookworm main contrib non-free non-fr
     && echo "deb http://deb.debian.org/debian bookworm-updates main contrib non-free non-free-firmware" >> /etc/apt/sources.list \
     && echo "deb http://security.debian.org/debian-security bookworm-security main contrib non-free non-free-firmware" >> /etc/apt/sources.list \
     && apt-get update && apt-get install -y --no-install-recommends \
-      ca-certificates ffmpeg p7zip-full tini \
+      ca-certificates ffmpeg tini \
       intel-media-va-driver-non-free i965-va-driver-shaders \
       vainfo libva-drm2 libva-x11-2 \
     && rm -rf /var/lib/apt/lists/*
