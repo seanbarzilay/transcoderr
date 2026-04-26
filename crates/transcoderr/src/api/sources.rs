@@ -76,7 +76,11 @@ pub async fn update(
         Some(c) => serde_json::to_string(&c).map_err(|_| StatusCode::BAD_REQUEST)?,
         None => row.get(1),
     };
-    let secret_token: String = req.secret_token.unwrap_or_else(|| row.get(2));
+    let secret_token: String = match req.secret_token {
+        Some(s) if s == "***" => row.get(2),  // ignore redaction sentinel from token-authed callers
+        Some(s) => s,
+        None => row.get(2),
+    };
 
     sqlx::query("UPDATE sources SET name = ?, config_json = ?, secret_token = ? WHERE id = ?")
         .bind(&name).bind(&config_json).bind(&secret_token).bind(id)

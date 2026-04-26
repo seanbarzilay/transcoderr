@@ -1,4 +1,4 @@
-use crate::api::auth::{redact_notifier_config, AuthSource};
+use crate::api::auth::{redact_notifier_config, unredact_notifier_config, AuthSource};
 use crate::{db, http::AppState, notifiers};
 use axum::Extension;
 use axum::{extract::{Path, State}, http::StatusCode, Json};
@@ -47,14 +47,16 @@ pub async fn get(
 pub async fn update(
     State(state): State<AppState>,
     Path(id): Path<i64>,
-    Json(req): Json<NotifierReq>,
+    Json(mut req): Json<NotifierReq>,
 ) -> Result<StatusCode, StatusCode> {
-    let exists: Option<i64> = sqlx::query_scalar("SELECT id FROM notifiers WHERE id = ?")
+    let row = sqlx::query("SELECT config_json FROM notifiers WHERE id = ?")
         .bind(id).fetch_optional(&state.pool).await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    if exists.is_none() {
-        return Err(StatusCode::NOT_FOUND);
-    }
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .ok_or(StatusCode::NOT_FOUND)?;
+    let current_config_str: String = row.get(0);
+    let current_config: serde_json::Value = serde_json::from_str(&current_config_str).unwrap_or_default();
+    unredact_notifier_config(&mut req.config, &current_config);
+
     db::notifiers::upsert(&state.pool, &req.name, &req.kind, &req.config).await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     Ok(StatusCode::NO_CONTENT)

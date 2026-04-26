@@ -124,7 +124,7 @@ pub struct NotifierSummary {
     pub id: i64,
     pub name: String,
     pub kind: String,
-    /// Secret-bearing keys (e.g. `bot_token`, `webhook_url`) are replaced
+    /// Secret-bearing keys (e.g. `bot_token`, `url`, `topic`) are replaced
     /// with `"***"` for token-authed callers.
     pub config: serde_json::Value,
 }

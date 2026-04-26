@@ -158,12 +158,36 @@ pub async fn delete_token(
 pub fn redact_notifier_config(config: &mut serde_json::Value) {
     const SECRET_KEYS: &[&str] = &[
         "bot_token", "token", "secret", "password", "api_key", "webhook_url",
-        "url", "auth_token",
+        "url", "auth_token", "topic",
     ];
     if let Some(obj) = config.as_object_mut() {
         for k in SECRET_KEYS {
             if obj.contains_key(*k) {
                 obj.insert((*k).into(), serde_json::Value::String("***".into()));
+            }
+        }
+    }
+}
+
+/// Inverse of redaction at write time: replace any `"***"` values at known
+/// SECRET_KEY positions in `new_config` with the current value from `current_config`.
+/// This prevents token-authed callers from accidentally overwriting real
+/// secrets with the redaction sentinel during a GET → mutate → PUT round trip.
+pub fn unredact_notifier_config(
+    new_config: &mut serde_json::Value,
+    current_config: &serde_json::Value,
+) {
+    const SECRET_KEYS: &[&str] = &[
+        "bot_token", "token", "secret", "password", "api_key", "webhook_url",
+        "url", "auth_token", "topic",
+    ];
+    let (Some(new_obj), Some(cur_obj)) = (new_config.as_object_mut(), current_config.as_object()) else {
+        return;
+    };
+    for k in SECRET_KEYS {
+        if new_obj.get(*k) == Some(&serde_json::Value::String("***".into())) {
+            if let Some(real) = cur_obj.get(*k) {
+                new_obj.insert((*k).into(), real.clone());
             }
         }
     }
