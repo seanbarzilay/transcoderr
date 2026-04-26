@@ -16,6 +16,12 @@ match:
   expr: file.size_gb > 0.001
 
 steps:
+  # Demux the largest BDMV/STREAM/*.m2ts out of any .iso input. No-ops for
+  # non-ISO inputs. Threads the m2ts through the staging chain so probe sees
+  # it; output:replace deletes the original .iso on success.
+  - id: iso-extract
+    use: iso.extract
+
   - id: probe
     use: probe
 
