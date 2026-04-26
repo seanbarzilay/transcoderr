@@ -38,6 +38,9 @@ pub fn register_all(
     map.insert("extract.subs".into(), Arc::new(ExtractSubsStep));
     map.insert("strip.tracks".into(), Arc::new(StripTracksStep));
     map.insert("audio.ensure".into(), Arc::new(AudioEnsureStep));
+
+    // Preprocessing: demux Blu-ray ISOs into a sibling .m2ts before the plan
+    // pipeline probes the input. No-op for non-ISO inputs.
     map.insert("iso.extract".into(), Arc::new(IsoExtractStep));
 
     // New plan-then-execute pipeline. Mutator steps are pure (no ffmpeg), the
