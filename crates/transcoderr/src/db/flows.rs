@@ -90,6 +90,33 @@ pub async fn list_enabled_for_lidarr(pool: &SqlitePool, event: &str) -> anyhow::
     Ok(out)
 }
 
+/// Returns all enabled flows whose YAML wires any event for the given
+/// source kind. Used by the manual-trigger path (Browse Radarr/Sonarr
+/// pages), which fans out across every matching flow regardless of
+/// event semantics — the operator already chose to trigger.
+pub async fn list_enabled_for_kind(
+    pool: &SqlitePool,
+    kind: crate::arr::Kind,
+) -> anyhow::Result<Vec<FlowRow>> {
+    let all = sqlx::query_as::<_, (i64, String, i64, String, String, i64)>(
+        "SELECT id, name, enabled, yaml_source, parsed_json, version FROM flows WHERE enabled = 1"
+    ).fetch_all(pool).await?;
+    let mut out = vec![];
+    for (id, name, enabled, yaml_source, parsed_json, version) in all {
+        let flow: Flow = serde_json::from_str(&parsed_json)?;
+        let matches = flow.triggers.iter().any(|t| match (kind, t) {
+            (crate::arr::Kind::Radarr, crate::flow::Trigger::Radarr(events)) => !events.is_empty(),
+            (crate::arr::Kind::Sonarr, crate::flow::Trigger::Sonarr(events)) => !events.is_empty(),
+            (crate::arr::Kind::Lidarr, crate::flow::Trigger::Lidarr(events)) => !events.is_empty(),
+            _ => false,
+        });
+        if matches {
+            out.push(FlowRow { id, name, enabled: enabled != 0, yaml_source, parsed_json, version });
+        }
+    }
+    Ok(out)
+}
+
 pub async fn list_enabled_for_webhook(pool: &SqlitePool, name: &str) -> anyhow::Result<Vec<FlowRow>> {
     let all = sqlx::query_as::<_, (i64, String, i64, String, String, i64)>(
         "SELECT id, name, enabled, yaml_source, parsed_json, version FROM flows WHERE enabled = 1"
