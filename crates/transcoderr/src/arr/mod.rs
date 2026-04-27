@@ -3,6 +3,8 @@
 //! the same JSON shape. `Kind` discriminates which event flags to
 //! enable on create.
 
+pub mod reconcile;
+
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 

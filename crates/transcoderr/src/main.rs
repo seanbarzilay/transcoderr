@@ -111,6 +111,8 @@ async fn main() -> anyhow::Result<()> {
             };
             ready.mark_ready().await;
 
+            transcoderr::arr::reconcile::spawn(state.pool.clone(), state.public_url.clone());
+
             let app = transcoderr::http::router(state);
 
             let serve = axum::serve(listener, app).with_graceful_shutdown(
