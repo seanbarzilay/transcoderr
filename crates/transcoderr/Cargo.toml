@@ -39,11 +39,13 @@ mime_guess = "2"
 metrics = "0.23"
 metrics-exporter-prometheus = "0.15"
 transcoderr-api-types = { path = "../transcoderr-api-types" }
+hostname = { workspace = true }
 
 [dev-dependencies]
 tempfile = "3"
 pretty_assertions = "1"
 serial_test = "3"
+wiremock = "0.6"
 
 [lib]
 name = "transcoderr"
