@@ -45,6 +45,7 @@ pub fn router(state: AppState) -> Router<AppState> {
         .route("/sources/:id/movies", get(arr_browse::movies))
         .route("/sources/:id/series", get(arr_browse::series))
         .route("/sources/:id/series/:series_id", get(arr_browse::series_get))
+        .route("/sources/:id/series/:series_id/episodes", get(arr_browse::episodes))
         .route("/plugins",            get(plugins::list))
         .route("/plugins/:id",        patch(plugins::update))
         .route("/notifiers",          get(notifiers::list).post(notifiers::create))

@@ -264,3 +264,53 @@ pub async fn series_get(
     state.arr_cache.put(source_id, &key, v);
     Ok(Json(detail))
 }
+
+#[derive(Debug, Deserialize)]
+pub struct EpisodesParams {
+    #[serde(default)]
+    pub season: Option<i32>,
+}
+
+pub async fn episodes(
+    State(state): State<AppState>,
+    Path((source_id, series_id)): Path<(i64, i64)>,
+    Query(params): Query<EpisodesParams>,
+) -> Result<Json<transcoderr_api_types::EpisodesPage>, (StatusCode, Json<ApiError>)> {
+    let (_row, kind, base_url, api_key) = browseable_source(&state, source_id).await?;
+    if kind != arr::Kind::Sonarr {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(ApiError::new(
+                "source.wrong_kind",
+                "this endpoint is only for sonarr sources",
+            )),
+        ));
+    }
+    let key = format!("episodes:{series_id}");
+    let trimmed: Vec<transcoderr_api_types::EpisodeSummary> =
+        if let Some(v) = state.arr_cache.get(source_id, &key) {
+            serde_json::from_value(v).unwrap_or_default()
+        } else {
+            let client = arr::Client::new(&base_url, &api_key)
+                .map_err(|e| arr_call_error(source_id, e))?;
+            let raw = client
+                .list_episodes(series_id)
+                .await
+                .map_err(|e| arr_call_error(source_id, e))?;
+            let trimmed: Vec<_> = raw.into_iter().map(|e| e.into_summary()).collect();
+            let v = serde_json::to_value(&trimmed).unwrap_or(serde_json::Value::Null);
+            state.arr_cache.put(source_id, &key, v);
+            trimmed
+        };
+
+    let mut items: Vec<_> = match params.season {
+        Some(s) => trimmed.into_iter().filter(|e| e.season_number == s).collect(),
+        None => trimmed,
+    };
+    items.sort_by(|a, b| {
+        a.season_number
+            .cmp(&b.season_number)
+            .then_with(|| a.episode_number.cmp(&b.episode_number))
+    });
+    Ok(Json(transcoderr_api_types::EpisodesPage { items }))
+}
