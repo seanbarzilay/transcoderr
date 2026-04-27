@@ -69,29 +69,52 @@ pub async fn create(
         rand::thread_rng().fill_bytes(&mut bytes);
         let secret_token: String = bytes.iter().map(|b| format!("{b:02x}")).collect();
 
-        let webhook_url = format!("{}/webhook/{}", state.public_url, req.kind);
-        let client = arr::Client::new(base_url, api_key)
+        // Persist BEFORE calling the *arr. Servarr's notification-create
+        // synchronously test-fires the webhook, hitting our /webhook/{kind}
+        // endpoint — which authenticates by looking up (kind, secret_token)
+        // in the DB. If the row doesn't yet exist, the test 401s and the
+        // *arr fails creation. Insert first, rollback on *arr failure.
+        let id = db::sources::insert(&state.pool, &req.kind, &req.name, &req.config, &secret_token)
+            .await
             .map_err(|e| {
-                tracing::error!(kind = %req.kind, error = ?e, "failed to construct *arr client");
-                StatusCode::BAD_GATEWAY
+                tracing::error!(kind = %req.kind, error = ?e, "failed to persist source row");
+                StatusCode::INTERNAL_SERVER_ERROR
             })?;
-        let notification = client
+
+        let webhook_url = format!("{}/webhook/{}", state.public_url, req.kind);
+        let client = match arr::Client::new(base_url, api_key) {
+            Ok(c) => c,
+            Err(e) => {
+                tracing::error!(kind = %req.kind, error = ?e, "failed to construct *arr client; rolling back source row");
+                let _ = sqlx::query("DELETE FROM sources WHERE id = ?")
+                    .bind(id)
+                    .execute(&state.pool)
+                    .await;
+                return Err(StatusCode::BAD_GATEWAY);
+            }
+        };
+        let notification = match client
             .create_notification(arr_kind, &req.name, &webhook_url, &secret_token)
             .await
-            .map_err(|e| {
+        {
+            Ok(n) => n,
+            Err(e) => {
                 tracing::error!(kind = %req.kind, name = %req.name, error = ?e,
-                    "failed to create *arr notification");
-                StatusCode::BAD_GATEWAY
-            })?;
+                    "failed to create *arr notification; rolling back source row");
+                let _ = sqlx::query("DELETE FROM sources WHERE id = ?")
+                    .bind(id)
+                    .execute(&state.pool)
+                    .await;
+                return Err(StatusCode::BAD_GATEWAY);
+            }
+        };
 
-        let mut cfg = req.config.clone();
-        if let Some(map) = cfg.as_object_mut() {
-            map.insert("arr_notification_id".into(), serde_json::json!(notification.id));
+        // Stamp the *arr-assigned notification id into config_json.
+        if let Err(e) = db::sources::update_arr_notification_id(&state.pool, id, notification.id).await {
+            tracing::error!(source_id = id, notification_id = notification.id, error = ?e,
+                "failed to stamp arr_notification_id; *arr webhook is provisioned but local row is out of sync — boot reconciler will recover");
+            return Err(StatusCode::INTERNAL_SERVER_ERROR);
         }
-
-        let id = db::sources::insert(&state.pool, &req.kind, &req.name, &cfg, &secret_token)
-            .await
-            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
         return Ok(Json(CreateResp { id }));
     }
 
