@@ -270,6 +270,35 @@ tbody tr:hover td { background: var(--surface); }
 .pill-skipped { color: var(--warn); background: var(--warn-soft); border-color: transparent; }
 .pill-cancelled { color: var(--text-muted); background: var(--neutral-soft); border-color: transparent; }
 
+.badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border: 1px solid currentColor;
+  border-radius: var(--r-2);
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  line-height: 1.5;
+  background: transparent;
+}
+.badge-auto { color: var(--ok); background: var(--ok-soft); border-color: transparent; }
+.badge-manual { color: var(--text-muted); background: var(--neutral-soft); border-color: transparent; }
+
+.hint {
+  color: var(--text-muted);
+  font-size: 11px;
+  margin-top: 6px;
+  line-height: 1.4;
+}
+.hint code {
+  color: var(--text-dim);
+  background: var(--surface-2);
+  padding: 0 4px;
+  border-radius: var(--r-1);
+  border: 1px solid var(--border);
+}
+
 .dot {
   display: inline-block;
   width: 7px; height: 7px;

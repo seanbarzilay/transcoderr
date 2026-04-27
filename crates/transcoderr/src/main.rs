@@ -86,6 +86,18 @@ async fn main() -> anyhow::Result<()> {
 
             let ready = transcoderr::ready::Readiness::new();
 
+            let listener =
+                tokio::net::TcpListener::bind(&cfg.bind).await?;
+            let addr = listener.local_addr()?;
+            let public_url = transcoderr::public_url::resolve(addr);
+            tracing::info!(
+                public_url = %public_url.url,
+                source = ?public_url.source,
+                addr = %addr,
+                "transcoderr serving",
+            );
+            let public_url_arc = std::sync::Arc::new(public_url.url);
+
             let state = transcoderr::http::AppState {
                 pool,
                 cfg: cfg.clone(),
@@ -95,14 +107,13 @@ async fn main() -> anyhow::Result<()> {
                 ready: ready.clone(),
                 metrics,
                 cancellations,
+                public_url: public_url_arc,
             };
             ready.mark_ready().await;
 
+            transcoderr::arr::reconcile::spawn(state.pool.clone(), state.public_url.clone());
+
             let app = transcoderr::http::router(state);
-            let listener =
-                tokio::net::TcpListener::bind(&cfg.bind).await?;
-            let addr = listener.local_addr()?;
-            tracing::info!(addr = %addr, "serving");
 
             let serve = axum::serve(listener, app).with_graceful_shutdown(
                 async move {

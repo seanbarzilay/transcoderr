@@ -1,4 +1,5 @@
 pub mod api;
+pub mod arr;
 pub mod bus;
 pub mod cancellation;
 pub mod config;
@@ -13,6 +14,7 @@ pub mod log_spill;
 pub mod metrics;
 pub mod notifiers;
 pub mod plugins;
+pub mod public_url;
 pub mod ready;
 pub mod retention;
 pub mod static_assets;

@@ -20,6 +20,7 @@ pub struct AppState {
     pub ready: crate::ready::Readiness,
     pub metrics: std::sync::Arc<crate::metrics::Metrics>,
     pub cancellations: crate::cancellation::JobCancellations,
+    pub public_url: std::sync::Arc<String>,
 }
 
 pub fn router(state: AppState) -> Router {
