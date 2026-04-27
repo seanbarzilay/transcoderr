@@ -65,6 +65,26 @@ async fn api_token_create_verify_delete_round_trip() {
 }
 
 #[tokio::test]
+async fn api_token_verify_stamps_last_used_at() {
+    use transcoderr::db::api_tokens;
+    let app = boot().await;
+
+    let made = api_tokens::create(&app.pool, "stamp-test").await.unwrap();
+
+    // Pre-verify: last_used_at is NULL.
+    let before = api_tokens::list(&app.pool).await.unwrap();
+    assert_eq!(before[0].last_used_at, None);
+
+    api_tokens::verify(&app.pool, &made.token).await.expect("verify");
+
+    let after = api_tokens::list(&app.pool).await.unwrap();
+    assert!(
+        after[0].last_used_at.is_some(),
+        "last_used_at should be stamped after verify(); got None"
+    );
+}
+
+#[tokio::test]
 async fn token_endpoints_create_list_delete() {
     let app = boot().await;
     let h = hash_password("hunter2").unwrap();

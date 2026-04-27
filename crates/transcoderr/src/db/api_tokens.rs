@@ -63,8 +63,11 @@ pub async fn delete(pool: &SqlitePool, id: i64) -> anyhow::Result<bool> {
     Ok(n > 0)
 }
 
-/// Look up by prefix and verify with argon2. Returns the token id on success.
-/// On success, kicks off a fire-and-forget update of `last_used_at`.
+/// Look up by prefix and verify with argon2. Returns the token id on success
+/// and stamps `last_used_at`. Inline rather than `tokio::spawn`: an UPDATE
+/// against SQLite+WAL is sub-millisecond and cheaper than an argon2 verify
+/// we just paid for; doing it synchronously also surfaces errors instead of
+/// swallowing them in a detached task.
 pub async fn verify(pool: &SqlitePool, presented: &str) -> Option<i64> {
     if !presented.starts_with(TOKEN_PREFIX) || presented.len() < PREFIX_LEN {
         return None;
@@ -82,12 +85,12 @@ pub async fn verify(pool: &SqlitePool, presented: &str) -> Option<i64> {
     Argon2::default()
         .verify_password(presented.as_bytes(), &parsed)
         .ok()?;
-    let pool2 = pool.clone();
-    tokio::spawn(async move {
-        let _ = sqlx::query("UPDATE api_tokens SET last_used_at = strftime('%s','now') WHERE id = ?")
-            .bind(id)
-            .execute(&pool2)
-            .await;
-    });
+    if let Err(e) = sqlx::query("UPDATE api_tokens SET last_used_at = strftime('%s','now') WHERE id = ?")
+        .bind(id)
+        .execute(pool)
+        .await
+    {
+        tracing::warn!(token_id = id, error = %e, "failed to stamp api_token last_used_at");
+    }
     Some(id)
 }
