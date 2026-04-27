@@ -314,3 +314,39 @@ pub async fn episodes(
     });
     Ok(Json(transcoderr_api_types::EpisodesPage { items }))
 }
+
+pub async fn refresh(
+    State(state): State<AppState>,
+    Path(source_id): Path<i64>,
+) -> Result<StatusCode, (StatusCode, Json<ApiError>)> {
+    let (_row, kind, base_url, api_key) = browseable_source(&state, source_id).await?;
+    state.arr_cache.invalidate(source_id);
+
+    // Warm the primary list endpoint for this kind. Best-effort: log
+    // and ignore on failure — caller will see fresh data on next read.
+    let client = match arr::Client::new(&base_url, &api_key) {
+        Ok(c) => c,
+        Err(e) => {
+            tracing::warn!(source_id, error = %e, "refresh: failed to build client; cache cleared anyway");
+            return Ok(StatusCode::NO_CONTENT);
+        }
+    };
+    match kind {
+        arr::Kind::Radarr => {
+            if let Ok(raw) = client.list_movies().await {
+                let trimmed: Vec<_> = raw.into_iter().map(|m| m.into_summary(&base_url)).collect();
+                let v = serde_json::to_value(&trimmed).unwrap_or(serde_json::Value::Null);
+                state.arr_cache.put(source_id, CACHE_KEY_MOVIES, v);
+            }
+        }
+        arr::Kind::Sonarr => {
+            if let Ok(raw) = client.list_series().await {
+                let trimmed: Vec<_> = raw.into_iter().map(|s| s.into_summary(&base_url)).collect();
+                let v = serde_json::to_value(&trimmed).unwrap_or(serde_json::Value::Null);
+                state.arr_cache.put(source_id, CACHE_KEY_SERIES, v);
+            }
+        }
+        arr::Kind::Lidarr => {} // not browseable in v1
+    }
+    Ok(StatusCode::NO_CONTENT)
+}
