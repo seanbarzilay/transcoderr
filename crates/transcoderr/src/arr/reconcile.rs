@@ -73,12 +73,41 @@ async fn reconcile_one(
             tracing::info!(source_id = src.id, old_id = notification_id, new_id = new_n.id, "*arr webhook recreated");
         }
         None => {
-            tracing::warn!(source_id = src.id, missing_id = notification_id, "*arr webhook missing; recreating");
-            let new_n = client
-                .create_notification(arr_kind, &src.name, &expected_url, &src.secret_token)
-                .await?;
-            db::sources::update_arr_notification_id(pool, src.id, new_n.id).await?;
-            tracing::info!(source_id = src.id, new_id = new_n.id, "*arr webhook recreated");
+            // The tracked id is gone. Before we create from scratch, check
+            // whether a notification with our expected name already exists
+            // on the *arr — operator manual recreate, or a prior partial
+            // reconcile cycle, can leave one behind. Without this lookup,
+            // the create-from-scratch hits a "Should be unique" 400 from
+            // the *arr and the source stays out of sync forever.
+            let expected_name = format!("transcoderr-{}", src.name);
+            let existing = client
+                .list_notifications()
+                .await?
+                .into_iter()
+                .find(|n| n.name == expected_name);
+            if let Some(found) = existing {
+                let found_id = found.id;
+                if matches_expected(&found, &expected_url, &src.secret_token) {
+                    db::sources::update_arr_notification_id(pool, src.id, found_id).await?;
+                    tracing::info!(source_id = src.id, adopted_id = found_id, "*arr webhook adopted by name");
+                } else {
+                    tracing::warn!(source_id = src.id, adopted_id = found_id,
+                        "adopted *arr webhook is drifted on key fields; recreating");
+                    client.delete_notification(found_id).await?;
+                    let new_n = client
+                        .create_notification(arr_kind, &src.name, &expected_url, &src.secret_token)
+                        .await?;
+                    db::sources::update_arr_notification_id(pool, src.id, new_n.id).await?;
+                    tracing::info!(source_id = src.id, old_id = found_id, new_id = new_n.id, "*arr webhook recreated");
+                }
+            } else {
+                tracing::warn!(source_id = src.id, missing_id = notification_id, "*arr webhook missing; recreating");
+                let new_n = client
+                    .create_notification(arr_kind, &src.name, &expected_url, &src.secret_token)
+                    .await?;
+                db::sources::update_arr_notification_id(pool, src.id, new_n.id).await?;
+                tracing::info!(source_id = src.id, new_id = new_n.id, "*arr webhook recreated");
+            }
         }
     }
     Ok(())
