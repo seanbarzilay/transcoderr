@@ -121,6 +121,68 @@ impl Client {
             .await
             .context("parsing *arr response")
     }
+
+    pub async fn list_notifications(&self) -> Result<Vec<Notification>> {
+        let url = format!("{}/api/v3/notification", self.base_url);
+        let resp = self
+            .http
+            .get(&url)
+            .header("X-Api-Key", &self.api_key)
+            .send()
+            .await
+            .context("listing *arr notifications")?;
+        if !resp.status().is_success() {
+            let status = resp.status();
+            let text = resp.text().await.unwrap_or_default();
+            anyhow::bail!("*arr returned {status}: {text}");
+        }
+        resp.json::<Vec<Notification>>()
+            .await
+            .context("parsing *arr response")
+    }
+
+    /// Fetch a single notification by id. 404 → Ok(None), used by the
+    /// boot reconciler to distinguish "drifted" from "missing".
+    pub async fn get_notification(&self, id: i64) -> Result<Option<Notification>> {
+        let url = format!("{}/api/v3/notification/{id}", self.base_url);
+        let resp = self
+            .http
+            .get(&url)
+            .header("X-Api-Key", &self.api_key)
+            .send()
+            .await
+            .context("getting *arr notification")?;
+        if resp.status() == reqwest::StatusCode::NOT_FOUND {
+            return Ok(None);
+        }
+        if !resp.status().is_success() {
+            let status = resp.status();
+            let text = resp.text().await.unwrap_or_default();
+            anyhow::bail!("*arr returned {status}: {text}");
+        }
+        Ok(Some(
+            resp.json::<Notification>()
+                .await
+                .context("parsing *arr response")?,
+        ))
+    }
+
+    pub async fn delete_notification(&self, id: i64) -> Result<()> {
+        let url = format!("{}/api/v3/notification/{id}", self.base_url);
+        let resp = self
+            .http
+            .delete(&url)
+            .header("X-Api-Key", &self.api_key)
+            .send()
+            .await
+            .context("deleting *arr notification")?;
+        if !resp.status().is_success() {
+            let status = resp.status();
+            let text = resp.text().await.unwrap_or_default();
+            anyhow::bail!("*arr returned {status}: {text}");
+        }
+        Ok(())
+    }
 }
 
 /// Per-kind event flags. Radarr fires onGrab/onDownload/onUpgrade;
@@ -244,5 +306,55 @@ mod tests {
         let s = format!("{err:?}");
         assert!(s.contains("401"), "got {s}");
         assert!(s.contains("Unauthorized"), "got {s}");
+    }
+
+    #[tokio::test]
+    async fn delete_notification_passes_id_in_path() {
+        let server = MockServer::start().await;
+        Mock::given(method("DELETE"))
+            .and(path("/api/v3/notification/42"))
+            .and(header("X-Api-Key", "k"))
+            .respond_with(ResponseTemplate::new(200))
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        let client = Client::new(&server.uri(), "k").unwrap();
+        client.delete_notification(42).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn get_notification_returns_none_on_404() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/api/v3/notification/99"))
+            .respond_with(ResponseTemplate::new(404))
+            .mount(&server)
+            .await;
+
+        let client = Client::new(&server.uri(), "k").unwrap();
+        let result = client.get_notification(99).await.unwrap();
+        assert!(result.is_none());
+    }
+
+    #[tokio::test]
+    async fn get_notification_returns_some_on_200() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/api/v3/notification/7"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "id": 7,
+                "name": "transcoderr-Movies",
+                "implementation": "Webhook",
+                "configContract": "WebhookSettings",
+                "fields": [],
+                "onDownload": true,
+            })))
+            .mount(&server)
+            .await;
+
+        let client = Client::new(&server.uri(), "k").unwrap();
+        let n = client.get_notification(7).await.unwrap().unwrap();
+        assert_eq!(n.id, 7);
     }
 }
