@@ -43,6 +43,8 @@ pub fn router(state: AppState) -> Router<AppState> {
         .route("/sources/:id",        get(sources::get).put(sources::update).delete(sources::delete))
         .route("/sources/:id/test-fire", post(sources::test_fire))
         .route("/sources/:id/movies", get(arr_browse::movies))
+        .route("/sources/:id/series", get(arr_browse::series))
+        .route("/sources/:id/series/:series_id", get(arr_browse::series_get))
         .route("/plugins",            get(plugins::list))
         .route("/plugins/:id",        patch(plugins::update))
         .route("/notifiers",          get(notifiers::list).post(notifiers::create))

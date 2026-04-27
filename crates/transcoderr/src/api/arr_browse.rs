@@ -172,3 +172,95 @@ fn filter_sort_paginate_movies(
     };
     MoviesPage { items: window, total, page, limit }
 }
+
+const CACHE_KEY_SERIES: &str = "series";
+
+pub async fn series(
+    State(state): State<AppState>,
+    Path(source_id): Path<i64>,
+    Query(params): Query<BrowseParams>,
+) -> Result<Json<transcoderr_api_types::SeriesPage>, (StatusCode, Json<ApiError>)> {
+    let (_row, kind, base_url, api_key) = browseable_source(&state, source_id).await?;
+    if kind != arr::Kind::Sonarr {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(ApiError::new(
+                "source.wrong_kind",
+                "this endpoint is only for sonarr sources",
+            )),
+        ));
+    }
+    let cached = state.arr_cache.get(source_id, CACHE_KEY_SERIES);
+    let trimmed: Vec<transcoderr_api_types::SeriesSummary> = if let Some(v) = cached {
+        serde_json::from_value(v).unwrap_or_default()
+    } else {
+        let client = arr::Client::new(&base_url, &api_key)
+            .map_err(|e| arr_call_error(source_id, e))?;
+        let raw = client
+            .list_series()
+            .await
+            .map_err(|e| arr_call_error(source_id, e))?;
+        let trimmed: Vec<_> = raw.into_iter().map(|s| s.into_summary(&base_url)).collect();
+        let v = serde_json::to_value(&trimmed).unwrap_or(serde_json::Value::Null);
+        state.arr_cache.put(source_id, CACHE_KEY_SERIES, v);
+        trimmed
+    };
+    Ok(Json(filter_sort_paginate_series(trimmed, &params)))
+}
+
+fn filter_sort_paginate_series(
+    mut items: Vec<transcoderr_api_types::SeriesSummary>,
+    params: &BrowseParams,
+) -> transcoderr_api_types::SeriesPage {
+    if let Some(q) = params.search.as_ref().filter(|s| !s.is_empty()) {
+        let needle = q.to_lowercase();
+        items.retain(|s| s.title.to_lowercase().contains(&needle));
+    }
+    match params.sort.as_deref().unwrap_or("title") {
+        "year" => items.sort_by(|a, b| b.year.unwrap_or(0).cmp(&a.year.unwrap_or(0))),
+        _ => items.sort_by(|a, b| a.title.to_lowercase().cmp(&b.title.to_lowercase())),
+    }
+    let total = items.len() as i64;
+    let limit = params.limit.unwrap_or(48).clamp(1, 200);
+    let page = params.page.unwrap_or(1).max(1);
+    let start = ((page - 1) * limit) as usize;
+    let end = (start + limit as usize).min(items.len());
+    let window = if start < items.len() {
+        items[start..end].to_vec()
+    } else {
+        vec![]
+    };
+    transcoderr_api_types::SeriesPage { items: window, total, page, limit }
+}
+
+pub async fn series_get(
+    State(state): State<AppState>,
+    Path((source_id, series_id)): Path<(i64, i64)>,
+) -> Result<Json<transcoderr_api_types::SeriesDetail>, (StatusCode, Json<ApiError>)> {
+    let (_row, kind, base_url, api_key) = browseable_source(&state, source_id).await?;
+    if kind != arr::Kind::Sonarr {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(ApiError::new(
+                "source.wrong_kind",
+                "this endpoint is only for sonarr sources",
+            )),
+        ));
+    }
+    let key = format!("series:{series_id}");
+    if let Some(v) = state.arr_cache.get(source_id, &key) {
+        if let Ok(detail) = serde_json::from_value::<transcoderr_api_types::SeriesDetail>(v) {
+            return Ok(Json(detail));
+        }
+    }
+    let client = arr::Client::new(&base_url, &api_key)
+        .map_err(|e| arr_call_error(source_id, e))?;
+    let raw = client
+        .get_series(series_id)
+        .await
+        .map_err(|e| arr_call_error(source_id, e))?;
+    let detail = raw.into_detail(&base_url);
+    let v = serde_json::to_value(&detail).unwrap_or(serde_json::Value::Null);
+    state.arr_cache.put(source_id, &key, v);
+    Ok(Json(detail))
+}
