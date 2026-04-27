@@ -146,6 +146,19 @@ pub async fn update(
         return Err(StatusCode::BAD_REQUEST);
     }
 
+    // Preserve api_key on the "***" redaction sentinel — the GET response
+    // redacts api_key for token-authed callers, so a round-trip GET → PUT
+    // would otherwise overwrite the real key with the literal "***".
+    if let Some(obj) = new_cfg.as_object_mut() {
+        if obj.get("api_key").and_then(|v| v.as_str()) == Some("***") {
+            if let Some(old_key) = old_cfg.get("api_key") {
+                obj.insert("api_key".into(), old_key.clone());
+            } else {
+                obj.remove("api_key");
+            }
+        }
+    }
+
     let new_name = req.name.clone().unwrap_or_else(|| row.name.clone());
     let arr_kind = arr::Kind::parse(&row.kind);
 
@@ -162,6 +175,17 @@ pub async fn update(
             .and_then(|v| v.as_i64())
             .unwrap();
 
+        // Validate new credentials BEFORE any *arr side-effects.
+        let new_base = new_cfg
+            .get("base_url")
+            .and_then(|v| v.as_str())
+            .ok_or(StatusCode::BAD_REQUEST)?;
+        let new_key = new_cfg
+            .get("api_key")
+            .and_then(|v| v.as_str())
+            .ok_or(StatusCode::BAD_REQUEST)?;
+
+        // Best-effort delete of the OLD webhook against the OLD creds.
         if let (Some(old_base), Some(old_key)) = (
             old_cfg.get("base_url").and_then(|v| v.as_str()),
             old_cfg.get("api_key").and_then(|v| v.as_str()),
@@ -174,14 +198,6 @@ pub async fn update(
             }
         }
 
-        let new_base = new_cfg
-            .get("base_url")
-            .and_then(|v| v.as_str())
-            .ok_or(StatusCode::BAD_REQUEST)?;
-        let new_key = new_cfg
-            .get("api_key")
-            .and_then(|v| v.as_str())
-            .ok_or(StatusCode::BAD_REQUEST)?;
         let webhook_url = format!("{}/webhook/{}", state.public_url, row.kind);
         let client = arr::Client::new(new_base, new_key).map_err(|e| {
             tracing::error!(source_id = id, error = ?e,
