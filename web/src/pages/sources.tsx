@@ -153,7 +153,7 @@ export default function Sources() {
         ) : (
           <p className="hint">
             Add a webhook in your tool's settings pointing at{" "}
-            <code>{`{public_url}/webhook/${name || "{name}"}`}</code> with the
+            <code>{window.location.origin}/webhook/{name || "&lt;name&gt;"}</code> with the
             secret token above as the password.
           </p>
         )}
