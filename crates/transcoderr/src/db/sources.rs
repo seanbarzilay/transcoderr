@@ -48,18 +48,27 @@ pub async fn update_arr_notification_id(
     source_id: i64,
     new_id: i64,
 ) -> anyhow::Result<()> {
-    let row = get_by_id(pool, source_id)
-        .await?
-        .ok_or_else(|| anyhow::anyhow!("source {source_id} not found"))?;
-    let mut cfg: serde_json::Value = serde_json::from_str(&row.config_json).unwrap_or_default();
-    if let Some(obj) = cfg.as_object_mut() {
-        obj.insert("arr_notification_id".into(), serde_json::json!(new_id));
-    }
+    let mut tx = pool.begin().await?;
+    let row: SourceRow = sqlx::query_as(
+        "SELECT id, kind, name, config_json, secret_token FROM sources WHERE id = ?",
+    )
+    .bind(source_id)
+    .fetch_optional(&mut *tx)
+    .await?
+    .ok_or_else(|| anyhow::anyhow!("source {source_id} not found"))?;
+
+    let mut cfg: serde_json::Value = serde_json::from_str(&row.config_json)
+        .map_err(|e| anyhow::anyhow!("invalid JSON in source {source_id} config: {e}"))?;
+    let obj = cfg.as_object_mut()
+        .ok_or_else(|| anyhow::anyhow!("source {source_id} config is not a JSON object"))?;
+    obj.insert("arr_notification_id".into(), serde_json::json!(new_id));
     let cfg_str = serde_json::to_string(&cfg)?;
+
     sqlx::query("UPDATE sources SET config_json = ? WHERE id = ?")
         .bind(cfg_str)
         .bind(source_id)
-        .execute(pool)
+        .execute(&mut *tx)
         .await?;
+    tx.commit().await?;
     Ok(())
 }
