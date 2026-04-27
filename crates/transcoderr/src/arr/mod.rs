@@ -5,6 +5,7 @@
 
 pub mod reconcile;
 pub mod cache;
+pub mod browse;
 
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
