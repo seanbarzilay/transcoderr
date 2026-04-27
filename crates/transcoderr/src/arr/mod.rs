@@ -4,6 +4,7 @@
 //! enable on create.
 
 pub mod reconcile;
+pub mod cache;
 
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
