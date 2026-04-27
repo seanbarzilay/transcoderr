@@ -129,26 +129,96 @@ pub async fn update(
     Path(id): Path<i64>,
     Json(req): Json<UpdateSourceReq>,
 ) -> Result<StatusCode, StatusCode> {
-    // Verify exists
-    let row = sqlx::query("SELECT name, config_json, secret_token FROM sources WHERE id = ?")
-        .bind(id).fetch_optional(&state.pool).await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
-        .ok_or(StatusCode::NOT_FOUND)?;
-
-    let name: String = req.name.unwrap_or_else(|| row.get(0));
-    let config_json = match req.config {
-        Some(c) => serde_json::to_string(&c).map_err(|_| StatusCode::BAD_REQUEST)?,
-        None => row.get(1),
-    };
-    let secret_token: String = match req.secret_token {
-        Some(s) if s == "***" => row.get(2),  // ignore redaction sentinel from token-authed callers
-        Some(s) => s,
-        None => row.get(2),
+    let row = match db::sources::get_by_id(&state.pool, id).await {
+        Ok(Some(r)) => r,
+        Ok(None) => return Err(StatusCode::NOT_FOUND),
+        Err(_) => return Err(StatusCode::INTERNAL_SERVER_ERROR),
     };
 
+    let old_cfg: serde_json::Value =
+        serde_json::from_str(&row.config_json).unwrap_or_default();
+    let mut new_cfg = match req.config {
+        Some(ref c) => c.clone(),
+        None => old_cfg.clone(),
+    };
+
+    let new_name = req.name.clone().unwrap_or_else(|| row.name.clone());
+    let arr_kind = arr::Kind::parse(&row.kind);
+
+    let needs_reprovision = arr_kind.is_some()
+        && old_cfg.get("arr_notification_id").is_some()
+        && (old_cfg.get("base_url") != new_cfg.get("base_url")
+            || old_cfg.get("api_key") != new_cfg.get("api_key")
+            || new_name != row.name);
+
+    if needs_reprovision {
+        let arr_kind = arr_kind.unwrap();
+        let old_id = old_cfg
+            .get("arr_notification_id")
+            .and_then(|v| v.as_i64())
+            .unwrap();
+
+        if let (Some(old_base), Some(old_key)) = (
+            old_cfg.get("base_url").and_then(|v| v.as_str()),
+            old_cfg.get("api_key").and_then(|v| v.as_str()),
+        ) {
+            if let Ok(c) = arr::Client::new(old_base, old_key) {
+                if let Err(e) = c.delete_notification(old_id).await {
+                    tracing::warn!(source_id = id, old_id, error = %e,
+                        "failed to delete old *arr webhook during update; proceeding");
+                }
+            }
+        }
+
+        let new_base = new_cfg
+            .get("base_url")
+            .and_then(|v| v.as_str())
+            .ok_or(StatusCode::BAD_REQUEST)?;
+        let new_key = new_cfg
+            .get("api_key")
+            .and_then(|v| v.as_str())
+            .ok_or(StatusCode::BAD_REQUEST)?;
+        let webhook_url = format!("{}/webhook/{}", state.public_url, row.kind);
+        let client = arr::Client::new(new_base, new_key).map_err(|e| {
+            tracing::error!(source_id = id, error = ?e,
+                "failed to construct *arr client during update");
+            StatusCode::BAD_GATEWAY
+        })?;
+        let new_n = client
+            .create_notification(arr_kind, &new_name, &webhook_url, &row.secret_token)
+            .await
+            .map_err(|e| {
+                tracing::error!(source_id = id, error = ?e,
+                    "failed to provision new *arr webhook on update");
+                StatusCode::BAD_GATEWAY
+            })?;
+
+        if let Some(obj) = new_cfg.as_object_mut() {
+            obj.insert("arr_notification_id".into(), serde_json::json!(new_n.id));
+        }
+    }
+
+    // Auto-provisioned rows (arr_kind matched AND we stamped an
+    // arr_notification_id) own their secret_token — it's the *arr->transcoderr
+    // shared password, regenerated only on create. Manual rows (radarr/sonarr/
+    // lidarr kind without an arr_notification_id, or non-arr kinds) accept
+    // explicit secret_token updates; the "***" sentinel is preserved.
+    let auto_provisioned =
+        arr_kind.is_some() && old_cfg.get("arr_notification_id").is_some();
+    let new_secret = match (auto_provisioned, req.secret_token.as_deref()) {
+        (true, _) => row.secret_token.clone(),
+        (false, Some(s)) if s != "***" => s.to_string(),
+        _ => row.secret_token.clone(),
+    };
+    let cfg_str = serde_json::to_string(&new_cfg)
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     sqlx::query("UPDATE sources SET name = ?, config_json = ?, secret_token = ? WHERE id = ?")
-        .bind(&name).bind(&config_json).bind(&secret_token).bind(id)
-        .execute(&state.pool).await
+        .bind(&new_name)
+        .bind(&cfg_str)
+        .bind(&new_secret)
+        .bind(id)
+        .execute(&state.pool)
+        .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     Ok(StatusCode::NO_CONTENT)
 }
