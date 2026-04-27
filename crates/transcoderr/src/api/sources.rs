@@ -157,8 +157,37 @@ pub async fn delete(
     State(state): State<AppState>,
     Path(id): Path<i64>,
 ) -> Result<StatusCode, StatusCode> {
+    let row = match db::sources::get_by_id(&state.pool, id).await {
+        Ok(Some(r)) => r,
+        Ok(None) => return Err(StatusCode::NOT_FOUND),
+        Err(_) => return Err(StatusCode::INTERNAL_SERVER_ERROR),
+    };
+
+    let cfg: serde_json::Value =
+        serde_json::from_str(&row.config_json).unwrap_or_default();
+    let arr_kind = arr::Kind::parse(&row.kind);
+    let notification_id = cfg.get("arr_notification_id").and_then(|v| v.as_i64());
+
+    if let (Some(_arr_kind), Some(notification_id)) = (arr_kind, notification_id) {
+        let base_url = cfg.get("base_url").and_then(|v| v.as_str()).unwrap_or("");
+        let api_key = cfg.get("api_key").and_then(|v| v.as_str()).unwrap_or("");
+        if !base_url.is_empty() && !api_key.is_empty() {
+            match arr::Client::new(base_url, api_key) {
+                Ok(client) => match client.delete_notification(notification_id).await {
+                    Ok(()) => tracing::info!(source_id = id, notification_id, "deleted *arr webhook"),
+                    Err(e) => tracing::warn!(source_id = id, notification_id, error = %e,
+                        "failed to delete *arr webhook; proceeding with local delete"),
+                },
+                Err(e) => tracing::warn!(source_id = id, error = %e,
+                    "failed to construct *arr client; proceeding with local delete"),
+            }
+        }
+    }
+
     sqlx::query("DELETE FROM sources WHERE id = ?")
-        .bind(id).execute(&state.pool).await
+        .bind(id)
+        .execute(&state.pool)
+        .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     Ok(StatusCode::NO_CONTENT)
 }
