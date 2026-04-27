@@ -49,6 +49,7 @@ export const api = {
     get:   () => req<Record<string,string>>("/settings"),
     patch: (body: Record<string, any>) => req<void>("/settings", { method: "PATCH", body: JSON.stringify(body) }),
   },
+  version: () => req<{ version: string }>("/version"),
   dryRun: (body: { yaml: string; file_path: string; probe?: any }) =>
     req<{ steps: any[]; probe: any }>("/dry-run", { method: "POST", body: JSON.stringify(body) }),
   auth: {
