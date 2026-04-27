@@ -1,4 +1,6 @@
 import { NavLink } from "react-router-dom";
+import { useQuery } from "@tanstack/react-query";
+import { api } from "../api/client";
 import { useLive } from "../state/live";
 
 const links: [string, string][] = [
@@ -16,6 +18,11 @@ const config: [string, string][] = [
 
 export default function Sidebar() {
   const queue = useLive((s) => s.queue);
+  const version = useQuery({
+    queryKey: ["version"],
+    queryFn: () => api.version(),
+    staleTime: Infinity,
+  });
   return (
     <nav className="sidebar">
       <div className="brand">
@@ -57,7 +64,7 @@ export default function Sidebar() {
           {"  "}·{"  "}
           Running <span className="dim">{queue.running}</span>
         </div>
-        <div className="muted">v0.5.x</div>
+        <div className="muted">{version.data ? `v${version.data.version}` : ""}</div>
       </div>
     </nav>
   );
