@@ -7,6 +7,7 @@ use axum::{extract::{Path, State}, http::StatusCode, Json};
 use rand::RngCore;
 use sqlx::Row;
 use transcoderr_api_types::{CreatedIdResp as CreateResp, CreateSourceReq, SourceSummary, UpdateSourceReq};
+use tracing;
 
 /// Returns a copy of `config` with `api_key` masked to `"***"` when
 /// `redact` is true. Mirrors the secret-redaction policy applied to
@@ -70,11 +71,18 @@ pub async fn create(
 
         let webhook_url = format!("{}/webhook/{}", state.public_url, req.kind);
         let client = arr::Client::new(base_url, api_key)
-            .map_err(|_| StatusCode::BAD_GATEWAY)?;
+            .map_err(|e| {
+                tracing::error!(kind = %req.kind, error = ?e, "failed to construct *arr client");
+                StatusCode::BAD_GATEWAY
+            })?;
         let notification = client
             .create_notification(arr_kind, &req.name, &webhook_url, &secret_token)
             .await
-            .map_err(|_| StatusCode::BAD_GATEWAY)?;
+            .map_err(|e| {
+                tracing::error!(kind = %req.kind, name = %req.name, error = ?e,
+                    "failed to create *arr notification");
+                StatusCode::BAD_GATEWAY
+            })?;
 
         let mut cfg = req.config.clone();
         if let Some(map) = cfg.as_object_mut() {
