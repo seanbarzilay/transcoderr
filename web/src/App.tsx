@@ -1,5 +1,5 @@
-import { useEffect } from "react";
-import { Routes, Route, Navigate } from "react-router-dom";
+import { useEffect, useState } from "react";
+import { Routes, Route, Navigate, useLocation } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { api } from "./api/client";
 import { startSSE } from "./state/live";
@@ -21,12 +21,27 @@ export default function App() {
     return stop;
   }, []);
   const me = useQuery({ queryKey: ["me"], queryFn: api.auth.me });
+  const [navOpen, setNavOpen] = useState(false);
+  const location = useLocation();
+  // Auto-close the mobile drawer on route change.
+  useEffect(() => { setNavOpen(false); }, [location.pathname]);
+
   if (me.isLoading) return null;
   if (me.data?.auth_required && !me.data?.authed)
     return <Login onLoggedIn={() => me.refetch()} />;
   return (
-    <div className="app-shell">
-      <Sidebar />
+    <div className={"app-shell" + (navOpen ? " is-nav-open" : "")}>
+      <button
+        type="button"
+        className="mobile-menu-btn"
+        aria-label={navOpen ? "Close navigation" : "Open navigation"}
+        aria-expanded={navOpen}
+        onClick={() => setNavOpen((o) => !o)}
+      >
+        <span /><span /><span />
+      </button>
+      {navOpen && <div className="scrim" onClick={() => setNavOpen(false)} />}
+      <Sidebar open={navOpen} onNavigate={() => setNavOpen(false)} />
       <main className="main">
         <Routes>
           <Route path="/" element={<Navigate to="/dashboard" />} />
