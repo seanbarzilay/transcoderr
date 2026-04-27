@@ -215,3 +215,110 @@ mod tests {
         assert!(!s.contains("details"), "got {s}");
     }
 }
+
+// ─── *arr browse ─────────────────────────────────────────────────────────
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
+pub struct FileSummary {
+    pub path: String,
+    pub size: i64,
+    pub codec: Option<String>,
+    pub quality: Option<String>,
+    pub resolution: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
+pub struct MovieSummary {
+    pub id: i64,
+    pub title: String,
+    pub year: Option<i32>,
+    pub poster_url: Option<String>,
+    pub has_file: bool,
+    pub file: Option<FileSummary>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
+pub struct SeriesSummary {
+    pub id: i64,
+    pub title: String,
+    pub year: Option<i32>,
+    pub poster_url: Option<String>,
+    pub season_count: i32,
+    pub episode_count: i32,
+    pub episode_file_count: i32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
+pub struct SeasonSummary {
+    pub number: i32,
+    pub episode_count: i32,
+    pub episode_file_count: i32,
+    pub monitored: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
+pub struct SeriesDetail {
+    pub id: i64,
+    pub title: String,
+    pub year: Option<i32>,
+    pub overview: Option<String>,
+    pub poster_url: Option<String>,
+    pub fanart_url: Option<String>,
+    pub seasons: Vec<SeasonSummary>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
+pub struct EpisodeSummary {
+    pub id: i64,
+    pub season_number: i32,
+    pub episode_number: i32,
+    pub title: String,
+    pub air_date: Option<String>,
+    pub has_file: bool,
+    pub file: Option<FileSummary>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct MoviesPage {
+    pub items: Vec<MovieSummary>,
+    pub total: i64,
+    pub page: i64,
+    pub limit: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct SeriesPage {
+    pub items: Vec<SeriesSummary>,
+    pub total: i64,
+    pub page: i64,
+    pub limit: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct EpisodesPage {
+    pub items: Vec<EpisodeSummary>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct TranscodeReq {
+    pub file_path: String,
+    pub title: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub movie_id: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub series_id: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub episode_id: Option<i64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct TranscodeRunRef {
+    pub flow_id: i64,
+    pub flow_name: String,
+    pub run_id: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct TranscodeResp {
+    pub runs: Vec<TranscodeRunRef>,
+}
