@@ -32,11 +32,27 @@ pub fn resolve(bound_addr: SocketAddr) -> PublicUrl {
         .and_then(|h| h.into_string().ok())
         .filter(|h| !h.is_empty())
         .unwrap_or_else(|| "localhost".to_string());
+    if looks_like_container_id(&host) {
+        tracing::warn!(
+            hostname = %host,
+            "resolved hostname looks like a docker container id; \
+             this URL is not reachable from outside the container's network. \
+             Set TRANSCODERR_PUBLIC_URL=http://<service-or-host>:<port> for *arr auto-provisioning."
+        );
+    }
     let url = format!("http://{host}:{}", bound_addr.port());
     PublicUrl {
         url,
         source: Source::Default,
     }
+}
+
+/// Heuristic for "this hostname is probably a docker container id". Docker
+/// uses the 12-char short id as the in-container hostname by default. We
+/// also catch the rarer 64-char full id.
+fn looks_like_container_id(host: &str) -> bool {
+    let len = host.len();
+    (len == 12 || len == 64) && host.chars().all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase())
 }
 
 #[cfg(test)]
@@ -70,5 +86,23 @@ mod tests {
         // and end with the bound port.
         assert!(p.url.starts_with("http://"), "got {}", p.url);
         assert!(p.url.ends_with(":8099"), "got {}", p.url);
+    }
+
+    #[test]
+    fn container_id_heuristic() {
+        // Short docker container ids: 12 lowercase hex chars.
+        assert!(looks_like_container_id("c2a507c37ae6"));
+        assert!(looks_like_container_id("0123456789ab"));
+        // Full container id: 64 lowercase hex chars.
+        let full = "0123456789abcdef".repeat(4);
+        assert!(looks_like_container_id(&full));
+        // Real hostnames are not flagged.
+        assert!(!looks_like_container_id("transcoderr"));
+        assert!(!looks_like_container_id("localhost"));
+        assert!(!looks_like_container_id("media-server-01"));
+        // Wrong length, even if hex-only.
+        assert!(!looks_like_container_id("abc"));
+        // Right length but uppercase: not a docker id (docker uses lowercase).
+        assert!(!looks_like_container_id("C2A507C37AE6"));
     }
 }
