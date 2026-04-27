@@ -73,11 +73,88 @@ impl Client {
             api_key: api_key.to_string(),
         })
     }
+
+    /// Create a Webhook notification on the *arr. Returns the created
+    /// Notification (with the *arr-assigned `id`). On 4xx/5xx, the error
+    /// chain includes the *arr's response body so operators see the
+    /// actual reason (e.g. `Unauthorized`, `Invalid api key`).
+    pub async fn create_notification(
+        &self,
+        kind: Kind,
+        name: &str,
+        webhook_url: &str,
+        secret: &str,
+    ) -> Result<Notification> {
+        let mut body = serde_json::json!({
+            "name": format!("transcoderr-{name}"),
+            "implementation": "Webhook",
+            "configContract": "WebhookSettings",
+            "fields": [
+                { "name": "url",      "value": webhook_url },
+                { "name": "method",   "value": 1 },
+                { "name": "username", "value": "" },
+                { "name": "password", "value": secret },
+            ],
+        });
+        // Splice per-kind event flags into the body.
+        if let Some(map) = body.as_object_mut() {
+            for (flag, val) in event_flags(kind) {
+                map.insert(flag.into(), serde_json::Value::Bool(val));
+            }
+        }
+
+        let url = format!("{}/api/v3/notification", self.base_url);
+        let resp = self
+            .http
+            .post(&url)
+            .header("X-Api-Key", &self.api_key)
+            .json(&body)
+            .send()
+            .await
+            .context("posting *arr notification")?;
+        if !resp.status().is_success() {
+            let status = resp.status();
+            let text = resp.text().await.unwrap_or_default();
+            anyhow::bail!("*arr returned {status}: {text}");
+        }
+        resp.json::<Notification>()
+            .await
+            .context("parsing *arr response")
+    }
+}
+
+/// Per-kind event flags. Radarr fires onGrab/onDownload/onUpgrade;
+/// Sonarr adds onSeriesAdd / onEpisodeFileDelete; Lidarr's are
+/// album/artist-flavored. We default to the most useful subset for
+/// transcoderr's "react to a downloaded file" use case.
+fn event_flags(kind: Kind) -> Vec<(&'static str, bool)> {
+    match kind {
+        Kind::Radarr => vec![
+            ("onGrab", false),
+            ("onDownload", true),
+            ("onUpgrade", true),
+        ],
+        Kind::Sonarr => vec![
+            ("onGrab", false),
+            ("onDownload", true),
+            ("onUpgrade", true),
+            ("onSeriesAdd", false),
+            ("onEpisodeFileDelete", false),
+        ],
+        Kind::Lidarr => vec![
+            ("onGrab", false),
+            ("onReleaseImport", true),
+            ("onUpgrade", true),
+        ],
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde_json::Value;
+    use wiremock::matchers::{header, method, path};
+    use wiremock::{Mock, MockServer, ResponseTemplate};
 
     #[test]
     fn kind_parse_known_kinds() {
@@ -100,5 +177,72 @@ mod tests {
         assert_eq!(c.base_url, "http://radarr:7878");
         let c = Client::new("http://radarr:7878", "k").unwrap();
         assert_eq!(c.base_url, "http://radarr:7878");
+    }
+
+    #[tokio::test]
+    async fn create_notification_builds_correct_payload_and_returns_id() {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/api/v3/notification"))
+            .and(header("X-Api-Key", "test-key"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "id": 42,
+                "name": "transcoderr-Movies",
+                "implementation": "Webhook",
+                "configContract": "WebhookSettings",
+                "fields": [
+                    {"name": "url", "value": "http://transcoderr:8099/webhook/radarr"},
+                    {"name": "password", "value": "abc123"},
+                ],
+                "onGrab": false,
+                "onDownload": true,
+                "onUpgrade": true,
+            })))
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        let client = Client::new(&server.uri(), "test-key").unwrap();
+        let n = client
+            .create_notification(
+                Kind::Radarr,
+                "Movies",
+                "http://transcoderr:8099/webhook/radarr",
+                "abc123",
+            )
+            .await
+            .unwrap();
+        assert_eq!(n.id, 42);
+        assert_eq!(n.name, "transcoderr-Movies");
+
+        // Verify the request body shape via the mock's recorded request.
+        let received = &server.received_requests().await.unwrap()[0];
+        let body: Value = serde_json::from_slice(&received.body).unwrap();
+        assert_eq!(body["implementation"], "Webhook");
+        let fields = body["fields"].as_array().unwrap();
+        let pw = fields.iter().find(|f| f["name"] == "password").unwrap();
+        assert_eq!(pw["value"], "abc123");
+        assert_eq!(body["onDownload"], true);
+    }
+
+    #[tokio::test]
+    async fn create_notification_surfaces_arr_error_message() {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/api/v3/notification"))
+            .respond_with(ResponseTemplate::new(401).set_body_json(serde_json::json!({
+                "message": "Unauthorized"
+            })))
+            .mount(&server)
+            .await;
+
+        let client = Client::new(&server.uri(), "wrong-key").unwrap();
+        let err = client
+            .create_notification(Kind::Radarr, "Movies", "http://x/webhook", "s")
+            .await
+            .unwrap_err();
+        let s = format!("{err:?}");
+        assert!(s.contains("401"), "got {s}");
+        assert!(s.contains("Unauthorized"), "got {s}");
     }
 }
