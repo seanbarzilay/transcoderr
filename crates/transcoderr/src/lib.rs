@@ -1,4 +1,5 @@
 pub mod api;
+pub mod arr;
 pub mod bus;
 pub mod cancellation;
 pub mod config;
