@@ -193,7 +193,7 @@ is what sibling containers (radarr, sonarr) reach. Custom deployments
 with a reverse proxy or different hostname override via the env var.
 
 **Webhook URL shape**: the URL passed to the *arr is
-`{public_url}/api/webhooks/{kind}` (no token in the URL — it's
+`{public_url}/webhook/{kind}` (no token in the URL — it's
 delivered via Basic auth in the password slot).
 
 ### 3. Source-create auto-provision flow
@@ -203,7 +203,7 @@ delivered via Basic auth in the password slot).
 
 1. Validate `req.config.base_url` and `req.config.api_key` are present.
 2. Generate a fresh `secret_token` (random 32-byte hex).
-3. Construct `webhook_url = format!("{}/api/webhooks/{}", state.public_url, kind)`.
+3. Construct `webhook_url = format!("{}/webhook/{}", state.public_url, kind)`.
 4. Build an `arr::Client` from base_url + api_key. Call
    `create_notification(arr_kind, name, webhook_url, secret_token)`.
 5. On success, persist the source row with `config_json` extended to
@@ -349,7 +349,7 @@ async fn reconcile_one(
     public_url: &str,
 ) -> anyhow::Result<()> {
     let client = arr::Client::new(base_url, api_key)?;
-    let expected_url = format!("{public_url}/api/webhooks/{}", src.kind);
+    let expected_url = format!("{public_url}/webhook/{}", src.kind);
     match client.get_notification(notification_id).await? {
         Some(n) if matches_expected(&n, &expected_url, &src.secret_token) => {
             tracing::info!(source_id = src.id, notification_id, "*arr webhook in sync");
@@ -411,7 +411,7 @@ For **radarr / sonarr / lidarr**:
 For **generic** (today's flow):
 - `Name`, `Secret token`, `Config` — unchanged.
 - Help text: "*Add a webhook in your tool's settings pointing at
-  `{public_url}/api/webhooks/generic` with this token as the
+  `{public_url}/webhook/{name}` with this token as the
   password.*" — surfaces the URL the operator needs to paste.
 
 **Edit form** for an auto-provisioned source: `Base URL` and `API
