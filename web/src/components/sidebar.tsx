@@ -16,7 +16,12 @@ const config: [string, string][] = [
   ["/settings", "Settings"],
 ];
 
-export default function Sidebar() {
+interface Props {
+  open?: boolean;
+  onNavigate?: () => void;
+}
+
+export default function Sidebar({ open = false, onNavigate }: Props) {
   const queue = useLive((s) => s.queue);
   const version = useQuery({
     queryKey: ["version"],
@@ -24,7 +29,7 @@ export default function Sidebar() {
     staleTime: Infinity,
   });
   return (
-    <nav className="sidebar">
+    <nav className={"sidebar" + (open ? " is-open" : "")}>
       <div className="brand">
         <span className="brand-dot" />
         <span>transcoder<span className="brand-x">/r</span></span>
@@ -36,6 +41,7 @@ export default function Sidebar() {
           <NavLink
             key={href}
             to={href}
+            onClick={onNavigate}
             className={({ isActive }) =>
               "nav-link" + (isActive ? " is-active" : "")
             }
@@ -49,6 +55,7 @@ export default function Sidebar() {
           <NavLink
             key={href}
             to={href}
+            onClick={onNavigate}
             className={({ isActive }) =>
               "nav-link" + (isActive ? " is-active" : "")
             }
