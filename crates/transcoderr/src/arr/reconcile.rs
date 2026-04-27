@@ -22,8 +22,13 @@ async fn run(pool: &SqlitePool, public_url: &str) -> anyhow::Result<()> {
     let sources = db::sources::list_all(pool).await?;
     for src in sources {
         let Some(arr_kind) = arr::Kind::parse(&src.kind) else { continue };
-        let cfg: serde_json::Value =
-            serde_json::from_str(&src.config_json).unwrap_or_default();
+        let cfg: serde_json::Value = match serde_json::from_str(&src.config_json) {
+            Ok(v) => v,
+            Err(e) => {
+                tracing::warn!(source_id = src.id, error = %e, "skipping source during reconcile: invalid config_json");
+                continue;
+            }
+        };
         let Some(notification_id) = cfg.get("arr_notification_id").and_then(|v| v.as_i64()) else {
             continue;
         };
