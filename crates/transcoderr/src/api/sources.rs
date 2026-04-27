@@ -297,11 +297,35 @@ pub async fn delete(
         }
     }
 
+    // Detach historical jobs from this source, then delete it. Without
+    // the UPDATE, the FK constraint on jobs(source_id) → sources(id)
+    // blocks the DELETE for any source that's processed at least one
+    // file. Wrap in a transaction so the orphan-and-delete pair is
+    // atomic.
+    let mut tx = state.pool.begin().await.map_err(|e| {
+        tracing::error!(source_id = id, error = ?e, "failed to open delete transaction");
+        StatusCode::INTERNAL_SERVER_ERROR
+    })?;
+    sqlx::query("UPDATE jobs SET source_id = NULL WHERE source_id = ?")
+        .bind(id)
+        .execute(&mut *tx)
+        .await
+        .map_err(|e| {
+            tracing::error!(source_id = id, error = ?e, "failed to detach jobs from source");
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
     sqlx::query("DELETE FROM sources WHERE id = ?")
         .bind(id)
-        .execute(&state.pool)
+        .execute(&mut *tx)
         .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        .map_err(|e| {
+            tracing::error!(source_id = id, error = ?e, "failed to delete source row");
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
+    tx.commit().await.map_err(|e| {
+        tracing::error!(source_id = id, error = ?e, "failed to commit delete transaction");
+        StatusCode::INTERNAL_SERVER_ERROR
+    })?;
     Ok(StatusCode::NO_CONTENT)
 }
 
