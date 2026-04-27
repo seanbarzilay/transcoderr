@@ -142,6 +142,10 @@ pub async fn update(
         None => old_cfg.clone(),
     };
 
+    if !new_cfg.is_object() {
+        return Err(StatusCode::BAD_REQUEST);
+    }
+
     let new_name = req.name.clone().unwrap_or_else(|| row.name.clone());
     let arr_kind = arr::Kind::parse(&row.kind);
 
