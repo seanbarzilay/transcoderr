@@ -10,7 +10,7 @@ FROM rust:bookworm AS rust
 WORKDIR /src
 COPY . .
 COPY --from=web /web/dist /src/web/dist
-RUN cargo build --release --locked
+RUN cargo build --release
 
 FROM jrottenberg/ffmpeg:6.0-nvidia2204 AS runtime
 RUN sed -i 's/^# deb /deb /; s/main$/main universe multiverse/' /etc/apt/sources.list \
