@@ -57,6 +57,8 @@ export interface MoviesPage {
   total: number;
   page: number;
   limit: number;
+  available_codecs: string[];
+  available_resolutions: string[];
 }
 
 export interface SeriesPage {
@@ -68,6 +70,8 @@ export interface SeriesPage {
 
 export interface EpisodesPage {
   items: EpisodeSummary[];
+  available_codecs: string[];
+  available_resolutions: string[];
 }
 
 export interface BrowseParams {
@@ -75,6 +79,14 @@ export interface BrowseParams {
   sort?: "title" | "year";
   page?: number;
   limit?: number;
+  codec?: string;
+  resolution?: string;
+}
+
+export interface EpisodesQuery {
+  season?: number;
+  codec?: string;
+  resolution?: string;
 }
 
 export interface TranscodeReq {

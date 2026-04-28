@@ -22,6 +22,8 @@ export default function SonarrSeries() {
   });
 
   const [activeSeason, setActiveSeason] = useState<number | null>(null);
+  const [codec, setCodec] = useState("");
+  const [resolution, setResolution] = useState("");
   useEffect(() => {
     if (activeSeason != null) return;
     const seasons = detail.data?.seasons ?? [];
@@ -30,9 +32,13 @@ export default function SonarrSeries() {
   }, [detail.data, activeSeason]);
 
   const episodes = useQuery({
-    queryKey: ["arr.episodes", sourceId, seriesIdNum, activeSeason],
+    queryKey: ["arr.episodes", sourceId, seriesIdNum, activeSeason, codec, resolution],
     queryFn: () =>
-      api.arr.episodes(sourceId!, seriesIdNum!, activeSeason ?? undefined),
+      api.arr.episodes(sourceId!, seriesIdNum!, {
+        season: activeSeason ?? undefined,
+        codec: codec || undefined,
+        resolution: resolution || undefined,
+      }),
     enabled: sourceId != null && seriesIdNum != null && activeSeason != null,
     staleTime: 5 * 60_000,
   });
@@ -89,9 +95,41 @@ export default function SonarrSeries() {
             ))}
           </div>
 
+          {episodes.data && (episodes.data.available_codecs.length > 0 || episodes.data.available_resolutions.length > 0) && (
+            <div className="browse-toolbar" style={{ marginTop: 0 }}>
+              <select
+                className="source-picker"
+                value={codec}
+                onChange={(e) => setCodec(e.target.value)}
+              >
+                <option value="">Codec: any</option>
+                {episodes.data.available_codecs.map((c) => (
+                  <option key={c} value={c}>
+                    {c}
+                  </option>
+                ))}
+              </select>
+              <select
+                className="source-picker"
+                value={resolution}
+                onChange={(e) => setResolution(e.target.value)}
+              >
+                <option value="">Resolution: any</option>
+                {episodes.data.available_resolutions.map((r) => (
+                  <option key={r} value={r}>
+                    {r}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+
           {episodes.isLoading && <div className="empty">Loading episodes…</div>}
           {episodes.data && (
             <div>
+              {episodes.data.items.length === 0 && (
+                <div className="empty">No episodes match the current filters.</div>
+              )}
               {episodes.data.items.map((ep) => (
                 <EpisodeRow
                   key={ep.id}

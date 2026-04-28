@@ -284,6 +284,14 @@ pub struct MoviesPage {
     pub total: i64,
     pub page: i64,
     pub limit: i64,
+    /// Distinct codec values present in the source's full library
+    /// (post-`has_file` filter, pre-search/codec/resolution filter).
+    /// Frontend uses this to populate the codec filter dropdown.
+    #[serde(default)]
+    pub available_codecs: Vec<String>,
+    /// Same as `available_codecs` but for resolution.
+    #[serde(default)]
+    pub available_resolutions: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
@@ -297,6 +305,10 @@ pub struct SeriesPage {
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct EpisodesPage {
     pub items: Vec<EpisodeSummary>,
+    #[serde(default)]
+    pub available_codecs: Vec<String>,
+    #[serde(default)]
+    pub available_resolutions: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]

@@ -106,6 +106,30 @@ pub struct BrowseParams {
     pub page: Option<i64>,
     #[serde(default)]
     pub limit: Option<i64>,
+    /// Exact codec match (case-insensitive). e.g. "x265", "h264".
+    #[serde(default)]
+    pub codec: Option<String>,
+    /// Exact resolution match (case-insensitive). e.g. "3840x2160".
+    #[serde(default)]
+    pub resolution: Option<String>,
+}
+
+/// Distinct, lower-cased, sorted set of `(codec | resolution)` values
+/// across the items' `file` field. Returned to the frontend so codec /
+/// resolution dropdowns only offer values that actually exist in the
+/// library.
+fn distinct_codecs<I, F>(items: I, codec: F) -> Vec<String>
+where
+    I: IntoIterator,
+    F: Fn(&I::Item) -> Option<String>,
+{
+    let mut set: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
+    for it in items {
+        if let Some(c) = codec(&it).filter(|s| !s.is_empty()) {
+            set.insert(c.to_lowercase());
+        }
+    }
+    set.into_iter().collect()
 }
 
 pub(super) const CACHE_KEY_MOVIES: &str = "movies";
@@ -150,17 +174,50 @@ pub async fn movies(
         trimmed
     };
 
-    let page = filter_sort_paginate_movies(trimmed, &params);
+    // Compute available_* over the FULL cached library before
+    // filtering, so the dropdowns stay stable when the user picks
+    // a value (otherwise selecting "hevc" would shrink the codec
+    // list to just ["hevc"] and you couldn't pick anything else).
+    let available_codecs = distinct_codecs(trimmed.iter(), |m| {
+        m.file.as_ref().and_then(|f| f.codec.clone())
+    });
+    let available_resolutions = distinct_codecs(trimmed.iter(), |m| {
+        m.file.as_ref().and_then(|f| f.resolution.clone())
+    });
+
+    let page = filter_sort_paginate_movies(trimmed, &params, available_codecs, available_resolutions);
     Ok(Json(page))
 }
 
 fn filter_sort_paginate_movies(
     mut items: Vec<transcoderr_api_types::MovieSummary>,
     params: &BrowseParams,
+    available_codecs: Vec<String>,
+    available_resolutions: Vec<String>,
 ) -> MoviesPage {
     if let Some(q) = params.search.as_ref().filter(|s| !s.is_empty()) {
         let needle = q.to_lowercase();
         items.retain(|m| m.title.to_lowercase().contains(&needle));
+    }
+    if let Some(c) = params.codec.as_ref().filter(|s| !s.is_empty()) {
+        let needle = c.to_lowercase();
+        items.retain(|m| {
+            m.file
+                .as_ref()
+                .and_then(|f| f.codec.as_ref())
+                .map(|x| x.to_lowercase() == needle)
+                .unwrap_or(false)
+        });
+    }
+    if let Some(r) = params.resolution.as_ref().filter(|s| !s.is_empty()) {
+        let needle = r.to_lowercase();
+        items.retain(|m| {
+            m.file
+                .as_ref()
+                .and_then(|f| f.resolution.as_ref())
+                .map(|x| x.to_lowercase() == needle)
+                .unwrap_or(false)
+        });
     }
     match params.sort.as_deref().unwrap_or("title") {
         "year" => items.sort_by(|a, b| b.year.unwrap_or(0).cmp(&a.year.unwrap_or(0))),
@@ -176,7 +233,14 @@ fn filter_sort_paginate_movies(
     } else {
         vec![]
     };
-    MoviesPage { items: window, total, page, limit }
+    MoviesPage {
+        items: window,
+        total,
+        page,
+        limit,
+        available_codecs,
+        available_resolutions,
+    }
 }
 
 const CACHE_KEY_SERIES: &str = "series";
@@ -281,6 +345,10 @@ pub async fn series_get(
 pub struct EpisodesParams {
     #[serde(default)]
     pub season: Option<i32>,
+    #[serde(default)]
+    pub codec: Option<String>,
+    #[serde(default)]
+    pub resolution: Option<String>,
 }
 
 pub async fn episodes(
@@ -321,16 +389,49 @@ pub async fn episodes(
             trimmed
         };
 
-    let mut items: Vec<_> = match params.season {
-        Some(s) => trimmed.into_iter().filter(|e| e.season_number == s).collect(),
-        None => trimmed,
-    };
+    // Compute available_* across the whole series (all seasons),
+    // not just the current season filter — keeps dropdowns stable.
+    let available_codecs = distinct_codecs(trimmed.iter(), |e| {
+        e.file.as_ref().and_then(|f| f.codec.clone())
+    });
+    let available_resolutions = distinct_codecs(trimmed.iter(), |e| {
+        e.file.as_ref().and_then(|f| f.resolution.clone())
+    });
+
+    let mut items: Vec<_> = trimmed.into_iter().collect();
+    if let Some(s) = params.season {
+        items.retain(|e| e.season_number == s);
+    }
+    if let Some(c) = params.codec.as_ref().filter(|s| !s.is_empty()) {
+        let needle = c.to_lowercase();
+        items.retain(|e| {
+            e.file
+                .as_ref()
+                .and_then(|f| f.codec.as_ref())
+                .map(|x| x.to_lowercase() == needle)
+                .unwrap_or(false)
+        });
+    }
+    if let Some(r) = params.resolution.as_ref().filter(|s| !s.is_empty()) {
+        let needle = r.to_lowercase();
+        items.retain(|e| {
+            e.file
+                .as_ref()
+                .and_then(|f| f.resolution.as_ref())
+                .map(|x| x.to_lowercase() == needle)
+                .unwrap_or(false)
+        });
+    }
     items.sort_by(|a, b| {
         a.season_number
             .cmp(&b.season_number)
             .then_with(|| a.episode_number.cmp(&b.episode_number))
     });
-    Ok(Json(transcoderr_api_types::EpisodesPage { items }))
+    Ok(Json(transcoderr_api_types::EpisodesPage {
+        items,
+        available_codecs,
+        available_resolutions,
+    }))
 }
 
 pub async fn refresh(
