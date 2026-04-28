@@ -23,6 +23,8 @@ export interface SeriesSummary {
   season_count: number;
   episode_count: number;
   episode_file_count: number;
+  codecs: string[];
+  resolutions: string[];
 }
 
 export interface SeasonSummary {
@@ -66,6 +68,8 @@ export interface SeriesPage {
   total: number;
   page: number;
   limit: number;
+  available_codecs: string[];
+  available_resolutions: string[];
 }
 
 export interface EpisodesPage {

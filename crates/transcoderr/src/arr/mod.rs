@@ -61,6 +61,7 @@ pub struct Field {
     pub value: serde_json::Value,
 }
 
+#[derive(Clone)]
 pub struct Client {
     http: reqwest::Client,
     base_url: String,

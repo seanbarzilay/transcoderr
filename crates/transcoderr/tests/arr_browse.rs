@@ -262,6 +262,104 @@ async fn browse_movies_codec_and_resolution_filters() {
 }
 
 #[tokio::test]
+async fn browse_series_aggregates_codecs_and_filters() {
+    // The series list page fans out per-series episode fetches so it
+    // can show codec/resolution badges and filter on them. This test
+    // mocks two series, gives them different episode codecs/resolutions,
+    // and verifies (a) the SeriesPage available_* sets union the values
+    // across series, (b) ?codec=hevc narrows to the series whose
+    // episodes have that codec.
+    let arr = MockServer::start().await;
+    let app = common::boot().await;
+    let source_id = create_auto_provisioned_source(&app, &arr, "sonarr", "son").await;
+
+    Mock::given(method("GET"))
+        .and(path("/api/v3/series"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!([
+            { "id": 1, "title": "Alpha",
+              "statistics": { "seasonCount": 1, "episodeCount": 2, "episodeFileCount": 2 } },
+            { "id": 2, "title": "Bravo",
+              "statistics": { "seasonCount": 1, "episodeCount": 1, "episodeFileCount": 1 } }
+        ])))
+        .mount(&arr)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/api/v3/episode"))
+        .and(query_param("seriesId", "1"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!([
+            { "id": 11, "seasonNumber": 1, "episodeNumber": 1, "title": "A1", "hasFile": true,
+              "episodeFile": { "path": "/tv/a1.mkv", "size": 1,
+                               "mediaInfo": { "videoCodec": "hevc", "resolution": "3840x2160" } } },
+            { "id": 12, "seasonNumber": 1, "episodeNumber": 2, "title": "A2", "hasFile": true,
+              "episodeFile": { "path": "/tv/a2.mkv", "size": 1,
+                               "mediaInfo": { "videoCodec": "h264", "resolution": "1920x1080" } } }
+        ])))
+        .mount(&arr)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/api/v3/episode"))
+        .and(query_param("seriesId", "2"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!([
+            { "id": 21, "seasonNumber": 1, "episodeNumber": 1, "title": "B1", "hasFile": true,
+              "episodeFile": { "path": "/tv/b1.mkv", "size": 1,
+                               "mediaInfo": { "videoCodec": "h264", "resolution": "1920x1080" } } }
+        ])))
+        .mount(&arr)
+        .await;
+
+    let token = auth_token(&app).await;
+    let client = reqwest::Client::new();
+
+    // No filter: both series, available_* unions per-series sets.
+    let r: serde_json::Value = client
+        .get(format!("{}/api/sources/{}/series", app.url, source_id))
+        .bearer_auth(&token)
+        .send().await.unwrap()
+        .json().await.unwrap();
+    assert_eq!(r["total"], 2, "got {r}");
+    let codecs: Vec<&str> = r["available_codecs"].as_array().unwrap()
+        .iter().map(|v| v.as_str().unwrap()).collect();
+    assert_eq!(codecs, vec!["h264", "hevc"]);
+    let resolutions: Vec<&str> = r["available_resolutions"].as_array().unwrap()
+        .iter().map(|v| v.as_str().unwrap()).collect();
+    assert_eq!(resolutions, vec!["1920x1080", "3840x2160"]);
+
+    // Each series carries its own per-series codec set.
+    let alpha = r["items"].as_array().unwrap().iter()
+        .find(|s| s["title"] == "Alpha").unwrap();
+    let alpha_codecs: Vec<&str> = alpha["codecs"].as_array().unwrap()
+        .iter().map(|v| v.as_str().unwrap()).collect();
+    assert_eq!(alpha_codecs, vec!["h264", "hevc"]);
+    let bravo = r["items"].as_array().unwrap().iter()
+        .find(|s| s["title"] == "Bravo").unwrap();
+    let bravo_codecs: Vec<&str> = bravo["codecs"].as_array().unwrap()
+        .iter().map(|v| v.as_str().unwrap()).collect();
+    assert_eq!(bravo_codecs, vec!["h264"]);
+
+    // codec=hevc → only Alpha (which has at least one hevc episode).
+    let r: serde_json::Value = client
+        .get(format!("{}/api/sources/{}/series?codec=hevc", app.url, source_id))
+        .bearer_auth(&token)
+        .send().await.unwrap()
+        .json().await.unwrap();
+    assert_eq!(r["total"], 1);
+    assert_eq!(r["items"][0]["title"], "Alpha");
+    // available_* still reflects the WHOLE library, not the filtered view.
+    assert_eq!(r["available_codecs"].as_array().unwrap().len(), 2);
+
+    // The fan-out also warmed `episodes:{id}` cache so the per-series
+    // episode endpoint serves without another round-trip. Verify by
+    // counting recorded *arr requests: only one /api/v3/episode call
+    // per series for the whole sequence above.
+    let ep1_calls = arr.received_requests().await.unwrap()
+        .iter()
+        .filter(|r| r.url.path() == "/api/v3/episode"
+                 && r.url.query().unwrap_or("").contains("seriesId=1"))
+        .count();
+    assert_eq!(ep1_calls, 1, "warm episodes cache should make a single call per series");
+}
+
+#[tokio::test]
 async fn browse_filters_out_undownloaded_items() {
     // Movies, series, and episodes the *arr knows about but hasn't
     // imported a file for must NOT appear in the browse results — the

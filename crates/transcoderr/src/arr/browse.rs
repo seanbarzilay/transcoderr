@@ -159,6 +159,10 @@ impl SonarrSeries {
             season_count: stats.map(|s| s.season_count).unwrap_or(0),
             episode_count: stats.map(|s| s.episode_count).unwrap_or(0),
             episode_file_count: stats.map(|s| s.episode_file_count).unwrap_or(0),
+            // Populated post-hoc by the series() proxy handler from a
+            // concurrent episode fetch — left empty here.
+            codecs: Vec::new(),
+            resolutions: Vec::new(),
         }
     }
 
