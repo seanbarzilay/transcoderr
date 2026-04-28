@@ -36,7 +36,7 @@ async fn run(pool: &SqlitePool, public_url: &str) -> anyhow::Result<()> {
         let Some(api_key) = cfg.get("api_key").and_then(|v| v.as_str()) else { continue };
 
         if let Err(e) = reconcile_one(pool, &src, arr_kind, base_url, api_key, notification_id, public_url).await {
-            tracing::warn!(source_id = src.id, name = %src.name, error = %e, "reconcile failed");
+            tracing::warn!(source_id = src.id, name = %src.name, error = ?e, "reconcile failed");
         }
     }
     Ok(())
