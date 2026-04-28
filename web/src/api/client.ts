@@ -62,4 +62,31 @@ export const api = {
       remove: (id: number) => req<void>(`/auth/tokens/${id}`, { method: "DELETE" }),
     },
   },
+  arr: {
+    movies: (sourceId: number, params: import("../types-arr").BrowseParams) => {
+      const q = new URLSearchParams(
+        Object.entries(params).filter(([, v]) => v != null).map(([k, v]) => [k, String(v)])
+      ).toString();
+      return req<import("../types-arr").MoviesPage>(`/sources/${sourceId}/movies${q ? `?${q}` : ""}`);
+    },
+    series: (sourceId: number, params: import("../types-arr").BrowseParams) => {
+      const q = new URLSearchParams(
+        Object.entries(params).filter(([, v]) => v != null).map(([k, v]) => [k, String(v)])
+      ).toString();
+      return req<import("../types-arr").SeriesPage>(`/sources/${sourceId}/series${q ? `?${q}` : ""}`);
+    },
+    seriesGet: (sourceId: number, seriesId: number) =>
+      req<import("../types-arr").SeriesDetail>(`/sources/${sourceId}/series/${seriesId}`),
+    episodes: (sourceId: number, seriesId: number, season?: number) => {
+      const q = season != null ? `?season=${season}` : "";
+      return req<import("../types-arr").EpisodesPage>(`/sources/${sourceId}/series/${seriesId}/episodes${q}`);
+    },
+    transcode: (sourceId: number, body: import("../types-arr").TranscodeReq) =>
+      req<import("../types-arr").TranscodeResp>(`/sources/${sourceId}/transcode`, {
+        method: "POST",
+        body: JSON.stringify(body),
+      }),
+    refresh: (sourceId: number) =>
+      req<void>(`/sources/${sourceId}/refresh`, { method: "POST" }),
+  },
 };
