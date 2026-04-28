@@ -1,0 +1,45 @@
+name: tests
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  # One run per PR. Pushing a new commit cancels the in-flight run.
+  group: tests-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  rust:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install ffmpeg
+        # Many tests exec ffmpeg/ffprobe (testsrc generation, probe,
+        # transcode, remux, verify-playable). 7z is needed by the
+        # ISO-extract step's tests.
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ffmpeg p7zip-full
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          # Share the cache across PRs — saves ~2 min of cold compile.
+          shared-key: rust-tests
+      - name: Run tests
+        run: cargo test --workspace --locked --all-targets --no-fail-fast
+
+  web:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - name: Install
+        run: npm --prefix web ci
+      - name: Build
+        run: npm --prefix web run build
