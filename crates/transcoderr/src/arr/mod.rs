@@ -53,6 +53,11 @@ pub struct Notification {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Field {
     pub name: String,
+    /// `value` may be omitted entirely from the *arr's response when the
+    /// field is unset (e.g. an unconfigured `urlBase` on a Jellyfin
+    /// notification). Default to `Value::Null` rather than failing the
+    /// whole deserialize.
+    #[serde(default)]
     pub value: serde_json::Value,
 }
 
@@ -319,6 +324,30 @@ mod tests {
         assert_eq!(c.base_url, "http://radarr:7878");
         let c = Client::new("http://radarr:7878", "k").unwrap();
         assert_eq!(c.base_url, "http://radarr:7878");
+    }
+
+    #[test]
+    fn notification_deserializes_when_field_value_is_omitted() {
+        // Real Radarr responses omit `value` entirely on unset fields
+        // (e.g. an unconfigured `urlBase` on a Jellyfin notification).
+        // The whole list_notifications() call would otherwise fail to
+        // deserialize on the first such field.
+        let raw = serde_json::json!({
+            "id": 7,
+            "name": "Emby / Jellyfin",
+            "implementation": "MediaBrowser",
+            "configContract": "MediaBrowserSettings",
+            "fields": [
+                { "order": 3, "name": "urlBase", "label": "URL Base", "type": "textbox" },
+                { "order": 4, "name": "apiKey", "label": "API Key", "value": "********", "type": "textbox" },
+            ],
+            "tags": []
+        });
+        let n: Notification = serde_json::from_value(raw).expect("deserialize");
+        assert_eq!(n.id, 7);
+        assert_eq!(n.fields.len(), 2);
+        assert!(n.fields[0].value.is_null(), "missing value defaults to Value::Null");
+        assert_eq!(n.fields[1].value.as_str(), Some("********"));
     }
 
     #[tokio::test]
