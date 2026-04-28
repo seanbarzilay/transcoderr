@@ -14,6 +14,9 @@ import Notifiers from "./pages/notifiers";
 import Plugins from "./pages/plugins";
 import Settings from "./pages/settings";
 import Login from "./pages/login";
+import Radarr from "./pages/radarr";
+import Sonarr from "./pages/sonarr";
+import SonarrSeries from "./pages/sonarr-series";
 
 export default function App() {
   useEffect(() => {
@@ -54,6 +57,9 @@ export default function App() {
           <Route path="/notifiers" element={<Notifiers />} />
           <Route path="/plugins" element={<Plugins />} />
           <Route path="/settings" element={<Settings />} />
+          <Route path="/radarr" element={<Radarr />} />
+          <Route path="/sonarr" element={<Sonarr />} />
+          <Route path="/sonarr/series/:seriesId" element={<SonarrSeries />} />
         </Routes>
       </main>
     </div>
