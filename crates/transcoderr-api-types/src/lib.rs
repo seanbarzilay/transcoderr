@@ -246,6 +246,14 @@ pub struct SeriesSummary {
     pub season_count: i32,
     pub episode_count: i32,
     pub episode_file_count: i32,
+    /// Distinct codecs present across this series's downloaded episode
+    /// files. Empty if no episode files (or if cache was populated by
+    /// an older binary that didn't aggregate this).
+    #[serde(default)]
+    pub codecs: Vec<String>,
+    /// Same as `codecs` but for resolution.
+    #[serde(default)]
+    pub resolutions: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
@@ -300,6 +308,10 @@ pub struct SeriesPage {
     pub total: i64,
     pub page: i64,
     pub limit: i64,
+    #[serde(default)]
+    pub available_codecs: Vec<String>,
+    #[serde(default)]
+    pub available_resolutions: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]

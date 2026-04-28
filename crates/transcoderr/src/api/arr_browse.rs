@@ -245,6 +245,11 @@ fn filter_sort_paginate_movies(
 
 const CACHE_KEY_SERIES: &str = "series";
 
+/// Bounded parallelism for the per-series episode fan-out in `series()`.
+/// Tuned so a ~100-series library takes ~3-5s cold against typical
+/// homelab Sonarr latencies without overwhelming the *arr.
+const SERIES_EPISODE_FETCH_CONCURRENCY: usize = 8;
+
 pub async fn series(
     State(state): State<AppState>,
     Path(source_id): Path<i64>,
@@ -272,25 +277,126 @@ pub async fn series(
             .map_err(|e| arr_call_error(source_id, e))?;
         // Hide series that the *arr knows about but has never imported
         // an episode file for — nothing to transcode there.
-        let trimmed: Vec<_> = raw
+        let mut trimmed: Vec<_> = raw
             .into_iter()
             .map(|s| s.into_summary(&base_url))
             .filter(|s| s.episode_file_count > 0)
             .collect();
+
+        // Fan out per-series episode fetches in bounded parallelism so
+        // the series list page can show codec/resolution badges and
+        // filter on them. Costly cold (~3-5s for ~100 series) but warm
+        // hits the cache. Episode lists from this fan-out are also
+        // written into `episodes:{id}` to warm the series-detail page.
+        use futures::stream::StreamExt;
+        let ids: Vec<i64> = trimmed.iter().map(|s| s.id).collect();
+        let results: Vec<(i64, anyhow::Result<Vec<transcoderr_api_types::EpisodeSummary>>)> =
+            futures::stream::iter(ids)
+                .map(|id| {
+                    let c = client.clone();
+                    async move {
+                        let r = c.list_episodes(id).await.map(|raws| {
+                            raws.into_iter()
+                                .map(|e| e.into_summary())
+                                .filter(|e| e.has_file)
+                                .collect::<Vec<_>>()
+                        });
+                        (id, r)
+                    }
+                })
+                .buffer_unordered(SERIES_EPISODE_FETCH_CONCURRENCY)
+                .collect()
+                .await;
+
+        let mut by_id: std::collections::HashMap<i64, Vec<transcoderr_api_types::EpisodeSummary>> =
+            std::collections::HashMap::new();
+        for (id, r) in results {
+            match r {
+                Ok(eps) => {
+                    by_id.insert(id, eps);
+                }
+                Err(e) => {
+                    // Tolerate per-series episode fetch failures: that
+                    // series just has no codec/resolution badges. The
+                    // rest of the listing remains usable.
+                    tracing::warn!(source_id, series_id = id, error = %e, "series codec aggregation: episode fetch failed");
+                }
+            }
+        }
+
+        for s in trimmed.iter_mut() {
+            if let Some(eps) = by_id.get(&s.id) {
+                s.codecs = distinct_codecs(eps.iter(), |e| {
+                    e.file.as_ref().and_then(|f| f.codec.clone())
+                });
+                s.resolutions = distinct_codecs(eps.iter(), |e| {
+                    e.file.as_ref().and_then(|f| f.resolution.clone())
+                });
+            }
+        }
+
+        // Warm the per-series episode cache so that clicking into a
+        // series doesn't pay another round-trip.
+        for (id, eps) in by_id {
+            let key = format!("episodes:{id}");
+            let v = serde_json::to_value(&eps).unwrap_or(serde_json::Value::Null);
+            state.arr_cache.put(source_id, &key, v);
+        }
+
         let v = serde_json::to_value(&trimmed).unwrap_or(serde_json::Value::Null);
         state.arr_cache.put(source_id, CACHE_KEY_SERIES, v);
         trimmed
     };
-    Ok(Json(filter_sort_paginate_series(trimmed, &params)))
+
+    // available_* over the full library, before filtering — keeps the
+    // dropdowns stable when the user picks a value (same rationale as
+    // the movies handler).
+    let available_codecs = flatten_distinct(trimmed.iter().map(|s| &s.codecs));
+    let available_resolutions = flatten_distinct(trimmed.iter().map(|s| &s.resolutions));
+
+    Ok(Json(filter_sort_paginate_series(
+        trimmed,
+        &params,
+        available_codecs,
+        available_resolutions,
+    )))
+}
+
+/// Flatten an iterator of `&Vec<String>` into a sorted, lower-cased,
+/// distinct `Vec<String>`. Used to derive the SeriesPage available_*
+/// dropdown sets from the per-series codec/resolution lists.
+fn flatten_distinct<'a, I>(items: I) -> Vec<String>
+where
+    I: IntoIterator<Item = &'a Vec<String>>,
+{
+    let mut set: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
+    for v in items {
+        for s in v {
+            if !s.is_empty() {
+                set.insert(s.to_lowercase());
+            }
+        }
+    }
+    set.into_iter().collect()
 }
 
 fn filter_sort_paginate_series(
     mut items: Vec<transcoderr_api_types::SeriesSummary>,
     params: &BrowseParams,
+    available_codecs: Vec<String>,
+    available_resolutions: Vec<String>,
 ) -> transcoderr_api_types::SeriesPage {
     if let Some(q) = params.search.as_ref().filter(|s| !s.is_empty()) {
         let needle = q.to_lowercase();
         items.retain(|s| s.title.to_lowercase().contains(&needle));
+    }
+    if let Some(c) = params.codec.as_ref().filter(|s| !s.is_empty()) {
+        let needle = c.to_lowercase();
+        items.retain(|s| s.codecs.iter().any(|x| x.to_lowercase() == needle));
+    }
+    if let Some(r) = params.resolution.as_ref().filter(|s| !s.is_empty()) {
+        let needle = r.to_lowercase();
+        items.retain(|s| s.resolutions.iter().any(|x| x.to_lowercase() == needle));
     }
     match params.sort.as_deref().unwrap_or("title") {
         "year" => items.sort_by(|a, b| b.year.unwrap_or(0).cmp(&a.year.unwrap_or(0))),
@@ -306,7 +412,14 @@ fn filter_sort_paginate_series(
     } else {
         vec![]
     };
-    transcoderr_api_types::SeriesPage { items: window, total, page, limit }
+    transcoderr_api_types::SeriesPage {
+        items: window,
+        total,
+        page,
+        limit,
+        available_codecs,
+        available_resolutions,
+    }
 }
 
 pub async fn series_get(
