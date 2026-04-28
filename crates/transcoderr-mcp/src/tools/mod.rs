@@ -1,3 +1,4 @@
+pub mod browse;
 pub mod flows;
 pub mod notifiers;
 pub mod runs;
