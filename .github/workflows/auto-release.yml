@@ -9,8 +9,6 @@ permissions:
 
 jobs:
   release:
-    # Skip the workflow's own bump commit so we don't loop.
-    if: "!startsWith(github.event.head_commit.message, 'chore: bump workspace version')"
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -28,13 +26,17 @@ jobs:
           else
             echo "kind=patch" >> "$GITHUB_OUTPUT"
           fi
-          echo "Detected: $(cat "$GITHUB_OUTPUT")"
 
-      - name: Compute new version
+      - name: Compute new version from latest tag
         id: bump
         run: |
           set -euo pipefail
-          CUR=$(awk -F'"' '/^version = "/{print $2; exit}' Cargo.toml)
+          # Tags are the source of truth, NOT Cargo.toml. Cargo.toml is a
+          # development version that lags behind tags; release.yml stamps
+          # the tag's version into Cargo.toml at build time so binaries
+          # report the right version.
+          LATEST_TAG=$(git describe --tags --abbrev=0 --match 'v*' 2>/dev/null || echo "v0.0.0")
+          CUR=${LATEST_TAG#v}
           IFS='.' read -r MAJ MIN PAT <<< "$CUR"
           case "${{ steps.kind.outputs.kind }}" in
             major) MAJ=$((MAJ+1)); MIN=0; PAT=0 ;;
@@ -42,31 +44,17 @@ jobs:
             patch) PAT=$((PAT+1)) ;;
           esac
           NEW="$MAJ.$MIN.$PAT"
-          echo "current=$CUR" >> "$GITHUB_OUTPUT"
           echo "version=$NEW" >> "$GITHUB_OUTPUT"
-          echo "Bumping $CUR → $NEW (${{ steps.kind.outputs.kind }})"
+          echo "Tagging $LATEST_TAG → v$NEW (${{ steps.kind.outputs.kind }})"
 
-      - name: Update Cargo.toml
-        run: |
-          sed -i 's|^version = ".*"|version = "${{ steps.bump.outputs.version }}"|' Cargo.toml
-
-      - uses: dtolnay/rust-toolchain@stable
-
-      - name: Refresh Cargo.lock
-        run: cargo build --workspace --offline 2>/dev/null || cargo build --workspace
-
-      - name: Configure git
-        run: |
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-
-      - name: Commit + tag + push
+      - name: Tag and push
         run: |
           set -euo pipefail
-          git add Cargo.toml Cargo.lock
-          git commit -m "chore: bump workspace version to ${{ steps.bump.outputs.version }}"
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git tag "v${{ steps.bump.outputs.version }}"
-          git push origin main
+          # Tag pushes are not blocked by branch protection (which scopes
+          # to refs/heads). No commit is pushed to main.
           git push origin "v${{ steps.bump.outputs.version }}"
 
       - name: Dispatch release workflow on the new tag
