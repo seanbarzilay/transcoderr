@@ -204,7 +204,7 @@ where
     let mut chunk = [0u8; 1024];
     let mut buf: Vec<u8> = Vec::with_capacity(1024);
 
-    let mut emit = |line: &str, on_event: &mut F| {
+    let emit = |line: &str, on_event: &mut F| {
         if line.is_empty() {
             return;
         }
