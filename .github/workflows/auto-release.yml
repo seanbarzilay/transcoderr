@@ -10,7 +10,7 @@ permissions:
 jobs:
   release:
     # Skip the workflow's own bump commit so we don't loop.
-    if: ${{ !startsWith(github.event.head_commit.message, 'chore: bump workspace version') }}
+    if: "!startsWith(github.event.head_commit.message, 'chore: bump workspace version')"
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
