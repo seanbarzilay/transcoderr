@@ -1,0 +1,402 @@
+//! Integration tests for the *arr browse + transcode endpoints. Spins
+//! up wiremock as a fake Radarr/Sonarr; confirms the trimmed shapes,
+//! the cache, the validation gates, and the transcode fan-out.
+
+mod common;
+
+use serde_json::json;
+use wiremock::matchers::{method, path, query_param};
+use wiremock::{Mock, MockServer, ResponseTemplate};
+
+async fn auth_token(app: &common::TestApp) -> String {
+    use transcoderr::db::api_tokens;
+    let made = api_tokens::create(&app.pool, "test").await.unwrap();
+    made.token
+}
+
+async fn create_auto_provisioned_source(
+    app: &common::TestApp,
+    arr: &MockServer,
+    kind: &str,
+    name: &str,
+) -> i64 {
+    // Mock the *arr's POST /api/v3/notification (called by source create).
+    Mock::given(method("POST"))
+        .and(path("/api/v3/notification"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "id": 1, "name": "transcoderr-x",
+            "implementation": "Webhook", "configContract": "WebhookSettings", "fields": []
+        })))
+        .mount(arr)
+        .await;
+    let token = auth_token(app).await;
+    let client = reqwest::Client::new();
+    let resp: serde_json::Value = client
+        .post(format!("{}/api/sources", app.url))
+        .bearer_auth(&token)
+        .json(&json!({
+            "kind": kind, "name": name,
+            "config": { "base_url": arr.uri(), "api_key": "k" },
+            "secret_token": ""
+        }))
+        .send().await.unwrap()
+        .json().await.unwrap();
+    resp["id"].as_i64().unwrap()
+}
+
+#[tokio::test]
+async fn browse_movies_returns_trimmed_payload() {
+    let arr = MockServer::start().await;
+    let app = common::boot().await;
+    let source_id = create_auto_provisioned_source(&app, &arr, "radarr", "rad").await;
+
+    Mock::given(method("GET"))
+        .and(path("/api/v3/movie"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!([
+            { "id": 1, "title": "Dune", "year": 2021, "hasFile": true,
+              "images": [{ "coverType": "poster", "remoteUrl": "https://image.tmdb.org/d.jpg" }],
+              "movieFile": { "path": "/movies/Dune.mkv", "size": 42_000_000_000_i64,
+                             "mediaInfo": { "videoCodec": "x265", "resolution": "3840x2160" },
+                             "quality": { "quality": { "name": "Bluray-2160p" } } } },
+            { "id": 2, "title": "Tenet",  "year": 2020, "hasFile": false, "images": [] }
+        ])))
+        .mount(&arr)
+        .await;
+
+    let token = auth_token(&app).await;
+    let client = reqwest::Client::new();
+    let r: serde_json::Value = client
+        .get(format!("{}/api/sources/{}/movies", app.url, source_id))
+        .bearer_auth(&token)
+        .send().await.unwrap()
+        .json().await.unwrap();
+    assert_eq!(r["total"], 2);
+    let items = r["items"].as_array().unwrap();
+    // Sort default = title, so Dune before Tenet.
+    assert_eq!(items[0]["title"], "Dune");
+    assert_eq!(items[0]["poster_url"], "https://image.tmdb.org/d.jpg");
+    assert_eq!(items[0]["has_file"], true);
+    assert_eq!(items[0]["file"]["codec"], "x265");
+    assert_eq!(items[0]["file"]["resolution"], "3840x2160");
+    assert_eq!(items[1]["has_file"], false);
+    assert!(items[1]["file"].is_null());
+}
+
+#[tokio::test]
+async fn browse_movies_search_filters_server_side() {
+    let arr = MockServer::start().await;
+    let app = common::boot().await;
+    let source_id = create_auto_provisioned_source(&app, &arr, "radarr", "rad").await;
+
+    Mock::given(method("GET"))
+        .and(path("/api/v3/movie"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!([
+            { "id": 1, "title": "Dune",  "hasFile": false, "images": [] },
+            { "id": 2, "title": "Tenet", "hasFile": false, "images": [] },
+            { "id": 3, "title": "Heat",  "hasFile": false, "images": [] }
+        ])))
+        .mount(&arr)
+        .await;
+
+    let token = auth_token(&app).await;
+    let client = reqwest::Client::new();
+    let r: serde_json::Value = client
+        .get(format!("{}/api/sources/{}/movies?search=eat", app.url, source_id))
+        .bearer_auth(&token)
+        .send().await.unwrap()
+        .json().await.unwrap();
+    assert_eq!(r["total"], 1);
+    assert_eq!(r["items"][0]["title"], "Heat");
+}
+
+#[tokio::test]
+async fn browse_movies_pagination() {
+    let arr = MockServer::start().await;
+    let app = common::boot().await;
+    let source_id = create_auto_provisioned_source(&app, &arr, "radarr", "rad").await;
+    Mock::given(method("GET"))
+        .and(path("/api/v3/movie"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!(
+            (1..=25).map(|i| json!({
+                "id": i, "title": format!("Movie {:03}", i),
+                "hasFile": false, "images": []
+            })).collect::<Vec<_>>()
+        )))
+        .mount(&arr)
+        .await;
+
+    let token = auth_token(&app).await;
+    let client = reqwest::Client::new();
+    let r: serde_json::Value = client
+        .get(format!("{}/api/sources/{}/movies?page=2&limit=10", app.url, source_id))
+        .bearer_auth(&token)
+        .send().await.unwrap()
+        .json().await.unwrap();
+    assert_eq!(r["total"], 25);
+    assert_eq!(r["page"], 2);
+    assert_eq!(r["limit"], 10);
+    let items = r["items"].as_array().unwrap();
+    assert_eq!(items.len(), 10);
+    assert_eq!(items[0]["title"], "Movie 011");
+}
+
+#[tokio::test]
+async fn browse_series_returns_trimmed_payload() {
+    let arr = MockServer::start().await;
+    let app = common::boot().await;
+    let source_id = create_auto_provisioned_source(&app, &arr, "sonarr", "son").await;
+    Mock::given(method("GET"))
+        .and(path("/api/v3/series"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!([
+            { "id": 1, "title": "Foundation", "year": 2021,
+              "images": [{ "coverType": "poster", "remoteUrl": "https://art/p.jpg" }],
+              "statistics": { "seasonCount": 2, "episodeCount": 20, "episodeFileCount": 18 } }
+        ])))
+        .mount(&arr)
+        .await;
+
+    let token = auth_token(&app).await;
+    let client = reqwest::Client::new();
+    let r: serde_json::Value = client
+        .get(format!("{}/api/sources/{}/series", app.url, source_id))
+        .bearer_auth(&token)
+        .send().await.unwrap()
+        .json().await.unwrap();
+    assert_eq!(r["items"][0]["title"], "Foundation");
+    assert_eq!(r["items"][0]["season_count"], 2);
+    assert_eq!(r["items"][0]["episode_file_count"], 18);
+}
+
+#[tokio::test]
+async fn browse_episodes_filters_by_season() {
+    let arr = MockServer::start().await;
+    let app = common::boot().await;
+    let source_id = create_auto_provisioned_source(&app, &arr, "sonarr", "son").await;
+    Mock::given(method("GET"))
+        .and(path("/api/v3/episode"))
+        .and(query_param("seriesId", "10"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!([
+            { "id": 1, "seasonNumber": 1, "episodeNumber": 1, "title": "Pilot",  "hasFile": false },
+            { "id": 2, "seasonNumber": 2, "episodeNumber": 1, "title": "S2E1",   "hasFile": false }
+        ])))
+        .mount(&arr)
+        .await;
+    let token = auth_token(&app).await;
+    let client = reqwest::Client::new();
+    let r: serde_json::Value = client
+        .get(format!("{}/api/sources/{}/series/10/episodes?season=2", app.url, source_id))
+        .bearer_auth(&token)
+        .send().await.unwrap()
+        .json().await.unwrap();
+    let items = r["items"].as_array().unwrap();
+    assert_eq!(items.len(), 1);
+    assert_eq!(items[0]["title"], "S2E1");
+}
+
+#[tokio::test]
+async fn browse_rejects_non_auto_provisioned_source() {
+    let app = common::boot().await;
+    // Create a manual (legacy v0.9.x-shape) webhook-kind source: empty config.
+    let token = auth_token(&app).await;
+    let client = reqwest::Client::new();
+    let resp: serde_json::Value = client
+        .post(format!("{}/api/sources", app.url))
+        .bearer_auth(&token)
+        .json(&json!({
+            "kind": "webhook", "name": "manual",
+            "config": {}, "secret_token": "tok"
+        }))
+        .send().await.unwrap()
+        .json().await.unwrap();
+    let id = resp["id"].as_i64().unwrap();
+
+    let r = client
+        .get(format!("{}/api/sources/{}/movies", app.url, id))
+        .bearer_auth(&token)
+        .send().await.unwrap();
+    assert_eq!(r.status(), 400);
+    let body: serde_json::Value = r.json().await.unwrap();
+    assert_eq!(body["code"], "source.not_browseable");
+}
+
+#[tokio::test]
+async fn browse_surfaces_arr_error() {
+    let arr = MockServer::start().await;
+    let app = common::boot().await;
+    let source_id = create_auto_provisioned_source(&app, &arr, "radarr", "rad").await;
+    Mock::given(method("GET"))
+        .and(path("/api/v3/movie"))
+        .respond_with(ResponseTemplate::new(401).set_body_string("Unauthorized"))
+        .mount(&arr)
+        .await;
+    let token = auth_token(&app).await;
+    let client = reqwest::Client::new();
+    let r = client
+        .get(format!("{}/api/sources/{}/movies", app.url, source_id))
+        .bearer_auth(&token)
+        .send().await.unwrap();
+    assert_eq!(r.status(), 502);
+    let body: serde_json::Value = r.json().await.unwrap();
+    assert_eq!(body["code"], "arr.upstream");
+    let msg = body["message"].as_str().unwrap();
+    assert!(msg.contains("401"), "got: {msg}");
+}
+
+async fn seed_radarr_flow(pool: &sqlx::SqlitePool, name: &str, enabled: bool) -> i64 {
+    let yaml = format!(
+        "name: {name}\ntriggers:\n  - radarr: [downloaded]\nsteps: []\n"
+    );
+    // Trigger serializes as a single-key map with lowercase key (see
+    // crates/transcoderr/src/flow/model.rs Trigger::serialize), and Flow
+    // has a top-level `steps` field — no `plan` wrapper.
+    let parsed = serde_json::json!({
+        "name": name,
+        "triggers": [{ "radarr": ["downloaded"] }],
+        "steps": []
+    });
+    let now = transcoderr::db::now_unix();
+    let enabled_int = if enabled { 1 } else { 0 };
+    sqlx::query_scalar::<_, i64>(
+        "INSERT INTO flows (name, enabled, yaml_source, parsed_json, version, updated_at) \
+         VALUES (?, ?, ?, ?, 1, ?) RETURNING id"
+    )
+    .bind(name)
+    .bind(enabled_int)
+    .bind(&yaml)
+    .bind(parsed.to_string())
+    .bind(now)
+    .fetch_one(pool).await.unwrap()
+}
+
+async fn seed_sonarr_flow(pool: &sqlx::SqlitePool, name: &str) -> i64 {
+    let yaml = format!(
+        "name: {name}\ntriggers:\n  - sonarr: [downloaded]\nsteps: []\n"
+    );
+    let parsed = serde_json::json!({
+        "name": name,
+        "triggers": [{ "sonarr": ["downloaded"] }],
+        "steps": []
+    });
+    let now = transcoderr::db::now_unix();
+    sqlx::query_scalar::<_, i64>(
+        "INSERT INTO flows (name, enabled, yaml_source, parsed_json, version, updated_at) \
+         VALUES (?, 1, ?, ?, 1, ?) RETURNING id"
+    )
+    .bind(name)
+    .bind(&yaml)
+    .bind(parsed.to_string())
+    .bind(now)
+    .fetch_one(pool).await.unwrap()
+}
+
+#[tokio::test]
+async fn transcode_endpoint_fans_out_across_enabled_flows() {
+    let arr = MockServer::start().await;
+    let app = common::boot().await;
+    let source_id = create_auto_provisioned_source(&app, &arr, "radarr", "rad").await;
+    let f1 = seed_radarr_flow(&app.pool, "rad-1", true).await;
+    let f2 = seed_radarr_flow(&app.pool, "rad-2", true).await;
+    let _disabled = seed_radarr_flow(&app.pool, "rad-disabled", false).await;
+    let _sonarr_only = seed_sonarr_flow(&app.pool, "son-only").await;
+
+    let token = auth_token(&app).await;
+    let client = reqwest::Client::new();
+    let r: serde_json::Value = client
+        .post(format!("{}/api/sources/{}/transcode", app.url, source_id))
+        .bearer_auth(&token)
+        .json(&json!({
+            "file_path": "/movies/Dune.mkv",
+            "title": "Dune",
+            "movie_id": 7
+        }))
+        .send().await.unwrap()
+        .json().await.unwrap();
+    let runs = r["runs"].as_array().unwrap();
+    assert_eq!(runs.len(), 2, "expected fan-out across 2 enabled radarr flows");
+    let flow_ids: Vec<i64> = runs.iter().map(|x| x["flow_id"].as_i64().unwrap()).collect();
+    assert!(flow_ids.contains(&f1));
+    assert!(flow_ids.contains(&f2));
+    // Disabled and sonarr-only flows did NOT enqueue jobs.
+    let cnt: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM jobs")
+        .fetch_one(&app.pool).await.unwrap();
+    assert_eq!(cnt, 2);
+}
+
+#[tokio::test]
+async fn transcode_returns_409_when_no_matching_flows() {
+    let arr = MockServer::start().await;
+    let app = common::boot().await;
+    let source_id = create_auto_provisioned_source(&app, &arr, "radarr", "rad").await;
+    // No flows seeded.
+    let token = auth_token(&app).await;
+    let client = reqwest::Client::new();
+    let r = client
+        .post(format!("{}/api/sources/{}/transcode", app.url, source_id))
+        .bearer_auth(&token)
+        .json(&json!({
+            "file_path": "/movies/Dune.mkv",
+            "title": "Dune"
+        }))
+        .send().await.unwrap();
+    assert_eq!(r.status(), 409);
+    let body: serde_json::Value = r.json().await.unwrap();
+    assert_eq!(body["code"], "no_enabled_flows");
+}
+
+#[tokio::test]
+async fn transcode_synthesized_payload_shape_radarr() {
+    let arr = MockServer::start().await;
+    let app = common::boot().await;
+    let source_id = create_auto_provisioned_source(&app, &arr, "radarr", "rad").await;
+    seed_radarr_flow(&app.pool, "rad-1", true).await;
+    let token = auth_token(&app).await;
+    let client = reqwest::Client::new();
+    let _: serde_json::Value = client
+        .post(format!("{}/api/sources/{}/transcode", app.url, source_id))
+        .bearer_auth(&token)
+        .json(&json!({
+            "file_path": "/movies/Dune.mkv",
+            "title": "Dune",
+            "movie_id": 7
+        }))
+        .send().await.unwrap()
+        .json().await.unwrap();
+    let payload: String = sqlx::query_scalar(
+        "SELECT trigger_payload_json FROM jobs ORDER BY id DESC LIMIT 1"
+    ).fetch_one(&app.pool).await.unwrap();
+    let v: serde_json::Value = serde_json::from_str(&payload).unwrap();
+    assert_eq!(v["eventType"], "Manual");
+    assert_eq!(v["movie"]["id"], 7);
+    assert_eq!(v["movie"]["title"], "Dune");
+    assert_eq!(v["movieFile"]["path"], "/movies/Dune.mkv");
+    assert_eq!(v["_transcoderr_manual"], true);
+}
+
+#[tokio::test]
+async fn transcode_synthesized_payload_shape_sonarr() {
+    let arr = MockServer::start().await;
+    let app = common::boot().await;
+    let source_id = create_auto_provisioned_source(&app, &arr, "sonarr", "son").await;
+    seed_sonarr_flow(&app.pool, "son-1").await;
+    let token = auth_token(&app).await;
+    let client = reqwest::Client::new();
+    let _: serde_json::Value = client
+        .post(format!("{}/api/sources/{}/transcode", app.url, source_id))
+        .bearer_auth(&token)
+        .json(&json!({
+            "file_path": "/tv/Foundation/S01E03.mkv",
+            "title": "Foundation",
+            "series_id": 1, "episode_id": 100
+        }))
+        .send().await.unwrap()
+        .json().await.unwrap();
+    let payload: String = sqlx::query_scalar(
+        "SELECT trigger_payload_json FROM jobs ORDER BY id DESC LIMIT 1"
+    ).fetch_one(&app.pool).await.unwrap();
+    let v: serde_json::Value = serde_json::from_str(&payload).unwrap();
+    assert_eq!(v["eventType"], "Manual");
+    assert_eq!(v["series"]["id"], 1);
+    assert_eq!(v["series"]["title"], "Foundation");
+    assert_eq!(v["episodes"][0]["id"], 100);
+    assert_eq!(v["episodeFile"]["path"], "/tv/Foundation/S01E03.mkv");
+}

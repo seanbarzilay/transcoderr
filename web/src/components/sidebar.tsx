@@ -7,6 +7,8 @@ const links: [string, string][] = [
   ["/dashboard", "Dashboard"],
   ["/flows", "Flows"],
   ["/runs", "Runs"],
+  ["/radarr", "Browse Radarr"],
+  ["/sonarr", "Browse Sonarr"],
 ];
 
 const config: [string, string][] = [

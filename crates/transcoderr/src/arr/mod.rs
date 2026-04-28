@@ -4,6 +4,8 @@
 //! enable on create.
 
 pub mod reconcile;
+pub mod cache;
+pub mod browse;
 
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
@@ -185,6 +187,82 @@ impl Client {
         }
         Ok(())
     }
+
+    pub async fn list_movies(&self) -> Result<Vec<crate::arr::browse::RadarrMovie>> {
+        let url = format!("{}/api/v3/movie", self.base_url);
+        let resp = self
+            .http
+            .get(&url)
+            .header("X-Api-Key", &self.api_key)
+            .send()
+            .await
+            .context("listing radarr movies")?;
+        if !resp.status().is_success() {
+            let status = resp.status();
+            let text = resp.text().await.unwrap_or_default();
+            anyhow::bail!("*arr returned {status}: {text}");
+        }
+        resp.json::<Vec<crate::arr::browse::RadarrMovie>>()
+            .await
+            .context("parsing radarr movie list")
+    }
+
+    pub async fn list_series(&self) -> Result<Vec<crate::arr::browse::SonarrSeries>> {
+        let url = format!("{}/api/v3/series", self.base_url);
+        let resp = self
+            .http
+            .get(&url)
+            .header("X-Api-Key", &self.api_key)
+            .send()
+            .await
+            .context("listing sonarr series")?;
+        if !resp.status().is_success() {
+            let status = resp.status();
+            let text = resp.text().await.unwrap_or_default();
+            anyhow::bail!("*arr returned {status}: {text}");
+        }
+        resp.json::<Vec<crate::arr::browse::SonarrSeries>>()
+            .await
+            .context("parsing sonarr series list")
+    }
+
+    pub async fn get_series(&self, id: i64) -> Result<crate::arr::browse::SonarrSeries> {
+        let url = format!("{}/api/v3/series/{id}", self.base_url);
+        let resp = self
+            .http
+            .get(&url)
+            .header("X-Api-Key", &self.api_key)
+            .send()
+            .await
+            .context("getting sonarr series")?;
+        if !resp.status().is_success() {
+            let status = resp.status();
+            let text = resp.text().await.unwrap_or_default();
+            anyhow::bail!("*arr returned {status}: {text}");
+        }
+        resp.json::<crate::arr::browse::SonarrSeries>()
+            .await
+            .context("parsing sonarr series response")
+    }
+
+    pub async fn list_episodes(&self, series_id: i64) -> Result<Vec<crate::arr::browse::SonarrEpisode>> {
+        let url = format!("{}/api/v3/episode?seriesId={series_id}", self.base_url);
+        let resp = self
+            .http
+            .get(&url)
+            .header("X-Api-Key", &self.api_key)
+            .send()
+            .await
+            .context("listing sonarr episodes")?;
+        if !resp.status().is_success() {
+            let status = resp.status();
+            let text = resp.text().await.unwrap_or_default();
+            anyhow::bail!("*arr returned {status}: {text}");
+        }
+        resp.json::<Vec<crate::arr::browse::SonarrEpisode>>()
+            .await
+            .context("parsing sonarr episode list")
+    }
 }
 
 /// Per-kind event flags. Radarr fires onGrab/onDownload/onUpgrade;
@@ -217,7 +295,7 @@ fn event_flags(kind: Kind) -> Vec<(&'static str, bool)> {
 mod tests {
     use super::*;
     use serde_json::Value;
-    use wiremock::matchers::{header, method, path};
+    use wiremock::matchers::{header, method, path, query_param};
     use wiremock::{Mock, MockServer, ResponseTemplate};
 
     #[test]
@@ -358,5 +436,73 @@ mod tests {
         let client = Client::new(&server.uri(), "k").unwrap();
         let n = client.get_notification(7).await.unwrap().unwrap();
         assert_eq!(n.id, 7);
+    }
+
+    #[tokio::test]
+    async fn list_movies_hits_correct_path_with_api_key() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/api/v3/movie"))
+            .and(header("X-Api-Key", "k"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!([
+                { "id": 7, "title": "Dune", "year": 2021,
+                  "hasFile": false, "images": [] }
+            ])))
+            .expect(1)
+            .mount(&server)
+            .await;
+        let c = Client::new(&server.uri(), "k").unwrap();
+        let movies = c.list_movies().await.unwrap();
+        assert_eq!(movies.len(), 1);
+        assert_eq!(movies[0].title, "Dune");
+    }
+
+    #[tokio::test]
+    async fn list_series_hits_correct_path() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/api/v3/series"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!([
+                { "id": 1, "title": "Foundation" }
+            ])))
+            .expect(1)
+            .mount(&server)
+            .await;
+        let c = Client::new(&server.uri(), "k").unwrap();
+        let series = c.list_series().await.unwrap();
+        assert_eq!(series.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn get_series_includes_id_in_path() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/api/v3/series/42"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "id": 42, "title": "Babylon 5"
+            })))
+            .expect(1)
+            .mount(&server)
+            .await;
+        let c = Client::new(&server.uri(), "k").unwrap();
+        let s = c.get_series(42).await.unwrap();
+        assert_eq!(s.id, 42);
+    }
+
+    #[tokio::test]
+    async fn list_episodes_passes_series_id_query() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/api/v3/episode"))
+            .and(query_param("seriesId", "42"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!([
+                { "id": 1, "seasonNumber": 1, "episodeNumber": 1, "title": "Pilot", "hasFile": false }
+            ])))
+            .expect(1)
+            .mount(&server)
+            .await;
+        let c = Client::new(&server.uri(), "k").unwrap();
+        let eps = c.list_episodes(42).await.unwrap();
+        assert_eq!(eps.len(), 1);
     }
 }

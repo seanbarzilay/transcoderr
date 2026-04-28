@@ -1,3 +1,4 @@
+pub mod arr_browse;
 pub mod auth;
 pub mod dryrun;
 pub mod flows;
@@ -41,6 +42,12 @@ pub fn router(state: AppState) -> Router<AppState> {
         .route("/sources",            get(sources::list).post(sources::create))
         .route("/sources/:id",        get(sources::get).put(sources::update).delete(sources::delete))
         .route("/sources/:id/test-fire", post(sources::test_fire))
+        .route("/sources/:id/movies", get(arr_browse::movies))
+        .route("/sources/:id/series", get(arr_browse::series))
+        .route("/sources/:id/series/:series_id", get(arr_browse::series_get))
+        .route("/sources/:id/series/:series_id/episodes", get(arr_browse::episodes))
+        .route("/sources/:id/refresh", post(arr_browse::refresh))
+        .route("/sources/:id/transcode", post(arr_browse::transcode))
         .route("/plugins",            get(plugins::list))
         .route("/plugins/:id",        patch(plugins::update))
         .route("/notifiers",          get(notifiers::list).post(notifiers::create))

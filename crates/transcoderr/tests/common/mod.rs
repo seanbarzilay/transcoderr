@@ -73,6 +73,9 @@ pub async fn boot() -> TestApp {
         metrics,
         cancellations,
         public_url: std::sync::Arc::new("http://test:8099".to_string()),
+        arr_cache: std::sync::Arc::new(transcoderr::arr::cache::ArrCache::new(
+            std::time::Duration::from_secs(300),
+        )),
     });
     let s = tokio::spawn(async move {
         axum::serve(listener, app).await.unwrap();

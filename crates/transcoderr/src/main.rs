@@ -98,6 +98,10 @@ async fn main() -> anyhow::Result<()> {
             );
             let public_url_arc = std::sync::Arc::new(public_url.url);
 
+            let arr_cache = std::sync::Arc::new(transcoderr::arr::cache::ArrCache::new(
+                std::time::Duration::from_secs(300),
+            ));
+
             let state = transcoderr::http::AppState {
                 pool,
                 cfg: cfg.clone(),
@@ -108,6 +112,7 @@ async fn main() -> anyhow::Result<()> {
                 metrics,
                 cancellations,
                 public_url: public_url_arc,
+                arr_cache,
             };
             ready.mark_ready().await;
 

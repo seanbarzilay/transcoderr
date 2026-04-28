@@ -21,6 +21,7 @@ pub struct AppState {
     pub metrics: std::sync::Arc<crate::metrics::Metrics>,
     pub cancellations: crate::cancellation::JobCancellations,
     pub public_url: std::sync::Arc<String>,
+    pub arr_cache: std::sync::Arc<crate::arr::cache::ArrCache>,
 }
 
 pub fn router(state: AppState) -> Router {
