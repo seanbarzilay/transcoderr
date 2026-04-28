@@ -17,6 +17,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Install ffmpeg
+        # Many tests exec ffmpeg/ffprobe (testsrc generation, probe,
+        # transcode, remux, verify-playable). 7z is needed by the
+        # ISO-extract step's tests.
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ffmpeg p7zip-full
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
         with:
