@@ -13,7 +13,7 @@ use axum::{
     Json,
 };
 use serde::Deserialize;
-use transcoderr_api_types::{ApiError, MoviesPage};
+use transcoderr_api_types::{ApiError, MoviesPage, TranscodeReq, TranscodeResp, TranscodeRunRef};
 
 /// Validation result: returns the row plus the parsed kind, base_url, api_key.
 pub(super) async fn browseable_source(
@@ -349,4 +349,90 @@ pub async fn refresh(
         arr::Kind::Lidarr => {} // not browseable in v1
     }
     Ok(StatusCode::NO_CONTENT)
+}
+
+pub async fn transcode(
+    State(state): State<AppState>,
+    Path(source_id): Path<i64>,
+    Json(req): Json<TranscodeReq>,
+) -> Result<Json<TranscodeResp>, (StatusCode, Json<ApiError>)> {
+    let (row, kind, _base_url, _api_key) = browseable_source(&state, source_id).await?;
+
+    let flows = db::flows::list_enabled_for_kind(&state.pool, kind)
+        .await
+        .map_err(|e| {
+            tracing::error!(source_id, error = ?e, "transcode: failed to list enabled flows");
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ApiError::new("db.error", "failed to list flows")),
+            )
+        })?;
+    if flows.is_empty() {
+        return Err((
+            StatusCode::CONFLICT,
+            Json(ApiError::new(
+                "no_enabled_flows",
+                &format!("no enabled flows match kind {:?}", kind),
+            )),
+        ));
+    }
+
+    let payload = synthesize_payload(kind, &req);
+    let payload_str = serde_json::to_string(&payload).unwrap_or_else(|_| "{}".into());
+
+    let mut runs = Vec::with_capacity(flows.len());
+    for f in flows {
+        match db::jobs::insert_with_source(
+            &state.pool,
+            f.id,
+            f.version,
+            row.id,
+            &row.kind,
+            &req.file_path,
+            &payload_str,
+        )
+        .await
+        {
+            Ok(run_id) => runs.push(TranscodeRunRef {
+                flow_id: f.id,
+                flow_name: f.name,
+                run_id,
+            }),
+            Err(e) => {
+                tracing::error!(source_id, flow_id = f.id, error = ?e, "transcode: failed to insert job");
+                return Err((
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(ApiError::new("db.error", "failed to enqueue job")),
+                ));
+            }
+        }
+    }
+
+    state.arr_cache.invalidate(source_id);
+    tracing::info!(source_id, runs = runs.len(), file_path = %req.file_path, "manual transcode enqueued");
+    Ok(Json(TranscodeResp { runs }))
+}
+
+fn synthesize_payload(kind: arr::Kind, req: &TranscodeReq) -> serde_json::Value {
+    match kind {
+        arr::Kind::Radarr => serde_json::json!({
+            "eventType": "Manual",
+            "movie": { "id": req.movie_id, "title": req.title },
+            "movieFile": { "path": req.file_path },
+            "_transcoderr_manual": true,
+        }),
+        arr::Kind::Sonarr => serde_json::json!({
+            "eventType": "Manual",
+            "series": { "id": req.series_id, "title": req.title },
+            "episodes": [{ "id": req.episode_id }],
+            "episodeFile": { "path": req.file_path },
+            "_transcoderr_manual": true,
+        }),
+        arr::Kind::Lidarr => serde_json::json!({
+            "eventType": "Manual",
+            "_transcoderr_manual": true,
+            "title": req.title,
+            "path": req.file_path,
+        }),
+    }
 }
