@@ -10,7 +10,21 @@ permissions:
   packages: write
 
 jobs:
+  # Create the GitHub Release exactly once with auto-generated notes.
+  # The build jobs below run in parallel, each calling softprops to
+  # upload its binaries — without this dedicated job, each parallel
+  # softprops call with `generate_release_notes: true` appended a
+  # fresh copy of the changelog, producing 3× duplicated bodies.
+  create-release:
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v')
+    steps:
+      - uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+
   bins-linux-amd64:
+    needs: create-release
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -40,9 +54,9 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/')
         with:
           files: out/*
-          generate_release_notes: true
 
   bins-linux-arm64:
+    needs: create-release
     runs-on: ubuntu-24.04-arm
     steps:
       - uses: actions/checkout@v4
@@ -72,9 +86,9 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/')
         with:
           files: out/*
-          generate_release_notes: true
 
   bins-darwin-arm64:
+    needs: create-release
     runs-on: macos-14
     steps:
       - uses: actions/checkout@v4
@@ -105,7 +119,6 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/')
         with:
           files: out/*
-          generate_release_notes: true
 
   images:
     needs: bins-linux-amd64
