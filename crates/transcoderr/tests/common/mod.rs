@@ -63,20 +63,23 @@ pub async fn boot() -> TestApp {
 
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
-    let app = http::router(http::AppState {
-        pool: pool.clone(),
-        cfg,
-        hw_caps,
-        hw_devices,
-        bus,
-        ready,
-        metrics,
-        cancellations,
-        public_url: std::sync::Arc::new("http://test:8099".to_string()),
-        arr_cache: std::sync::Arc::new(transcoderr::arr::cache::ArrCache::new(
-            std::time::Duration::from_secs(300),
-        )),
-    });
+    let app = http::router(
+        http::AppState {
+            pool: pool.clone(),
+            cfg,
+            hw_caps,
+            hw_devices,
+            bus,
+            ready,
+            metrics,
+            cancellations,
+            public_url: std::sync::Arc::new("http://test:8099".to_string()),
+            arr_cache: std::sync::Arc::new(transcoderr::arr::cache::ArrCache::new(
+                std::time::Duration::from_secs(300),
+            )),
+        },
+        std::time::Duration::from_secs(300),
+    );
     let s = tokio::spawn(async move {
         axum::serve(listener, app).await.unwrap();
     });

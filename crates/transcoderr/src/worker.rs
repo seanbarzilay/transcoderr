@@ -6,6 +6,7 @@ use sqlx::SqlitePool;
 use std::path::PathBuf;
 use std::time::Duration;
 
+#[derive(Clone)]
 pub struct Worker {
     pool: SqlitePool,
     bus: Bus,

@@ -32,18 +32,23 @@ pub async fn insert(
 }
 
 /// Atomically claim the next pending job — flips its status to running.
+/// Returns None when no pending job exists OR when another worker beat
+/// us in a race. Uses a single UPDATE...RETURNING so we don't need a
+/// multi-statement transaction (which deadlocks under concurrent
+/// claim_next calls when pool_size > 1, hitting SQLITE_BUSY).
 pub async fn claim_next(pool: &SqlitePool) -> anyhow::Result<Option<JobRow>> {
-    let mut tx = pool.begin().await?;
     let row: Option<JobRow> = sqlx::query_as(
-        "SELECT id, flow_id, flow_version, source_kind, file_path, trigger_payload_json, status, priority, current_step, attempt \
-         FROM jobs WHERE status = 'pending' ORDER BY priority DESC, created_at ASC LIMIT 1"
-    ).fetch_optional(&mut *tx).await?;
-    let Some(job) = row else { tx.commit().await?; return Ok(None); };
-    sqlx::query("UPDATE jobs SET status = 'running', started_at = ?, attempt = attempt + 1 WHERE id = ? AND status = 'pending'")
-        .bind(now_unix()).bind(job.id)
-        .execute(&mut *tx).await?;
-    tx.commit().await?;
-    Ok(Some(job))
+        "UPDATE jobs SET status = 'running', started_at = ?, attempt = attempt + 1 \
+         WHERE id = ( \
+            SELECT id FROM jobs WHERE status = 'pending' \
+            ORDER BY priority DESC, created_at ASC LIMIT 1 \
+         ) AND status = 'pending' \
+         RETURNING id, flow_id, flow_version, source_kind, file_path, trigger_payload_json, status, priority, current_step, attempt"
+    )
+    .bind(now_unix())
+    .fetch_optional(pool)
+    .await?;
+    Ok(row)
 }
 
 pub async fn set_status(pool: &SqlitePool, id: i64, status: &str, label: Option<&str>) -> anyhow::Result<()> {
