@@ -58,6 +58,8 @@ async fn browse_movies_returns_trimmed_payload() {
               "movieFile": { "path": "/movies/Dune.mkv", "size": 42_000_000_000_i64,
                              "mediaInfo": { "videoCodec": "x265", "resolution": "3840x2160" },
                              "quality": { "quality": { "name": "Bluray-2160p" } } } },
+            // hasFile=false → filtered out by the server (browse pages
+            // exist to find downloaded files, not the entire watchlist).
             { "id": 2, "title": "Tenet",  "year": 2020, "hasFile": false, "images": [] }
         ])))
         .mount(&arr)
@@ -70,16 +72,14 @@ async fn browse_movies_returns_trimmed_payload() {
         .bearer_auth(&token)
         .send().await.unwrap()
         .json().await.unwrap();
-    assert_eq!(r["total"], 2);
+    assert_eq!(r["total"], 1, "hasFile=false items must be filtered out");
     let items = r["items"].as_array().unwrap();
-    // Sort default = title, so Dune before Tenet.
+    assert_eq!(items.len(), 1);
     assert_eq!(items[0]["title"], "Dune");
     assert_eq!(items[0]["poster_url"], "https://image.tmdb.org/d.jpg");
     assert_eq!(items[0]["has_file"], true);
     assert_eq!(items[0]["file"]["codec"], "x265");
     assert_eq!(items[0]["file"]["resolution"], "3840x2160");
-    assert_eq!(items[1]["has_file"], false);
-    assert!(items[1]["file"].is_null());
 }
 
 #[tokio::test]
@@ -91,9 +91,12 @@ async fn browse_movies_search_filters_server_side() {
     Mock::given(method("GET"))
         .and(path("/api/v3/movie"))
         .respond_with(ResponseTemplate::new(200).set_body_json(json!([
-            { "id": 1, "title": "Dune",  "hasFile": false, "images": [] },
-            { "id": 2, "title": "Tenet", "hasFile": false, "images": [] },
-            { "id": 3, "title": "Heat",  "hasFile": false, "images": [] }
+            { "id": 1, "title": "Dune",  "hasFile": true, "images": [],
+              "movieFile": { "path": "/m/Dune.mkv", "size": 1 } },
+            { "id": 2, "title": "Tenet", "hasFile": true, "images": [],
+              "movieFile": { "path": "/m/Tenet.mkv", "size": 1 } },
+            { "id": 3, "title": "Heat",  "hasFile": true, "images": [],
+              "movieFile": { "path": "/m/Heat.mkv", "size": 1 } }
         ])))
         .mount(&arr)
         .await;
@@ -119,7 +122,8 @@ async fn browse_movies_pagination() {
         .respond_with(ResponseTemplate::new(200).set_body_json(json!(
             (1..=25).map(|i| json!({
                 "id": i, "title": format!("Movie {:03}", i),
-                "hasFile": false, "images": []
+                "hasFile": true, "images": [],
+                "movieFile": { "path": format!("/m/{i}.mkv"), "size": 1 }
             })).collect::<Vec<_>>()
         )))
         .mount(&arr)
@@ -176,8 +180,10 @@ async fn browse_episodes_filters_by_season() {
         .and(path("/api/v3/episode"))
         .and(query_param("seriesId", "10"))
         .respond_with(ResponseTemplate::new(200).set_body_json(json!([
-            { "id": 1, "seasonNumber": 1, "episodeNumber": 1, "title": "Pilot",  "hasFile": false },
-            { "id": 2, "seasonNumber": 2, "episodeNumber": 1, "title": "S2E1",   "hasFile": false }
+            { "id": 1, "seasonNumber": 1, "episodeNumber": 1, "title": "Pilot", "hasFile": true,
+              "episodeFile": { "path": "/tv/s01e01.mkv", "size": 1 } },
+            { "id": 2, "seasonNumber": 2, "episodeNumber": 1, "title": "S2E1",  "hasFile": true,
+              "episodeFile": { "path": "/tv/s02e01.mkv", "size": 1 } }
         ])))
         .mount(&arr)
         .await;
@@ -191,6 +197,79 @@ async fn browse_episodes_filters_by_season() {
     let items = r["items"].as_array().unwrap();
     assert_eq!(items.len(), 1);
     assert_eq!(items[0]["title"], "S2E1");
+}
+
+#[tokio::test]
+async fn browse_filters_out_undownloaded_items() {
+    // Movies, series, and episodes the *arr knows about but hasn't
+    // imported a file for must NOT appear in the browse results — the
+    // pages exist to find files to transcode.
+    let arr = MockServer::start().await;
+    let app = common::boot().await;
+    let radarr_id = create_auto_provisioned_source(&app, &arr, "radarr", "rad").await;
+
+    Mock::given(method("GET"))
+        .and(path("/api/v3/movie"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!([
+            { "id": 1, "title": "Imported", "hasFile": true, "images": [],
+              "movieFile": { "path": "/m/i.mkv", "size": 1 } },
+            { "id": 2, "title": "Wishlisted", "hasFile": false, "images": [] }
+        ])))
+        .mount(&arr)
+        .await;
+
+    let token = auth_token(&app).await;
+    let client = reqwest::Client::new();
+    let r: serde_json::Value = client
+        .get(format!("{}/api/sources/{}/movies", app.url, radarr_id))
+        .bearer_auth(&token)
+        .send().await.unwrap()
+        .json().await.unwrap();
+    assert_eq!(r["total"], 1);
+    let items = r["items"].as_array().unwrap();
+    assert_eq!(items.len(), 1);
+    assert_eq!(items[0]["title"], "Imported");
+
+    let sonarr = MockServer::start().await;
+    let sonarr_id = create_auto_provisioned_source(&app, &sonarr, "sonarr", "son").await;
+    Mock::given(method("GET"))
+        .and(path("/api/v3/series"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!([
+            { "id": 1, "title": "Has files", "year": 2020,
+              "statistics": { "seasonCount": 1, "episodeCount": 10, "episodeFileCount": 7 } },
+            // Series the operator added but Sonarr never imported episodes for.
+            { "id": 2, "title": "Brand new", "year": 2024,
+              "statistics": { "seasonCount": 1, "episodeCount": 10, "episodeFileCount": 0 } }
+        ])))
+        .mount(&sonarr)
+        .await;
+    let r: serde_json::Value = client
+        .get(format!("{}/api/sources/{}/series", app.url, sonarr_id))
+        .bearer_auth(&token)
+        .send().await.unwrap()
+        .json().await.unwrap();
+    let items = r["items"].as_array().unwrap();
+    assert_eq!(items.len(), 1);
+    assert_eq!(items[0]["title"], "Has files");
+
+    Mock::given(method("GET"))
+        .and(path("/api/v3/episode"))
+        .and(query_param("seriesId", "1"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!([
+            { "id": 1, "seasonNumber": 1, "episodeNumber": 1, "title": "Aired", "hasFile": true,
+              "episodeFile": { "path": "/tv/s01e01.mkv", "size": 1 } },
+            { "id": 2, "seasonNumber": 1, "episodeNumber": 2, "title": "Future", "hasFile": false }
+        ])))
+        .mount(&sonarr)
+        .await;
+    let r: serde_json::Value = client
+        .get(format!("{}/api/sources/{}/series/1/episodes", app.url, sonarr_id))
+        .bearer_auth(&token)
+        .send().await.unwrap()
+        .json().await.unwrap();
+    let items = r["items"].as_array().unwrap();
+    assert_eq!(items.len(), 1);
+    assert_eq!(items[0]["title"], "Aired");
 }
 
 #[tokio::test]
