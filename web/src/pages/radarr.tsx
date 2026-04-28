@@ -23,6 +23,8 @@ export default function Radarr() {
   const [search, setSearch] = useState("");
   const [debounced, setDebounced] = useState("");
   const [sort, setSort] = useState<"title" | "year">("title");
+  const [codec, setCodec] = useState("");
+  const [resolution, setResolution] = useState("");
   const [page, setPage] = useState(1);
   const [selectedId, setSelectedId] = useState<number | null>(null);
 
@@ -31,12 +33,19 @@ export default function Radarr() {
     return () => clearTimeout(t);
   }, [search]);
 
-  useEffect(() => setPage(1), [debounced, sort, sourceId]);
+  useEffect(() => setPage(1), [debounced, sort, codec, resolution, sourceId]);
 
   const movies = useQuery({
-    queryKey: ["arr.movies", sourceId, debounced, sort, page],
+    queryKey: ["arr.movies", sourceId, debounced, sort, codec, resolution, page],
     queryFn: () =>
-      api.arr.movies(sourceId!, { search: debounced, sort, page, limit: 48 }),
+      api.arr.movies(sourceId!, {
+        search: debounced,
+        sort,
+        codec: codec || undefined,
+        resolution: resolution || undefined,
+        page,
+        limit: 48,
+      }),
     enabled: sourceId != null,
     staleTime: 5 * 60_000,
   });
@@ -62,6 +71,30 @@ export default function Radarr() {
         >
           <option value="title">Sort: title</option>
           <option value="year">Sort: year</option>
+        </select>
+        <select
+          className="source-picker"
+          value={codec}
+          onChange={(e) => setCodec(e.target.value)}
+        >
+          <option value="">Codec: any</option>
+          {(movies.data?.available_codecs ?? []).map((c) => (
+            <option key={c} value={c}>
+              {c}
+            </option>
+          ))}
+        </select>
+        <select
+          className="source-picker"
+          value={resolution}
+          onChange={(e) => setResolution(e.target.value)}
+        >
+          <option value="">Resolution: any</option>
+          {(movies.data?.available_resolutions ?? []).map((r) => (
+            <option key={r} value={r}>
+              {r}
+            </option>
+          ))}
         </select>
         <button
           type="button"

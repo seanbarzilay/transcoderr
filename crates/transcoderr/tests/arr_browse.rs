@@ -200,6 +200,68 @@ async fn browse_episodes_filters_by_season() {
 }
 
 #[tokio::test]
+async fn browse_movies_codec_and_resolution_filters() {
+    let arr = MockServer::start().await;
+    let app = common::boot().await;
+    let source_id = create_auto_provisioned_source(&app, &arr, "radarr", "rad").await;
+
+    Mock::given(method("GET"))
+        .and(path("/api/v3/movie"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!([
+            { "id": 1, "title": "A 4K HEVC", "hasFile": true, "images": [],
+              "movieFile": { "path": "/m/a.mkv", "size": 1,
+                             "mediaInfo": { "videoCodec": "x265", "resolution": "3840x2160" } } },
+            { "id": 2, "title": "B 1080p H264", "hasFile": true, "images": [],
+              "movieFile": { "path": "/m/b.mkv", "size": 1,
+                             "mediaInfo": { "videoCodec": "h264", "resolution": "1920x1080" } } },
+            { "id": 3, "title": "C 4K H264", "hasFile": true, "images": [],
+              "movieFile": { "path": "/m/c.mkv", "size": 1,
+                             "mediaInfo": { "videoCodec": "h264", "resolution": "3840x2160" } } }
+        ])))
+        .mount(&arr)
+        .await;
+
+    let token = auth_token(&app).await;
+    let client = reqwest::Client::new();
+
+    // No filter: all 3 returned, available_* sets are union of values.
+    let r: serde_json::Value = client
+        .get(format!("{}/api/sources/{}/movies", app.url, source_id))
+        .bearer_auth(&token)
+        .send().await.unwrap()
+        .json().await.unwrap();
+    assert_eq!(r["total"], 3);
+    let codecs: Vec<&str> = r["available_codecs"].as_array().unwrap()
+        .iter().map(|v| v.as_str().unwrap()).collect();
+    assert_eq!(codecs, vec!["h264", "x265"]); // sorted, distinct
+    let resolutions: Vec<&str> = r["available_resolutions"].as_array().unwrap()
+        .iter().map(|v| v.as_str().unwrap()).collect();
+    assert_eq!(resolutions, vec!["1920x1080", "3840x2160"]);
+
+    // codec=h264 narrows to 2 movies.
+    let r: serde_json::Value = client
+        .get(format!("{}/api/sources/{}/movies?codec=h264", app.url, source_id))
+        .bearer_auth(&token)
+        .send().await.unwrap()
+        .json().await.unwrap();
+    assert_eq!(r["total"], 2);
+    // available_* still reflects the WHOLE library, not the filtered view.
+    assert_eq!(r["available_codecs"].as_array().unwrap().len(), 2);
+
+    // codec=h264 + resolution=3840x2160 → just movie C.
+    let r: serde_json::Value = client
+        .get(format!(
+            "{}/api/sources/{}/movies?codec=h264&resolution=3840x2160",
+            app.url, source_id
+        ))
+        .bearer_auth(&token)
+        .send().await.unwrap()
+        .json().await.unwrap();
+    assert_eq!(r["total"], 1);
+    assert_eq!(r["items"][0]["title"], "C 4K H264");
+}
+
+#[tokio::test]
 async fn browse_filters_out_undownloaded_items() {
     // Movies, series, and episodes the *arr knows about but hasn't
     // imported a file for must NOT appear in the browse results — the

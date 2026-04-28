@@ -77,9 +77,11 @@ export const api = {
     },
     seriesGet: (sourceId: number, seriesId: number) =>
       req<import("../types-arr").SeriesDetail>(`/sources/${sourceId}/series/${seriesId}`),
-    episodes: (sourceId: number, seriesId: number, season?: number) => {
-      const q = season != null ? `?season=${season}` : "";
-      return req<import("../types-arr").EpisodesPage>(`/sources/${sourceId}/series/${seriesId}/episodes${q}`);
+    episodes: (sourceId: number, seriesId: number, params: import("../types-arr").EpisodesQuery = {}) => {
+      const q = new URLSearchParams(
+        Object.entries(params).filter(([, v]) => v != null && v !== "").map(([k, v]) => [k, String(v)])
+      ).toString();
+      return req<import("../types-arr").EpisodesPage>(`/sources/${sourceId}/series/${seriesId}/episodes${q ? `?${q}` : ""}`);
     },
     transcode: (sourceId: number, body: import("../types-arr").TranscodeReq) =>
       req<import("../types-arr").TranscodeResp>(`/sources/${sourceId}/transcode`, {
