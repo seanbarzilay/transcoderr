@@ -575,3 +575,104 @@ tbody tr:hover td { background: var(--surface); }
   .timeline-row { grid-template-columns: 70px 100px 1fr; }
   .timeline-row .step { display: none; }
 }
+
+/* ---- arr browse pages ---------------------------------------------------- */
+
+.source-picker {
+  background: var(--surface-2);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: var(--r-1);
+  padding: 6px 10px;
+  font-size: 12px;
+}
+
+.browse-toolbar {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  margin-bottom: var(--space-4);
+  flex-wrap: wrap;
+}
+
+.poster-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  gap: 14px;
+}
+
+.poster-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-2);
+  padding: 0;
+  text-align: left;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  transition: border-color 120ms ease, background 120ms ease;
+}
+.poster-card:hover { border-color: var(--accent-soft); }
+.poster-card.is-selected { border-color: var(--accent); }
+
+.poster-img {
+  width: 100%;
+  aspect-ratio: 2 / 3;
+  object-fit: cover;
+  background: var(--surface-2);
+}
+.poster-img-placeholder {
+  display: flex; align-items: center; justify-content: center;
+  font-size: 32px; color: var(--text-faint);
+}
+
+.poster-meta { padding: 8px 10px; }
+.poster-title { font-size: 12px; font-weight: 600; color: var(--text); }
+.poster-sub   { font-size: 10px; color: var(--text-faint); margin-top: 2px; }
+
+.detail-scrim {
+  position: fixed; inset: 0; background: rgba(0, 0, 0, 0.45); z-index: 40;
+}
+.detail-panel {
+  position: fixed; top: 0; right: 0; bottom: 0;
+  width: min(420px, 90vw);
+  background: var(--bg-deep);
+  border-left: 1px solid var(--border);
+  z-index: 41;
+  overflow-y: auto;
+  padding: var(--space-5);
+  animation: slide-in 220ms ease;
+}
+@keyframes slide-in { from { transform: translateX(100%); } to { transform: translateX(0); } }
+.detail-close {
+  position: absolute; top: 8px; right: 8px;
+  background: transparent; border: 0; color: var(--text-dim);
+  font-size: 22px; cursor: pointer;
+}
+.detail-body { padding-top: 16px; }
+.detail-row { display: flex; justify-content: space-between; padding: 4px 0; font-size: 12px; }
+.detail-label { color: var(--text-faint); }
+.detail-value { color: var(--text); font-family: var(--font-mono); font-size: 11px; }
+
+.transcode-action { margin-top: 12px; display: flex; flex-direction: column; gap: 6px; }
+
+.season-tabs {
+  display: flex; gap: 4px; border-bottom: 1px solid var(--border);
+  margin-bottom: var(--space-4); flex-wrap: wrap;
+}
+.season-tab {
+  background: transparent; border: 0; padding: 8px 14px;
+  color: var(--text-dim); cursor: pointer; font-size: 12px;
+  border-bottom: 2px solid transparent;
+}
+.season-tab.is-active { color: var(--accent); border-bottom-color: var(--accent); }
+
+.episode-row {
+  display: grid;
+  grid-template-columns: 60px 1fr auto;
+  gap: 12px; align-items: center;
+  padding: 8px 0; border-bottom: 1px solid var(--border); font-size: 12px;
+}
+.episode-num { color: var(--text-faint); font-family: var(--font-mono); }
+.episode-title { color: var(--text); }
