@@ -13,7 +13,7 @@ FROM rust:bookworm AS rust
 WORKDIR /src
 COPY . .
 COPY --from=web /web/dist /src/web/dist
-RUN cargo build --release --locked
+RUN cargo build --release
 
 # Runtime
 FROM debian:bookworm-slim AS runtime

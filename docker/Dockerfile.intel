@@ -10,7 +10,7 @@ FROM rust:bookworm AS rust
 WORKDIR /src
 COPY . .
 COPY --from=web /web/dist /src/web/dist
-RUN cargo build --release --locked
+RUN cargo build --release
 
 FROM debian:bookworm-slim AS runtime
 RUN echo "deb http://deb.debian.org/debian bookworm main contrib non-free non-free-firmware" > /etc/apt/sources.list \
