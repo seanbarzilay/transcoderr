@@ -14,6 +14,10 @@ use transcoderr::{
 
 static METRICS: OnceLock<Arc<Metrics>> = OnceLock::new();
 
+// Each integration test binary uses a different subset of these fields,
+// so per-binary dead_code warnings are unavoidable. Allow them at the
+// struct level rather than playing whack-a-mole.
+#[allow(dead_code)]
 pub struct TestApp {
     pub url: String,
     pub pool: sqlx::SqlitePool,
