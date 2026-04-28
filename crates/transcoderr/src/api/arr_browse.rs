@@ -138,7 +138,13 @@ pub async fn movies(
             .list_movies()
             .await
             .map_err(|e| arr_call_error(source_id, e))?;
-        let trimmed: Vec<_> = movies.into_iter().map(|m| m.into_summary(&base_url)).collect();
+        // Browse pages exist to find files to transcode — drop entries
+        // the *arr knows about but hasn't imported yet.
+        let trimmed: Vec<_> = movies
+            .into_iter()
+            .map(|m| m.into_summary(&base_url))
+            .filter(|m| m.has_file)
+            .collect();
         let v = serde_json::to_value(&trimmed).unwrap_or(serde_json::Value::Null);
         state.arr_cache.put(source_id, CACHE_KEY_MOVIES, v);
         trimmed
@@ -200,7 +206,13 @@ pub async fn series(
             .list_series()
             .await
             .map_err(|e| arr_call_error(source_id, e))?;
-        let trimmed: Vec<_> = raw.into_iter().map(|s| s.into_summary(&base_url)).collect();
+        // Hide series that the *arr knows about but has never imported
+        // an episode file for — nothing to transcode there.
+        let trimmed: Vec<_> = raw
+            .into_iter()
+            .map(|s| s.into_summary(&base_url))
+            .filter(|s| s.episode_file_count > 0)
+            .collect();
         let v = serde_json::to_value(&trimmed).unwrap_or(serde_json::Value::Null);
         state.arr_cache.put(source_id, CACHE_KEY_SERIES, v);
         trimmed
@@ -297,7 +309,13 @@ pub async fn episodes(
                 .list_episodes(series_id)
                 .await
                 .map_err(|e| arr_call_error(source_id, e))?;
-            let trimmed: Vec<_> = raw.into_iter().map(|e| e.into_summary()).collect();
+            // Drop episodes the *arr knows about but hasn't imported a
+            // file for (unaired, missing, etc.) — they're not transcodable.
+            let trimmed: Vec<_> = raw
+                .into_iter()
+                .map(|e| e.into_summary())
+                .filter(|e| e.has_file)
+                .collect();
             let v = serde_json::to_value(&trimmed).unwrap_or(serde_json::Value::Null);
             state.arr_cache.put(source_id, &key, v);
             trimmed
@@ -334,14 +352,22 @@ pub async fn refresh(
     match kind {
         arr::Kind::Radarr => {
             if let Ok(raw) = client.list_movies().await {
-                let trimmed: Vec<_> = raw.into_iter().map(|m| m.into_summary(&base_url)).collect();
+                let trimmed: Vec<_> = raw
+                    .into_iter()
+                    .map(|m| m.into_summary(&base_url))
+                    .filter(|m| m.has_file)
+                    .collect();
                 let v = serde_json::to_value(&trimmed).unwrap_or(serde_json::Value::Null);
                 state.arr_cache.put(source_id, CACHE_KEY_MOVIES, v);
             }
         }
         arr::Kind::Sonarr => {
             if let Ok(raw) = client.list_series().await {
-                let trimmed: Vec<_> = raw.into_iter().map(|s| s.into_summary(&base_url)).collect();
+                let trimmed: Vec<_> = raw
+                    .into_iter()
+                    .map(|s| s.into_summary(&base_url))
+                    .filter(|s| s.episode_file_count > 0)
+                    .collect();
                 let v = serde_json::to_value(&trimmed).unwrap_or(serde_json::Value::Null);
                 state.arr_cache.put(source_id, CACHE_KEY_SERIES, v);
             }
