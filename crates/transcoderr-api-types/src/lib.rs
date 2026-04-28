@@ -6,7 +6,7 @@ pub mod logging;
 /// `schema_with` helper for fields whose Rust type is `serde_json::Value`
 /// but whose schema must be a typed object. schemars defaults `Value` to
 /// `Schema::Bool(true)` ("any"), which Claude Code's Zod-based MCP tool
-/// validator rejects with `Invalid input: expected "object"`, dropping
+/// validator rejects with `Invalid input: expected "object"`, droppingdasdasdasds
 /// the entire server's tool list.
 pub fn json_object_schema(_g: &mut SchemaGenerator) -> Schema {
     json_schema!({
