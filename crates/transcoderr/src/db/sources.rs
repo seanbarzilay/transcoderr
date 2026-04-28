@@ -48,27 +48,39 @@ pub async fn update_arr_notification_id(
     source_id: i64,
     new_id: i64,
 ) -> anyhow::Result<()> {
-    let mut tx = pool.begin().await?;
-    let row: SourceRow = sqlx::query_as(
-        "SELECT id, kind, name, config_json, secret_token FROM sources WHERE id = ?",
-    )
-    .bind(source_id)
-    .fetch_optional(&mut *tx)
-    .await?
-    .ok_or_else(|| anyhow::anyhow!("source {source_id} not found"))?;
-
-    let mut cfg: serde_json::Value = serde_json::from_str(&row.config_json)
-        .map_err(|e| anyhow::anyhow!("invalid JSON in source {source_id} config: {e}"))?;
-    let obj = cfg.as_object_mut()
-        .ok_or_else(|| anyhow::anyhow!("source {source_id} config is not a JSON object"))?;
-    obj.insert("arr_notification_id".into(), serde_json::json!(new_id));
-    let cfg_str = serde_json::to_string(&cfg)?;
-
-    sqlx::query("UPDATE sources SET config_json = ? WHERE id = ?")
-        .bind(cfg_str)
+    // Optimistic compare-and-swap: SELECT the current config_json,
+    // mutate in-memory, UPDATE only if config_json hasn't changed
+    // since we read it. This avoids holding a write lock across the
+    // SELECT (which previously deadlocked the boot reconciler against
+    // concurrent worker / webhook writers under WAL).
+    for _attempt in 0..5 {
+        let row: SourceRow = sqlx::query_as(
+            "SELECT id, kind, name, config_json, secret_token FROM sources WHERE id = ?",
+        )
         .bind(source_id)
-        .execute(&mut *tx)
+        .fetch_optional(pool)
+        .await?
+        .ok_or_else(|| anyhow::anyhow!("source {source_id} not found"))?;
+
+        let mut cfg: serde_json::Value = serde_json::from_str(&row.config_json)
+            .map_err(|e| anyhow::anyhow!("invalid JSON in source {source_id} config: {e}"))?;
+        let obj = cfg.as_object_mut()
+            .ok_or_else(|| anyhow::anyhow!("source {source_id} config is not a JSON object"))?;
+        obj.insert("arr_notification_id".into(), serde_json::json!(new_id));
+        let new_cfg_str = serde_json::to_string(&cfg)?;
+
+        let res = sqlx::query(
+            "UPDATE sources SET config_json = ? WHERE id = ? AND config_json = ?",
+        )
+        .bind(&new_cfg_str)
+        .bind(source_id)
+        .bind(&row.config_json)
+        .execute(pool)
         .await?;
-    tx.commit().await?;
-    Ok(())
+        if res.rows_affected() == 1 {
+            return Ok(());
+        }
+        // Concurrent write changed config_json out from under us — retry.
+    }
+    anyhow::bail!("update_arr_notification_id: too much contention on source {source_id}")
 }
