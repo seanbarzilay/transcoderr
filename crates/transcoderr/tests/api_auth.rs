@@ -85,6 +85,34 @@ async fn api_token_verify_stamps_last_used_at() {
 }
 
 #[tokio::test]
+async fn bearer_stamps_last_used_when_auth_disabled() {
+    // auth.enabled defaults to false in the test boot. The require_auth
+    // middleware used to short-circuit before verify() in that case,
+    // leaving the Settings UI's "Last used" column permanently blank
+    // for token-authed callers (e.g. MCP). It must still verify the
+    // token and stamp last_used_at even when auth is disabled.
+    use transcoderr::db::api_tokens;
+    let app = boot().await;
+    let made = api_tokens::create(&app.pool, "stamp-via-http").await.unwrap();
+
+    let before = api_tokens::list(&app.pool).await.unwrap();
+    assert_eq!(before[0].last_used_at, None);
+
+    let client = reqwest::Client::new();
+    let r = client
+        .get(format!("{}/api/sources", app.url))
+        .bearer_auth(&made.token)
+        .send().await.unwrap();
+    assert_eq!(r.status(), 200);
+
+    let after = api_tokens::list(&app.pool).await.unwrap();
+    assert!(
+        after[0].last_used_at.is_some(),
+        "Bearer through require_auth must stamp last_used_at even with auth disabled; got None"
+    );
+}
+
+#[tokio::test]
 async fn token_endpoints_create_list_delete() {
     let app = boot().await;
     let h = hash_password("hunter2").unwrap();

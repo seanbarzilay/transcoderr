@@ -87,12 +87,13 @@ pub async fn require_auth(
 ) -> Result<axum::response::Response, StatusCode> {
     let enabled = db::settings::get(&state.pool, "auth.enabled").await
         .ok().flatten().unwrap_or_default() == "true";
-    if !enabled {
-        request.extensions_mut().insert(AuthSource::Disabled);
-        return Ok(next.run(request).await);
-    }
 
-    // Bearer first (cheap header read, no DB if absent).
+    // Always verify Bearer if presented, regardless of auth.enabled —
+    // a real token still produces AuthSource::Token (so redaction
+    // policy fires) and stamps last_used_at on every request, even on
+    // installations that have auth.enabled = false. Without this, the
+    // Settings UI's "Last used" column was always blank for tokens
+    // because the disabled-auth shortcut bypassed verify entirely.
     if let Some(h) = request.headers().get(axum::http::header::AUTHORIZATION) {
         if let Ok(s) = h.to_str() {
             if let Some(token) = s.strip_prefix("Bearer ") {
@@ -100,9 +101,20 @@ pub async fn require_auth(
                     request.extensions_mut().insert(AuthSource::Token);
                     return Ok(next.run(request).await);
                 }
-                return Err(StatusCode::UNAUTHORIZED);
+                if enabled {
+                    return Err(StatusCode::UNAUTHORIZED);
+                }
+                // auth disabled + bogus bearer: fall through to the
+                // disabled-mode allow path. (Real callers wouldn't hit
+                // this; an attacker probing tokens just gets the same
+                // open-access response everyone else gets.)
             }
         }
+    }
+
+    if !enabled {
+        request.extensions_mut().insert(AuthSource::Disabled);
+        return Ok(next.run(request).await);
     }
 
     // Fall back to session cookie.
