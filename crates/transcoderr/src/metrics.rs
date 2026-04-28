@@ -9,6 +9,29 @@ impl Metrics {
         let handle = PrometheusBuilder::new()
             .install_recorder()
             .map_err(|e| anyhow::anyhow!("install metrics recorder: {e}"))?;
+        // Register descriptors up front so `/metrics` always has
+        // # HELP / # TYPE lines, even before the worker has touched a
+        // counter/gauge. Without this, the endpoint returns an empty
+        // body until something records a value, which races with any
+        // process that scrapes /metrics at boot.
+        metrics::describe_counter!(
+            "transcoderr_jobs_total",
+            "Total transcode jobs by flow + terminal status"
+        );
+        metrics::describe_histogram!(
+            "transcoderr_job_duration_seconds",
+            "Wall-clock duration of completed jobs by flow + status"
+        );
+        metrics::describe_histogram!(
+            "transcoderr_step_duration_seconds",
+            "Wall-clock duration of plan steps by plugin + status"
+        );
+        metrics::describe_gauge!(
+            "transcoderr_queue_depth",
+            "Current pending+running job count"
+        );
+        // Seed the gauge so the metric appears with a value from boot.
+        metrics::gauge!("transcoderr_queue_depth").set(0.0);
         Ok(Self { handle })
     }
     pub fn render(&self) -> String { self.handle.render() }
