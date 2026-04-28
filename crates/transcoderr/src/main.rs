@@ -77,9 +77,37 @@ async fn main() -> anyhow::Result<()> {
                 tracing::warn!(reset, "recovered stale running jobs");
             }
 
-            let (tx, rx) = tokio::sync::watch::channel(false);
-            let worker_task =
-                tokio::spawn(async move { worker.run_loop(rx).await });
+            // Concurrency: spawn N worker loops sharing the same pool.
+            // claim_next is atomic (UPDATE...WHERE status='pending'), so
+            // they cooperate without stepping on each other. Hardware
+            // semaphores in DeviceRegistry still cap concurrent ffmpeg
+            // invocations on each GPU, so this only affects how many
+            // jobs run in parallel — not how many ffmpegs hit one GPU.
+            let pool_size: usize = transcoderr::db::settings::get(&pool, "worker.pool_size")
+                .await
+                .ok()
+                .flatten()
+                .and_then(|s| s.parse().ok())
+                .filter(|n: &usize| *n >= 1)
+                .unwrap_or(1);
+            tracing::info!(pool_size, "spawning worker pool");
+
+            let (tx, _) = tokio::sync::watch::channel(false);
+            let worker_tasks: Vec<_> = (0..pool_size)
+                .map(|_| {
+                    let w = worker.clone();
+                    let rx = tx.subscribe();
+                    tokio::spawn(async move { w.run_loop(rx).await })
+                })
+                .collect();
+            // Keep the original single-handle name for downstream join
+            // logic that expects one task. We fold the others into it via
+            // join_all at shutdown.
+            let worker_task = tokio::spawn(async move {
+                for t in worker_tasks {
+                    let _ = t.await;
+                }
+            });
 
             let retention_rx = tx.subscribe();
             tokio::spawn(transcoderr::retention::run_periodic(pool.clone(), retention_rx));
@@ -118,7 +146,13 @@ async fn main() -> anyhow::Result<()> {
 
             transcoderr::arr::reconcile::spawn(state.pool.clone(), state.public_url.clone());
 
-            let app = transcoderr::http::router(state);
+            let dedup_window_secs: u64 = transcoderr::db::settings::get(&state.pool, "dedup.window_seconds")
+                .await
+                .ok()
+                .flatten()
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(300);
+            let app = transcoderr::http::router(state, std::time::Duration::from_secs(dedup_window_secs));
 
             let serve = axum::serve(listener, app).with_graceful_shutdown(
                 async move {

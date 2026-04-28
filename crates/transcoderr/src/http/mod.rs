@@ -24,8 +24,8 @@ pub struct AppState {
     pub arr_cache: std::sync::Arc<crate::arr::cache::ArrCache>,
 }
 
-pub fn router(state: AppState) -> Router {
-    let dedup = Arc::new(dedup::DedupCache::new(Duration::from_secs(300)));
+pub fn router(state: AppState, dedup_window: Duration) -> Router {
+    let dedup = Arc::new(dedup::DedupCache::new(dedup_window));
     Router::new()
         .route("/healthz", axum::routing::get(|| async { axum::http::StatusCode::OK }))
         .route("/readyz", axum::routing::get(readyz_handler))
