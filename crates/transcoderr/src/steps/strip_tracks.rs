@@ -68,7 +68,12 @@ impl Step for StripTracksStep {
         }
 
         for l in &langs {
-            cmd.args(["-map", &format!("0:a:m:language:{l}?"), "-c:a", "copy"]);
+            // ffmpeg 7.1 tightened stream-specifier parsing: the `?`
+            // (optional) qualifier must be its own colon-separated
+            // component when combined with metadata matching. Old form
+            // `m:language:eng?` errors on 7.1+; canonical `:?` form
+            // works on 6.x as well.
+            cmd.args(["-map", &format!("0:a:m:language:{l}:?"), "-c:a", "copy"]);
         }
 
         // Subtitles: either copy all or only known codecs (selected per-stream).

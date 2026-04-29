@@ -81,7 +81,9 @@ impl Step for ExtractSubsStep {
         let status = Command::new("ffmpeg")
             .args(["-hide_banner", "-y", "-i"])
             .arg(&src)
-            .args(["-map", &format!("0:s:m:language:{lang}?")])
+            // See strip_tracks.rs for why `:?` (not bare `?`) is the
+            // right form on ffmpeg 7.1+.
+            .args(["-map", &format!("0:s:m:language:{lang}:?")])
             .arg(&dest)
             .stdin(Stdio::null())
             .stdout(Stdio::null())
