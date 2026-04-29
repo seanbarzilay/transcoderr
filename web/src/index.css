@@ -487,7 +487,8 @@ tbody tr:hover td { background: var(--surface); }
   color: var(--text);
 }
 .sidebar-status.is-reactive:hover .sidebar-status-popover,
-.sidebar-status.is-reactive:focus-visible .sidebar-status-popover {
+.sidebar-status.is-reactive:focus-visible .sidebar-status-popover,
+.sidebar-status.is-auto-open .sidebar-status-popover {
   opacity: 1;
   pointer-events: auto;
   transform: translateY(0);

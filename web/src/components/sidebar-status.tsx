@@ -1,3 +1,4 @@
+import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { useLive } from "../state/live";
@@ -18,10 +19,12 @@ function clampPct(n: number): number {
 }
 
 const FFMPEG_PREVIEW_MAX = 80;
+/// How long the popover auto-stays-open after a job transitions to
+/// running, before reverting to hover-only.
+const AUTO_OPEN_MS = 4000;
 
 export default function SidebarStatus() {
   const queue = useLive((s) => s.queue);
-  const jobStatus = useLive((s) => s.jobStatus);
   const jobProgress = useLive((s) => s.jobProgress);
   const nav = useNavigate();
 
@@ -31,27 +34,45 @@ export default function SidebarStatus() {
     staleTime: Infinity,
   });
 
-  // Job ids that the live stream currently reports as running. Falls
-  // back on `queue.running` for the count when no JobState events have
-  // come through yet (e.g. just-started worker).
-  const runningIds = Object.entries(jobStatus)
-    .filter(([_, v]) => v.status === "running")
-    .map(([id]) => Number(id))
-    .sort((a, b) => b - a); // newest first
+  // Source-of-truth for "what's running right now". Reading from the
+  // API survives missed-SSE-events (page reload mid-job; the
+  // JobState transition already fired and we'd never see it via the
+  // live stream). Polled while the queue says we have running work.
+  const runningRuns = useQuery({
+    queryKey: ["sidebar-status", "running"],
+    queryFn: () => api.runs.list({ status: "running", limit: 10 }),
+    enabled: queue.running > 0,
+    refetchInterval: queue.running > 0 ? 2000 : false,
+    staleTime: 0,
+  });
+  const running = runningRuns.data ?? [];
 
-  const isLive = runningIds.length > 0 || queue.running > 0;
+  const isLive = queue.running > 0;
   const isPending = queue.pending > 0;
   const isReactive = isLive || isPending;
 
-  /// Where the click takes the user. Picks the most specific destination:
-  /// single-running-job → that job's detail; multi-running → the runs
-  /// list filtered to running; pending-only → filtered to pending; else
-  /// the unfiltered runs list.
+  // Auto-open the popover for AUTO_OPEN_MS when a job transitions to
+  // running so the operator gets a peek-what-just-started without
+  // having to hover. Once the timer fires the popover behaves as
+  // hover-only again.
+  const [autoOpen, setAutoOpen] = useState(false);
+  const prevRunning = useRef<number>(queue.running);
+  useEffect(() => {
+    const prev = prevRunning.current;
+    prevRunning.current = queue.running;
+    if (queue.running > prev) {
+      setAutoOpen(true);
+      const t = setTimeout(() => setAutoOpen(false), AUTO_OPEN_MS);
+      return () => clearTimeout(t);
+    }
+  }, [queue.running]);
+
+  /// Click target: most-recent running job's detail page; falls back
+  /// to /runs filters when nothing is running but we're still
+  /// reactive (pending-only state).
   const onClick = () => {
-    if (runningIds.length === 1) {
-      nav(`/runs/${runningIds[0]}`);
-    } else if (runningIds.length > 1) {
-      nav(`/runs?status=running`);
+    if (running.length > 0) {
+      nav(`/runs/${running[0].id}`);
     } else if (isPending) {
       nav(`/runs?status=pending`);
     } else {
@@ -65,7 +86,8 @@ export default function SidebarStatus() {
         "sidebar-status" +
         (isLive ? " is-live" : "") +
         (!isLive && isPending ? " is-pending" : "") +
-        (isReactive ? " is-reactive" : "")
+        (isReactive ? " is-reactive" : "") +
+        (autoOpen ? " is-auto-open" : "")
       }
       onClick={isReactive ? onClick : undefined}
       role={isReactive ? "button" : undefined}
@@ -79,7 +101,9 @@ export default function SidebarStatus() {
       }}
       aria-label={
         isLive
-          ? `Open running job` + (runningIds.length === 1 ? `` : `s`)
+          ? running.length === 1
+            ? `Open running job`
+            : `Open running jobs`
           : isPending
           ? `Open pending queue`
           : undefined
@@ -99,10 +123,9 @@ export default function SidebarStatus() {
 
       {isReactive && (
         <div className="sidebar-status-popover" role="tooltip">
-          {runningIds.length > 0 ? (
-            runningIds.map((id) => {
-              const label = jobStatus[id]?.label;
-              const prog = jobProgress[id];
+          {running.length > 0 ? (
+            running.map((run) => {
+              const prog = jobProgress[run.id];
               const pctNum =
                 typeof prog?.pct === "number" ? clampPct(prog.pct) : null;
               const ff =
@@ -110,9 +133,9 @@ export default function SidebarStatus() {
                   ? prog.lastFfmpegLine.slice(0, FFMPEG_PREVIEW_MAX) + "…"
                   : prog?.lastFfmpegLine;
               return (
-                <div key={id} className="sidebar-status-job">
+                <div key={run.id} className="sidebar-status-job">
                   <div className="sidebar-status-job-title mono">
-                    #{id} · {basename(label)}
+                    #{run.id} · {basename(run.file_path)}
                   </div>
                   {pctNum != null && (
                     <div className="sidebar-status-job-bar">
@@ -123,7 +146,7 @@ export default function SidebarStatus() {
                     </div>
                   )}
                   <div className="sidebar-status-job-meta">
-                    {prog?.lastStepId ?? ""}
+                    {prog?.lastStepId ?? "starting…"}
                     {pctNum != null ? ` · ${pctNum.toFixed(0)}%` : ""}
                   </div>
                   {ff && (
@@ -136,7 +159,9 @@ export default function SidebarStatus() {
             <div className="sidebar-status-job-meta">
               {queue.pending} pending in queue
             </div>
-          ) : null}
+          ) : (
+            <div className="sidebar-status-job-meta">starting…</div>
+          )}
           <div className="sidebar-status-hint">click to open →</div>
         </div>
       )}
