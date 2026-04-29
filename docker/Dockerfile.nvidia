@@ -12,8 +12,10 @@ COPY . .
 COPY --from=web /web/dist /src/web/dist
 RUN cargo build --release
 
-# NVENC-capable ffmpeg base
-FROM jrottenberg/ffmpeg:6.0-nvidia2204 AS runtime
+# NVENC-capable ffmpeg base. Pinned to a specific ffmpeg minor + ubuntu
+# base so reproducible-image guarantees aren't affected when upstream
+# rebuilds floating tags.
+FROM jrottenberg/ffmpeg:8.1-nvidia2404 AS runtime
 RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates tini \
     && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
