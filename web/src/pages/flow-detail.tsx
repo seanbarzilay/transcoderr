@@ -4,6 +4,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "../api/client";
 import YamlEditor from "../components/yaml-editor";
 import FlowMirror from "../components/flow-mirror";
+import { useMediaQuery } from "../lib/use-media-query";
 
 export default function FlowDetail() {
   const { id } = useParams();
@@ -15,6 +16,11 @@ export default function FlowDetail() {
   const [parseResult, setParseResult] = useState<any>(null);
   const [filePath, setFilePath] = useState("");
   const [dryResult, setDryResult] = useState<any>(null);
+  // CodeMirror-on-mobile is unusable (no pinch-zoom, scrollwheel
+  // capture conflicts with page scroll). Below 1024px we hide the
+  // editor entirely and show a read-only YAML view so the page is at
+  // least browsable from a phone.
+  const isNarrow = useMediaQuery("(max-width: 1023px)");
 
   useEffect(() => {
     if (flow.data && yaml === "") setYaml(flow.data.yaml_source);
@@ -39,7 +45,7 @@ export default function FlowDetail() {
 
   return (
     <div className="page">
-      {typeof window !== "undefined" && window.innerWidth < 1024 && (
+      {isNarrow && (
         <div
           className="surface"
           style={{
@@ -52,7 +58,7 @@ export default function FlowDetail() {
             textTransform: "uppercase",
           }}
         >
-          ⚠ Flow editor is desktop-only — open on a wider screen
+          ⚠ Flow editor is desktop-only — open on a wider screen to edit
         </div>
       )}
 
@@ -71,17 +77,30 @@ export default function FlowDetail() {
               {t}
             </button>
           ))}
-          <button onClick={() => save.mutate()} disabled={save.isPending}>
+          <button
+            onClick={() => save.mutate()}
+            disabled={save.isPending || isNarrow}
+            title={isNarrow ? "Open on desktop to edit" : undefined}
+          >
             Save
           </button>
         </div>
       </div>
 
       {tab === "editor" && (
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-          <div className="surface" style={{ padding: 0, overflow: "hidden" }}>
-            <YamlEditor value={yaml} onChange={setYaml} />
-          </div>
+        <div className="flow-editor-grid">
+          {isNarrow ? (
+            <div className="surface" style={{ padding: 12, overflowX: "auto" }}>
+              <div className="label" style={{ marginBottom: 8 }}>YAML (read-only)</div>
+              <pre className="mono" style={{ margin: 0, fontSize: 12, whiteSpace: "pre" }}>
+                {yaml}
+              </pre>
+            </div>
+          ) : (
+            <div className="surface" style={{ padding: 0, overflow: "hidden" }}>
+              <YamlEditor value={yaml} onChange={setYaml} />
+            </div>
+          )}
           <div className="surface" style={{ padding: 16 }}>
             <div className="label" style={{ marginBottom: 10 }}>
               Mirror
