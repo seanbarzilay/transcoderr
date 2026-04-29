@@ -252,7 +252,14 @@ impl Client {
     }
 
     pub async fn list_episodes(&self, series_id: i64) -> Result<Vec<crate::arr::browse::SonarrEpisode>> {
-        let url = format!("{}/api/v3/episode?seriesId={series_id}", self.base_url);
+        // includeEpisodeFile=true is required to get `episodeFile.mediaInfo`
+        // inlined in the response. Without it, Sonarr only returns
+        // `episodeFileId` (an int) and our codec/resolution badges +
+        // filters end up empty for every series.
+        let url = format!(
+            "{}/api/v3/episode?seriesId={series_id}&includeEpisodeFile=true",
+            self.base_url
+        );
         let resp = self
             .http
             .get(&url)
@@ -525,6 +532,10 @@ mod tests {
         Mock::given(method("GET"))
             .and(path("/api/v3/episode"))
             .and(query_param("seriesId", "42"))
+            // includeEpisodeFile=true must be set so Sonarr inlines the
+            // `episodeFile.mediaInfo` payload — without it our codec/
+            // resolution aggregation comes back empty for every series.
+            .and(query_param("includeEpisodeFile", "true"))
             .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!([
                 { "id": 1, "seasonNumber": 1, "episodeNumber": 1, "title": "Pilot", "hasFile": false }
             ])))
