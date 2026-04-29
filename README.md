@@ -14,6 +14,11 @@ Webhook in, ffmpeg out, configurable in between.
 
 - **Push-driven.** Typed adapters for Radarr / Sonarr / Lidarr plus a generic
   `/webhook/:name` for anything else. No library scanning.
+- **Browse & manually transcode.** Built-in pages that proxy a Radarr or
+  Sonarr source's library — search, filter by codec/resolution, click a
+  file, queue it against every enabled flow that matches the source kind.
+  Drives the same flow engine as the webhook path; useful for backfill or
+  one-offs when you don't want to wait for the next *arr push.
 - **Plan-then-execute flows.** Compose declarative `plan.*` steps
   (`plan.video.encode`, `plan.audio.ensure`, `plan.streams.drop_cover_art`, …).
   A single `plan.execute` materializes the whole flow into **one** ffmpeg
@@ -162,7 +167,9 @@ step's checkpoint.
 `transcoderr-mcp` is a stdio MCP binary that lets AI clients (Claude Desktop,
 Cursor) drive transcoderr's read & write surface. Download the binary for
 your platform from the latest GitHub Release, then point your AI client at
-it.
+it. Tools cover runs, flows, sources, notifiers, plus library browse +
+per-file transcode — so prompts like "queue every non-HEVC movie" or
+"re-encode every 1080p episode of *this* show" work as one operation.
 
 ```json
 {
