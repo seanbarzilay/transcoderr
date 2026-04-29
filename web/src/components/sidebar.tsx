@@ -1,7 +1,5 @@
 import { NavLink } from "react-router-dom";
-import { useQuery } from "@tanstack/react-query";
-import { api } from "../api/client";
-import { useLive } from "../state/live";
+import SidebarStatus from "./sidebar-status";
 
 const links: [string, string][] = [
   ["/dashboard", "Dashboard"],
@@ -24,12 +22,6 @@ interface Props {
 }
 
 export default function Sidebar({ open = false, onNavigate }: Props) {
-  const queue = useLive((s) => s.queue);
-  const version = useQuery({
-    queryKey: ["version"],
-    queryFn: () => api.version(),
-    staleTime: Infinity,
-  });
   return (
     <nav className={"sidebar" + (open ? " is-open" : "")}>
       <div className="brand">
@@ -67,14 +59,7 @@ export default function Sidebar({ open = false, onNavigate }: Props) {
         ))}
       </div>
 
-      <div className="sidebar-foot">
-        <div>
-          Queue <span className="dim">{queue.pending}</span>
-          {"  "}·{"  "}
-          Running <span className="dim">{queue.running}</span>
-        </div>
-        <div className="muted">{version.data ? `v${version.data.version}` : ""}</div>
-      </div>
+      <SidebarStatus />
     </nav>
   );
 }
