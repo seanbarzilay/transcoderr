@@ -402,6 +402,145 @@ tbody tr:hover td { background: var(--surface); }
   gap: 4px;
 }
 
+/* ---- live sidebar status (replaces .sidebar-foot when active) -- */
+.sidebar-status {
+  margin-top: auto;
+  position: relative;
+  padding: var(--space-3) 0;
+  border-top: 1px solid var(--border);
+  font-size: 10px;
+  color: var(--text-faint);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  user-select: none;
+  outline: none;
+  transition: color 150ms ease, border-top-color 250ms ease;
+}
+.sidebar-status.is-reactive {
+  cursor: pointer;
+}
+.sidebar-status.is-reactive:hover {
+  color: var(--text-dim);
+}
+.sidebar-status.is-live {
+  border-top-color: var(--accent-line);
+  color: var(--accent);
+}
+.sidebar-status.is-live:hover {
+  color: var(--accent);
+}
+.sidebar-status.is-pending:not(.is-live) {
+  border-top-color: var(--info);
+  color: var(--info);
+}
+.sidebar-status:focus-visible {
+  outline: 1px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+
+.sidebar-status-bar {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+/* Pulsing dot — visible only when isLive. Subtle scale + opacity
+   loop so the eye catches movement without being annoying. */
+.sidebar-status-dot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--accent);
+  margin-right: 6px;
+  vertical-align: middle;
+  box-shadow: 0 0 8px var(--accent-soft);
+  animation: sidebar-status-pulse 1.4s ease-in-out infinite;
+}
+@keyframes sidebar-status-pulse {
+  0%, 100% { opacity: 0.55; transform: scale(1); }
+  50%      { opacity: 1;    transform: scale(1.25); }
+}
+
+/* Popover anchored above the footer. `bottom: 100%` keeps it tucked
+   to the underside of the parent's top edge, then `margin-bottom`
+   adds breathing room. Hover/focus reveals via opacity. */
+.sidebar-status-popover {
+  position: absolute;
+  bottom: 100%;
+  left: 0;
+  right: 0;
+  margin-bottom: var(--space-2);
+  padding: var(--space-3);
+  background: var(--surface-2);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-2);
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.4);
+  z-index: 50;
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(4px);
+  transition: opacity 150ms ease, transform 150ms ease;
+  text-transform: none;
+  letter-spacing: normal;
+  color: var(--text);
+}
+.sidebar-status.is-reactive:hover .sidebar-status-popover,
+.sidebar-status.is-reactive:focus-visible .sidebar-status-popover {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translateY(0);
+}
+
+.sidebar-status-job {
+  margin-bottom: var(--space-3);
+}
+.sidebar-status-job:last-of-type {
+  margin-bottom: var(--space-2);
+}
+.sidebar-status-job-title {
+  font-size: 11px;
+  color: var(--text);
+  margin-bottom: 4px;
+  word-break: break-all;
+  font-weight: 500;
+}
+.sidebar-status-job-bar {
+  height: 4px;
+  background: var(--surface-3);
+  border-radius: 2px;
+  overflow: hidden;
+  margin-bottom: 4px;
+}
+.sidebar-status-job-bar-fill {
+  height: 100%;
+  background: var(--accent);
+  transition: width 250ms ease;
+}
+.sidebar-status-job-meta {
+  font-size: 10px;
+  color: var(--text-faint);
+  letter-spacing: 0.04em;
+}
+.sidebar-status-job-ff {
+  margin-top: 4px;
+  font-size: 10px;
+  color: var(--text-faint);
+  word-break: break-all;
+  opacity: 0.8;
+}
+.sidebar-status-hint {
+  margin-top: var(--space-2);
+  padding-top: var(--space-2);
+  border-top: 1px solid var(--border);
+  font-size: 9px;
+  letter-spacing: 0.1em;
+  text-align: right;
+  color: var(--text-faint);
+  text-transform: uppercase;
+}
+
 .main {
   overflow: auto;
   background: var(--bg);
