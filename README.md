@@ -193,6 +193,8 @@ Create the token under **Settings → API tokens** in the web UI. See
 - [`docs/deploy.md`](docs/deploy.md) — production deploy notes
 - [`docs/mcp.md`](docs/mcp.md) — MCP server reference
 - [`docs/flows/`](docs/flows/) — example flow YAMLs
+- [`docs/plugins/`](docs/plugins/) — example subprocess plugins
+  (drop into `{data_dir}/plugins/`)
 - [`docs/superpowers/specs/`](docs/superpowers/specs/) — original design spec
 - [`docs/superpowers/plans/`](docs/superpowers/plans/) — phase-by-phase
   implementation plans

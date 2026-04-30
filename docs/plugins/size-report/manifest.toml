@@ -1,0 +1,5 @@
+name = "size-report"
+version = "0.1.0"
+kind = "subprocess"
+entrypoint = "bin/run"
+provides_steps = ["size.report.before", "size.report.after"]
