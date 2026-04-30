@@ -14,11 +14,11 @@ Webhook in, ffmpeg out, configurable in between.
 
 - **Push-driven.** Typed adapters for Radarr / Sonarr / Lidarr plus a generic
   `/webhook/:name` for anything else. No library scanning.
-- **Browse & manually transcode.** Built-in pages that proxy a Radarr or
-  Sonarr source's library — search, filter by codec/resolution, click a
-  file, queue it against every enabled flow that matches the source kind.
-  Drives the same flow engine as the webhook path; useful for backfill or
-  one-offs when you don't want to wait for the next *arr push.
+- **Browse & queue.** Built-in **Browse Radarr** / **Browse Sonarr** pages
+  mirror your library as poster grids with codec/resolution filters, debounced
+  search, and per-season drill-down for shows. Click a file to fan it out to
+  every enabled flow that matches the source kind. Same flow engine as the
+  webhook path — see [Browse & queue](#browse--queue) below.
 - **Plan-then-execute flows.** Compose declarative `plan.*` steps
   (`plan.video.encode`, `plan.audio.ensure`, `plan.streams.drop_cover_art`, …).
   A single `plan.execute` materializes the whole flow into **one** ffmpeg
@@ -68,6 +68,33 @@ walks you through:
 2. **Notifiers → Add.** Optional. Configure Discord/ntfy/Telegram/webhook so
    flows can `notify`.
 3. **Flows → New flow.** Paste in a flow YAML (example below).
+
+## Browse & queue
+
+Every Radarr or Sonarr source you add gets two extra pages in the sidebar:
+**Browse Radarr** and **Browse Sonarr**. They turn the source's own library
+into a searchable view, so you don't need to wait for the next webhook to
+re-encode something.
+
+- **Poster grid** with debounced title search, codec and resolution filters,
+  and title/year sort. Pagination keeps the grid responsive on libraries with
+  thousands of titles.
+- **Detail panel** (movies) or **series drill-down** (shows). For Sonarr, click
+  a series to get season tabs with `have/total` counts, then filter episodes
+  inside a season by codec or resolution.
+- **One-click queue.** The Transcode button on any file fans it out to every
+  enabled flow whose triggers match the source kind — a movie hits all flows
+  that listen to `radarr`, an episode hits all flows that listen to `sonarr`.
+  Each fan-out is a regular run with its own progress bar, ffmpeg tail, and
+  cancel button.
+- **Refresh** re-pulls library state from the source so newly added or
+  upgraded files show up without a server restart.
+
+Useful for backfilling a library after introducing a new flow, re-encoding a
+single bad file, or testing flow changes on a known-good title without
+waiting for the next *arr push. The MCP server exposes the same surface
+(`list_movies`, `list_series`, `list_episodes`, `transcode_file`), so prompts
+like *"queue every non-HEVC movie"* drive the exact same code path.
 
 ## Example flow
 
