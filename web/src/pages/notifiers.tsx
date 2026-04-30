@@ -6,7 +6,7 @@ const KINDS = ["discord", "jellyfin", "ntfy", "telegram", "webhook"] as const;
 
 const PLACEHOLDERS: Record<string, string> = {
   discord:  '{"url":"https://discord.com/api/webhooks/..."}',
-  jellyfin: '{"url":"http://jellyfin:8096","api_key":"..."}',
+  jellyfin: '{"url":"http://jellyfin:8096","api_key":"...","path_mappings":[{"from":"/mnt/movies","to":"/media/movies"}]}',
   ntfy:     '{"server":"https://ntfy.sh","topic":"my-topic"}',
   telegram: '{"bot_token":"123:ABC","chat_id":"-1001234"}',
   webhook:  '{"url":"https://example.com/hook"}',

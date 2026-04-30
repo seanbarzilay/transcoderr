@@ -11,9 +11,22 @@ use serde_json::{json, Value};
 /// `ctx.file.path`). If missing — the Test button passes
 /// `extra: Null` — fall back to a `/System/Info` probe so the test
 /// validates the URL + api key without triggering a real scan.
+///
+/// `path_mappings` rewrites `ctx.file.path` to whatever path Jellyfin
+/// has the same file mounted at. Required when transcoderr and
+/// Jellyfin run in different containers with different bind mounts —
+/// otherwise Jellyfin silently no-ops the update because no library
+/// item matches the path. First prefix match wins.
 pub struct Jellyfin {
     url: String,
     api_key: String,
+    path_mappings: Vec<PathMapping>,
+}
+
+#[derive(Debug, Clone)]
+struct PathMapping {
+    from: String,
+    to: String,
 }
 
 impl Jellyfin {
@@ -27,8 +40,33 @@ impl Jellyfin {
             .as_str()
             .ok_or_else(|| anyhow::anyhow!("jellyfin: missing api_key"))?
             .to_string();
-        Ok(Self { url, api_key })
+        let path_mappings = parse_path_mappings(&cfg["path_mappings"])?;
+        Ok(Self { url, api_key, path_mappings })
     }
+}
+
+fn parse_path_mappings(v: &Value) -> anyhow::Result<Vec<PathMapping>> {
+    let Some(arr) = v.as_array() else { return Ok(vec![]); };
+    arr.iter()
+        .map(|m| {
+            let from = m["from"].as_str()
+                .ok_or_else(|| anyhow::anyhow!("jellyfin: path_mappings entry missing 'from'"))?
+                .to_string();
+            let to = m["to"].as_str()
+                .ok_or_else(|| anyhow::anyhow!("jellyfin: path_mappings entry missing 'to'"))?
+                .to_string();
+            Ok(PathMapping { from, to })
+        })
+        .collect()
+}
+
+fn rewrite_path(path: &str, mappings: &[PathMapping]) -> String {
+    for m in mappings {
+        if let Some(rest) = path.strip_prefix(&m.from) {
+            return format!("{}{}", m.to.trim_end_matches('/'), rest);
+        }
+    }
+    path.to_string()
 }
 
 #[async_trait]
@@ -42,8 +80,9 @@ impl Notifier for Jellyfin {
 
         let resp = match path {
             Some(p) => {
+                let mapped = rewrite_path(p, &self.path_mappings);
                 let body = json!({
-                    "Updates": [{ "Path": p, "UpdateType": "Modified" }]
+                    "Updates": [{ "Path": mapped, "UpdateType": "Modified" }]
                 });
                 client
                     .post(format!("{}/Library/Media/Updated", self.url))
@@ -72,8 +111,56 @@ impl Notifier for Jellyfin {
 mod tests {
     use super::*;
     use serde_json::json;
-    use wiremock::matchers::{header, method, path};
+    use wiremock::matchers::{body_partial_json, header, method, path};
     use wiremock::{Mock, MockServer, ResponseTemplate};
+
+    #[test]
+    fn rewrite_path_swaps_prefix_when_match() {
+        let mappings = vec![PathMapping {
+            from: "/mnt/movies".into(),
+            to: "/media/movies".into(),
+        }];
+        assert_eq!(
+            rewrite_path("/mnt/movies/Foo (2024)/Foo.mkv", &mappings),
+            "/media/movies/Foo (2024)/Foo.mkv"
+        );
+    }
+
+    #[test]
+    fn rewrite_path_uses_first_matching_prefix() {
+        let mappings = vec![
+            PathMapping { from: "/mnt/tv".into(),     to: "/media/tv".into() },
+            PathMapping { from: "/mnt/movies".into(), to: "/media/movies".into() },
+        ];
+        assert_eq!(
+            rewrite_path("/mnt/tv/Show/S01E01.mkv", &mappings),
+            "/media/tv/Show/S01E01.mkv"
+        );
+    }
+
+    #[test]
+    fn rewrite_path_unchanged_when_no_prefix_matches() {
+        let mappings = vec![PathMapping {
+            from: "/mnt/movies".into(),
+            to: "/media/movies".into(),
+        }];
+        assert_eq!(
+            rewrite_path("/srv/elsewhere/x.mkv", &mappings),
+            "/srv/elsewhere/x.mkv"
+        );
+    }
+
+    #[test]
+    fn rewrite_path_handles_trailing_slash_on_to() {
+        let mappings = vec![PathMapping {
+            from: "/mnt/movies".into(),
+            to: "/media/movies/".into(),
+        }];
+        assert_eq!(
+            rewrite_path("/mnt/movies/Foo.mkv", &mappings),
+            "/media/movies/Foo.mkv"
+        );
+    }
 
     #[tokio::test]
     async fn send_with_file_posts_library_media_updated() {
@@ -115,6 +202,33 @@ mod tests {
         .unwrap();
 
         jf.send("test", &Value::Null).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn send_applies_path_mapping_before_post() {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/Library/Media/Updated"))
+            .and(body_partial_json(json!({
+                "Updates": [{ "Path": "/media/movies/Foo.mkv", "UpdateType": "Modified" }]
+            })))
+            .respond_with(ResponseTemplate::new(204))
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        let jf = Jellyfin::new(&json!({
+            "url": server.uri(),
+            "api_key": "k",
+            "path_mappings": [
+                {"from": "/mnt/movies", "to": "/media/movies"}
+            ],
+        }))
+        .unwrap();
+
+        jf.send("ignored", &json!({"file": {"path": "/mnt/movies/Foo.mkv"}}))
+            .await
+            .unwrap();
     }
 
     #[tokio::test]
