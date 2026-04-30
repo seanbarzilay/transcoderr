@@ -31,6 +31,12 @@ Webhook in, ffmpeg out, configurable in between.
   decision, Prometheus-compatible `/metrics`.
 - **Notifiers.** Discord, ntfy, Telegram, generic webhook, and Jellyfin
   (per-file rescan via `/Library/Media/Updated`). Configurable in the UI.
+- **Plugins.** Extend flows with new step kinds by dropping a directory
+  into `{data_dir}/plugins/` — any executable that speaks JSON-RPC over
+  stdin/stdout works (POSIX shell, Python, Go…). Ships with an example
+  [`size-report`](docs/plugins/size-report/) plugin that records
+  before/after byte counts so notify templates can render
+  `saved 38.4% (12.4G → 7.6G)` lines.
 - **Single binary.** Rust + embedded SQLite + embedded React SPA. One image,
   one volume mount, no broker, no external DB.
 
