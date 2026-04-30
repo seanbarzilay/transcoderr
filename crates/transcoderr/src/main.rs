@@ -46,6 +46,11 @@ async fn main() -> anyhow::Result<()> {
             // Discover plugins and initialize the step registry.
             let plugins_dir = cfg.data_dir.join("plugins");
             let discovered = transcoderr::plugins::discover(&plugins_dir)?;
+            // Mirror the on-disk set into the `plugins` DB table so the UI
+            // page lists what was discovered. Without this the UI is
+            // permanently empty even though the in-memory step registry
+            // happily dispatches the steps.
+            transcoderr::db::plugins::sync_discovered(&pool, &discovered).await?;
             let ffmpeg_caps = std::sync::Arc::new(
                 transcoderr::ffmpeg_caps::FfmpegCaps::probe().await,
             );
