@@ -1,0 +1,137 @@
+#!/usr/bin/env python3
+"""
+size-report — record before/after file size and compression ratio so notify
+templates can reference {{ size_report.before_bytes }}, {{ size_report.after_bytes }},
+{{ size_report.ratio_pct }}, {{ size_report.saved_bytes }}.
+
+Provides two step names from this one entrypoint:
+  - size.report.before   runs before plan.execute, captures original size
+  - size.report.after    runs after output, captures final size + computes diff
+
+Wire it into a flow like:
+    steps:
+      - use: probe
+      - use: size.report.before
+      - use: plan.init
+      - ...plan.* steps...
+      - use: plan.execute
+      - use: output
+      - use: size.report.after
+      - use: notify
+        with: { channel: tg-main, template: "{{ file.path }} -- saved {{ size_report.ratio_pct }}% ({{ size_report.before_bytes }} -> {{ size_report.after_bytes }})" }
+
+Protocol: reads two JSON-RPC lines on stdin (init, then execute), emits
+JSON event lines on stdout (progress, log, context_set, result). See
+crates/transcoderr/src/plugins/subprocess.rs for the host side.
+"""
+
+import json
+import os
+import sys
+
+
+CTX_KEY = "size_report"
+
+
+def emit(event):
+    sys.stdout.write(json.dumps(event) + "\n")
+    sys.stdout.flush()
+
+
+def file_size(path):
+    """Bytes on disk for a path. Raises OSError if the file is gone."""
+    return os.path.getsize(path)
+
+
+def fail(msg):
+    emit({"event": "result", "status": "error", "error": {"msg": msg}})
+    sys.exit(0)
+
+
+def ok(outputs=None):
+    emit({"event": "result", "status": "ok", "outputs": outputs or {}})
+    sys.exit(0)
+
+
+def step_before(ctx):
+    path = ctx.get("file", {}).get("path")
+    if not path:
+        fail("size.report.before: ctx.file.path missing")
+    try:
+        size = file_size(path)
+    except OSError as e:
+        fail(f"size.report.before: cannot stat {path}: {e}")
+    emit({"event": "log", "msg": f"size.report.before: {size} bytes at {path}"})
+    emit({"event": "context_set", "key": CTX_KEY, "value": {"before_bytes": size}})
+    ok()
+
+
+def step_after(ctx):
+    path = ctx.get("file", {}).get("path")
+    if not path:
+        fail("size.report.after: ctx.file.path missing")
+    prior = ctx.get("steps", {}).get(CTX_KEY) or {}
+    before = prior.get("before_bytes")
+    if before is None:
+        fail("size.report.after: no before_bytes in ctx -- run size.report.before earlier in the flow")
+    try:
+        after = file_size(path)
+    except OSError as e:
+        fail(f"size.report.after: cannot stat {path}: {e}")
+
+    # ratio_pct is "% saved" -- positive means the file got smaller, negative
+    # means it grew (some flows transcode to a less efficient codec on purpose,
+    # e.g. for compatibility, so we don't clamp).
+    saved = before - after
+    ratio = (saved / before * 100.0) if before > 0 else 0.0
+
+    emit({
+        "event": "log",
+        "msg": f"size.report.after: {before} -> {after} bytes ({ratio:.1f}% saved)",
+    })
+    emit({
+        "event": "context_set",
+        "key": CTX_KEY,
+        "value": {
+            "before_bytes": before,
+            "after_bytes": after,
+            "saved_bytes": saved,
+            "ratio_pct": round(ratio, 1),
+        },
+    })
+    ok()
+
+
+DISPATCH = {
+    "size.report.before": step_before,
+    "size.report.after": step_after,
+}
+
+
+def main():
+    # init
+    init_line = sys.stdin.readline()
+    if not init_line:
+        fail("no init message on stdin")
+
+    # execute
+    exec_line = sys.stdin.readline()
+    if not exec_line:
+        fail("no execute message on stdin")
+    try:
+        msg = json.loads(exec_line)
+    except json.JSONDecodeError as e:
+        fail(f"execute message is not valid JSON: {e}")
+
+    params = msg.get("params") or {}
+    step_id = params.get("step_id")
+    ctx = params.get("context") or {}
+
+    handler = DISPATCH.get(step_id)
+    if handler is None:
+        fail(f"unknown step_id {step_id!r}")
+    handler(ctx)
+
+
+if __name__ == "__main__":
+    main()
