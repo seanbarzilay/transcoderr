@@ -13,7 +13,7 @@ use crate::http::AppState;
 use axum::{
     extract::State,
     middleware::from_fn_with_state,
-    routing::{delete, get, patch, post},
+    routing::{delete, get, post},
     Router,
 };
 use tower_cookies::CookieManagerLayer;
@@ -49,7 +49,7 @@ pub fn router(state: AppState) -> Router<AppState> {
         .route("/sources/:id/refresh", post(arr_browse::refresh))
         .route("/sources/:id/transcode", post(arr_browse::transcode))
         .route("/plugins",            get(plugins::list))
-        .route("/plugins/:id",        patch(plugins::update))
+        .route("/plugins/:id",        get(plugins::get))
         .route("/notifiers",          get(notifiers::list).post(notifiers::create))
         .route("/notifiers/:id",      get(notifiers::get).put(notifiers::update).delete(notifiers::delete))
         .route("/notifiers/:id/test", post(notifiers::test))

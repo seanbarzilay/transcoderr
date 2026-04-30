@@ -35,8 +35,8 @@ export const api = {
     delete: (id: number) => req<void>(`/sources/${id}`, { method: "DELETE" }),
   },
   plugins: {
-    list:    () => req<import("../types").Plugin[]>("/plugins"),
-    toggle:  (id: number, enabled: boolean) => req<void>(`/plugins/${id}`, { method: "PATCH", body: JSON.stringify({enabled}) }),
+    list: () => req<import("../types").Plugin[]>("/plugins"),
+    get:  (id: number) => req<import("../types").PluginDetail>(`/plugins/${id}`),
   },
   notifiers: {
     list:   () => req<import("../types").Notifier[]>("/notifiers"),
