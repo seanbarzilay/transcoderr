@@ -839,3 +839,93 @@ tbody tr:hover td { background: var(--surface); }
 }
 .episode-num { color: var(--text-faint); font-family: var(--font-mono); }
 .episode-title { color: var(--text); }
+
+/* ---- notifier add/edit forms -------------------------------------------- */
+
+.notifier-add { display: flex; flex-direction: column; gap: var(--space-3); }
+.notifier-add-head {
+  display: flex; gap: var(--space-2); align-items: center; flex-wrap: wrap;
+}
+
+.notifier-form { display: flex; flex-direction: column; gap: var(--space-3); }
+.notifier-form-row {
+  display: grid;
+  grid-template-columns: 140px 1fr;
+  gap: var(--space-3);
+  align-items: start;
+}
+.notifier-form-label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-dim);
+  padding-top: 8px;
+  font-weight: 600;
+}
+.notifier-form-required { color: var(--accent); }
+.notifier-form-input { display: flex; flex-direction: column; gap: 4px; }
+.notifier-form-input input { width: 100%; }
+.notifier-form-hint {
+  font-size: 11px;
+  color: var(--text-muted);
+  line-height: 1.4;
+}
+
+.notifier-form-mappings { display: flex; flex-direction: column; gap: var(--space-2); }
+.notifier-form-mapping-row {
+  display: grid;
+  grid-template-columns: 1fr 16px 1fr 28px;
+  gap: var(--space-2);
+  align-items: center;
+}
+.notifier-form-mapping-arrow {
+  text-align: center;
+  color: var(--text-faint);
+  font-family: var(--font-mono);
+}
+.notifier-form-mapping-remove {
+  padding: 6px 8px;
+  font-size: 11px;
+  line-height: 1;
+}
+
+@media (max-width: 600px) {
+  .notifier-form-row {
+    grid-template-columns: 1fr;
+    gap: 4px;
+  }
+  .notifier-form-label { padding-top: 0; }
+  .notifier-form-mapping-row {
+    grid-template-columns: 1fr 28px;
+    grid-template-areas:
+      "from   remove"
+      "to     remove";
+  }
+  .notifier-form-mapping-row > input:first-child { grid-area: from; }
+  .notifier-form-mapping-arrow { display: none; }
+  .notifier-form-mapping-row > input:nth-child(3) { grid-area: to; }
+  .notifier-form-mapping-remove { grid-area: remove; align-self: stretch; }
+}
+
+/* Read-only summary in the notifiers table. */
+.notifier-config-summary {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 12px;
+}
+.notifier-config-summary-row { display: flex; gap: var(--space-2); align-items: baseline; }
+.notifier-config-summary-key {
+  color: var(--text-muted);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  min-width: 90px;
+  font-weight: 600;
+}
+.notifier-config-summary-val {
+  color: var(--text-dim);
+  font-family: var(--font-mono);
+  word-break: break-all;
+}
+.notifier-config-mapping { display: inline; }
