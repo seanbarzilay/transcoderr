@@ -1,16 +1,14 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "../api/client";
-
-const KINDS = ["discord", "jellyfin", "ntfy", "telegram", "webhook"] as const;
-
-const PLACEHOLDERS: Record<string, string> = {
-  discord:  '{"url":"https://discord.com/api/webhooks/..."}',
-  jellyfin: '{"url":"http://jellyfin:8096","api_key":"...","path_mappings":[{"from":"/mnt/movies","to":"/media/movies"}]}',
-  ntfy:     '{"server":"https://ntfy.sh","topic":"my-topic"}',
-  telegram: '{"bot_token":"123:ABC","chat_id":"-1001234"}',
-  webhook:  '{"url":"https://example.com/hook"}',
-};
+import NotifierForm, {
+  KINDS,
+  emptyForm,
+  fromConfig,
+  toConfig,
+  validate,
+} from "../components/notifier-form";
+import type { Kind, FormValue } from "../components/notifier-form";
 
 type Notifier = { id: number; name: string; kind: string; config: any };
 
@@ -19,23 +17,23 @@ export default function Notifiers() {
   const list = useQuery({ queryKey: ["notifiers"], queryFn: api.notifiers.list });
 
   // Add form
-  const [kind, setKind] = useState<string>("discord");
+  const [kind, setKind] = useState<Kind>("discord");
   const [name, setName] = useState("");
-  const [config, setConfig] = useState("{}");
+  const [addValue, setAddValue] = useState<FormValue>(() => emptyForm("discord"));
   const [addError, setAddError] = useState<string | null>(null);
 
   // Inline edit state, keyed by id
-  const [editing, setEditing] = useState<Record<number, { name: string; config: string }>>({});
+  const [editing, setEditing] = useState<Record<number, { name: string; value: FormValue }>>({});
   const [rowError, setRowError] = useState<Record<number, string | null>>({});
 
   const create = useMutation({
     mutationFn: () => {
-      const body = { name, kind, config: JSON.parse(config || "{}") };
-      return api.notifiers.create(body);
+      const config = toConfig(kind, addValue, false);
+      return api.notifiers.create({ name, kind, config });
     },
     onSuccess: () => {
       setName("");
-      setConfig("{}");
+      setAddValue(emptyForm(kind));
       setAddError(null);
       qc.invalidateQueries({ queryKey: ["notifiers"] });
     },
@@ -71,9 +69,14 @@ export default function Notifiers() {
   });
 
   function startEdit(n: Notifier) {
+    const k = (KINDS as readonly string[]).includes(n.kind) ? (n.kind as Kind) : null;
+    if (!k) {
+      setRowError(s => ({ ...s, [n.id]: `unknown kind "${n.kind}"` }));
+      return;
+    }
     setEditing(s => ({
       ...s,
-      [n.id]: { name: n.name, config: JSON.stringify(n.config, null, 2) },
+      [n.id]: { name: n.name, value: fromConfig(k, n.config) },
     }));
     setRowError(s => ({ ...s, [n.id]: null }));
   }
@@ -89,18 +92,20 @@ export default function Notifiers() {
   function saveEdit(n: Notifier) {
     const draft = editing[n.id];
     if (!draft) return;
-    let parsed: any;
-    try {
-      parsed = JSON.parse(draft.config || "{}");
-    } catch (e: any) {
-      setRowError(s => ({ ...s, [n.id]: `invalid JSON: ${e.message}` }));
+    const k = n.kind as Kind;
+    const err = validate(k, draft.value, true);
+    if (err) {
+      setRowError(s => ({ ...s, [n.id]: err }));
       return;
     }
     update.mutate({
       id: n.id,
-      body: { name: draft.name, kind: n.kind, config: parsed },
+      body: { name: draft.name, kind: n.kind, config: toConfig(k, draft.value, true) },
     });
   }
+
+  const addValidationError = validate(kind, addValue, false);
+  const addDisabled = create.isPending || !name.trim() || addValidationError !== null;
 
   return (
     <div className="page">
@@ -115,41 +120,45 @@ export default function Notifiers() {
         <div className="label" style={{ marginBottom: 8 }}>
           Add notifier
         </div>
-        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-          <select
-            value={kind}
-            onChange={e => {
-              setKind(e.target.value);
-              if (config === "{}" || Object.values(PLACEHOLDERS).includes(config)) {
-                setConfig(PLACEHOLDERS[e.target.value] ?? "{}");
-              }
-            }}
-          >
-            {KINDS.map(k => (
-              <option key={k}>{k}</option>
-            ))}
-          </select>
-          <input
-            placeholder="name (referenced from flow YAML)"
-            value={name}
-            onChange={e => setName(e.target.value)}
-            style={{ minWidth: 220 }}
+        <div className="notifier-add">
+          <div className="notifier-add-head">
+            <select
+              value={kind}
+              onChange={e => {
+                const k = e.target.value as Kind;
+                setKind(k);
+                setAddValue(emptyForm(k));
+              }}
+            >
+              {KINDS.map(k => (
+                <option key={k}>{k}</option>
+              ))}
+            </select>
+            <input
+              placeholder="name (referenced from flow YAML)"
+              value={name}
+              onChange={e => setName(e.target.value)}
+              style={{ flex: 1, minWidth: 220 }}
+            />
+          </div>
+          <NotifierForm
+            kind={kind}
+            value={addValue}
+            onChange={setAddValue}
+            isEdit={false}
+            idPrefix="add"
           />
-          <input
-            placeholder={PLACEHOLDERS[kind] ?? '{"key":"value"}'}
-            value={config}
-            onChange={e => setConfig(e.target.value)}
-            style={{ flex: 1, minWidth: 320, fontFamily: "monospace", fontSize: 12 }}
-          />
-          <button
-            onClick={() => create.mutate()}
-            disabled={create.isPending || !name.trim()}
-          >
-            Add
-          </button>
+          <div style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 8 }}>
+            <button onClick={() => create.mutate()} disabled={addDisabled}>
+              Add
+            </button>
+            {!create.isPending && addValidationError && name.trim() && (
+              <span className="notifier-form-hint">{addValidationError}</span>
+            )}
+          </div>
         </div>
         {addError && (
-          <div style={{ color: "#f88", marginTop: 8, fontSize: 12 }}>{addError}</div>
+          <div style={{ color: "var(--bad)", marginTop: 8, fontSize: 12 }}>{addError}</div>
         )}
       </div>
 
@@ -188,26 +197,25 @@ export default function Notifiers() {
                 </td>
                 <td>
                   {draft ? (
-                    <textarea
-                      value={draft.config}
-                      onChange={e =>
+                    <NotifierForm
+                      kind={n.kind as Kind}
+                      value={draft.value}
+                      onChange={v =>
                         setEditing(s => ({
                           ...s,
-                          [n.id]: { ...s[n.id], config: e.target.value },
+                          [n.id]: { ...s[n.id], value: v },
                         }))
                       }
-                      rows={4}
-                      style={{ width: "100%", fontFamily: "monospace", fontSize: 12 }}
+                      isEdit={true}
+                      idPrefix={`edit-${n.id}`}
                     />
                   ) : (
-                    <code style={{ opacity: 0.8, fontSize: 12 }}>
-                      {JSON.stringify(n.config)}
-                    </code>
+                    <ConfigSummary config={n.config} />
                   )}
                   {err && (
                     <div
                       style={{
-                        color: err.startsWith("✓") ? "#8f8" : "#f88",
+                        color: err.startsWith("✓") ? "var(--ok)" : "var(--bad)",
                         fontSize: 12,
                         marginTop: 4,
                       }}
@@ -267,5 +275,42 @@ export default function Notifiers() {
       </table>
       </div>
     </div>
+  );
+}
+
+/// Read-only render of a notifier's config in the table — labels +
+/// values, no JSON braces. Secrets are already redacted to `***` by
+/// the server for token-authed callers.
+function ConfigSummary({ config }: { config: any }) {
+  if (!config || typeof config !== "object") {
+    return <span className="muted">—</span>;
+  }
+  const entries = Object.entries(config);
+  if (entries.length === 0) return <span className="muted">—</span>;
+  return (
+    <div className="notifier-config-summary">
+      {entries.map(([k, v]) => (
+        <div key={k} className="notifier-config-summary-row">
+          <span className="notifier-config-summary-key">{k}</span>
+          <span className="notifier-config-summary-val">
+            {Array.isArray(v) ? <PathMappingsSummary value={v} /> : String(v)}
+          </span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function PathMappingsSummary({ value }: { value: any[] }) {
+  if (value.length === 0) return <span className="muted">none</span>;
+  return (
+    <span>
+      {value.map((m, i) => (
+        <span key={i} className="notifier-config-mapping">
+          {String(m?.from ?? "?")} → {String(m?.to ?? "?")}
+          {i < value.length - 1 ? ", " : ""}
+        </span>
+      ))}
+    </span>
   );
 }
