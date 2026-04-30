@@ -73,4 +73,15 @@ mod tests {
             .fetch_one(&pool).await.unwrap();
         assert_eq!(count, 0);
     }
+
+    #[tokio::test]
+    async fn migration_seeds_official_plugin_catalog() {
+        let dir = tempdir().unwrap();
+        let pool = open(dir.path()).await.unwrap();
+        let row = sqlx::query("SELECT name, priority FROM plugin_catalogs WHERE name = 'transcoderr official'")
+            .fetch_one(&pool).await.unwrap();
+        use sqlx::Row;
+        assert_eq!(row.get::<String, _>(0), "transcoderr official");
+        assert_eq!(row.get::<i64, _>(1), 0);
+    }
 }
