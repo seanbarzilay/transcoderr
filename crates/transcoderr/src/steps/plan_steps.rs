@@ -9,11 +9,16 @@ use async_trait::async_trait;
 use serde_json::Value;
 use std::collections::BTreeMap;
 
-/// Subtitle codecs that ffmpeg can mux into Matroska (`-c:s copy` to mkv).
-/// Notably absent: `mov_text` — it's the MP4-native text-subs format and
-/// the MKV muxer rejects it with "Function not implemented" at header
-/// write time. plan.subs.drop_unsupported drops mov_text streams.
-const SUPPORTED_SUB_CODECS: &[&str] = &[
+/// Subtitle codec allowlists per output container. Streams whose codec
+/// isn't in the list for the planned container get dropped by
+/// `plan.subs.drop_unsupported` -- otherwise ffmpeg fails at mux time
+/// with "Function not implemented" because we use `-c:s copy` and don't
+/// transcode subs.
+///
+/// `mov_text` is MP4/MOV native and is rejected by the MKV muxer. The
+/// rest are MKV-friendly text/image subs that don't go into MP4. WebM
+/// only takes `webvtt`.
+const SUB_CODECS_MKV: &[&str] = &[
     "srt",
     "subrip",
     "ass",
@@ -25,6 +30,21 @@ const SUPPORTED_SUB_CODECS: &[&str] = &[
     "dvb_subtitle",
     "webvtt",
 ];
+const SUB_CODECS_MP4: &[&str] = &["mov_text"];
+const SUB_CODECS_WEBM: &[&str] = &["webvtt"];
+
+/// Lookup: container -> codec allowlist. Unknown containers fall through
+/// to the MKV list (least-destructive default -- a future container
+/// addition won't silently strip every subtitle stream from operators'
+/// flows). The caller logs which list it picked.
+fn supported_sub_codecs(container: &str) -> (&'static [&'static str], bool) {
+    match container.to_lowercase().as_str() {
+        "mkv" | "matroska" => (SUB_CODECS_MKV, true),
+        "mp4" | "m4v" | "mov" | "mov_text" => (SUB_CODECS_MP4, true),
+        "webm" => (SUB_CODECS_WEBM, true),
+        _ => (SUB_CODECS_MKV, false),
+    }
+}
 
 const PLAYABLE_AUDIO: &[&str] = &["aac", "ac3", "eac3", "mp3", "opus"];
 
@@ -228,6 +248,15 @@ impl Step for PlanDropUnsupportedSubsStep {
             .ok_or_else(|| anyhow::anyhow!("plan.subs.drop_unsupported: no probe data"))?
             .clone();
         let mut plan = require_plan(ctx)?;
+        let (allowed, recognized) = supported_sub_codecs(&plan.container);
+        if !recognized {
+            on_progress(StepProgress::Log(format!(
+                "plan.subs.drop_unsupported: container {:?} not in the per-container allowlist; \
+                 falling back to MKV codecs -- ffmpeg may still reject incompatible streams at mux time",
+                plan.container
+            )));
+        }
+        let container = plan.container.clone();
         let dropped = plan.drop_streams_where(&probe, |s| {
             if s.get("codec_type").and_then(|v| v.as_str()) != Some("subtitle") {
                 return false;
@@ -237,11 +266,11 @@ impl Step for PlanDropUnsupportedSubsStep {
                 .and_then(|v| v.as_str())
                 .unwrap_or("")
                 .to_lowercase();
-            !SUPPORTED_SUB_CODECS.contains(&codec.as_str())
+            !allowed.contains(&codec.as_str())
         });
         save_plan(ctx, &plan);
         on_progress(StepProgress::Log(format!(
-            "plan.subs.drop_unsupported: dropped {dropped} unsupported subtitle stream(s)"
+            "plan.subs.drop_unsupported: container={container}, dropped {dropped} stream(s)"
         )));
         Ok(())
     }
@@ -780,6 +809,118 @@ mod tests {
         let tm = plan.video.tonemap.expect("HDR10 -> tonemap set");
         assert_eq!(tm.engine, TonemapEngine::Auto);
         assert_eq!(tm.source_kind, "hdr10");
+    }
+
+    /// MKV planned (the default): full text+image allowlist; mov_text dropped.
+    #[tokio::test]
+    async fn drop_unsupported_subs_mkv_keeps_text_and_image_subs_drops_mov_text() {
+        let mut ctx = Context::for_file("/x");
+        ctx.probe = Some(json!({
+            "streams": [
+                {"index": 0, "codec_type": "video", "codec_name": "h264"},
+                {"index": 1, "codec_type": "subtitle", "codec_name": "subrip"},
+                {"index": 2, "codec_type": "subtitle", "codec_name": "ass"},
+                {"index": 3, "codec_type": "subtitle", "codec_name": "hdmv_pgs_subtitle"},
+                {"index": 4, "codec_type": "subtitle", "codec_name": "mov_text"},
+            ]
+        }));
+        let plan = StreamPlan::from_probe(ctx.probe.as_ref().unwrap());
+        save_plan(&mut ctx, &plan);
+
+        let mut cb = |_: StepProgress| {};
+        PlanDropUnsupportedSubsStep
+            .execute(&Default::default(), &mut ctx, &mut cb)
+            .await
+            .unwrap();
+        let plan = load_plan(&ctx).unwrap();
+        // 0 video, 1 subrip, 2 ass, 3 pgs survive; 4 mov_text dropped.
+        assert_eq!(plan.kept_indices(), vec![0, 1, 2, 3]);
+    }
+
+    /// MP4 planned: only mov_text survives. Everything else gets dropped
+    /// because we use `-c:s copy` and ffmpeg can't mux subrip / ass / pgs
+    /// into MP4.
+    #[tokio::test]
+    async fn drop_unsupported_subs_mp4_only_keeps_mov_text() {
+        let mut ctx = Context::for_file("/x");
+        ctx.probe = Some(json!({
+            "streams": [
+                {"index": 0, "codec_type": "video", "codec_name": "h264"},
+                {"index": 1, "codec_type": "subtitle", "codec_name": "subrip"},
+                {"index": 2, "codec_type": "subtitle", "codec_name": "ass"},
+                {"index": 3, "codec_type": "subtitle", "codec_name": "mov_text"},
+            ]
+        }));
+        let mut plan = StreamPlan::from_probe(ctx.probe.as_ref().unwrap());
+        plan.container = "mp4".into();
+        save_plan(&mut ctx, &plan);
+
+        let mut cb = |_: StepProgress| {};
+        PlanDropUnsupportedSubsStep
+            .execute(&Default::default(), &mut ctx, &mut cb)
+            .await
+            .unwrap();
+        let plan = load_plan(&ctx).unwrap();
+        assert_eq!(plan.kept_indices(), vec![0, 3]);
+    }
+
+    /// WebM planned: only webvtt survives.
+    #[tokio::test]
+    async fn drop_unsupported_subs_webm_only_keeps_webvtt() {
+        let mut ctx = Context::for_file("/x");
+        ctx.probe = Some(json!({
+            "streams": [
+                {"index": 0, "codec_type": "video", "codec_name": "vp9"},
+                {"index": 1, "codec_type": "subtitle", "codec_name": "subrip"},
+                {"index": 2, "codec_type": "subtitle", "codec_name": "webvtt"},
+                {"index": 3, "codec_type": "subtitle", "codec_name": "ass"},
+            ]
+        }));
+        let mut plan = StreamPlan::from_probe(ctx.probe.as_ref().unwrap());
+        plan.container = "webm".into();
+        save_plan(&mut ctx, &plan);
+
+        let mut cb = |_: StepProgress| {};
+        PlanDropUnsupportedSubsStep
+            .execute(&Default::default(), &mut ctx, &mut cb)
+            .await
+            .unwrap();
+        let plan = load_plan(&ctx).unwrap();
+        assert_eq!(plan.kept_indices(), vec![0, 2]);
+    }
+
+    /// Unrecognized container: the step falls back to the MKV allowlist
+    /// (least-surprising default) and emits a warning log line so the
+    /// operator sees what happened in the run timeline.
+    #[tokio::test]
+    async fn drop_unsupported_subs_unknown_container_falls_back_to_mkv_with_warning() {
+        let mut ctx = Context::for_file("/x");
+        ctx.probe = Some(json!({
+            "streams": [
+                {"index": 0, "codec_type": "video", "codec_name": "h264"},
+                {"index": 1, "codec_type": "subtitle", "codec_name": "subrip"},
+                {"index": 2, "codec_type": "subtitle", "codec_name": "mov_text"},
+            ]
+        }));
+        let mut plan = StreamPlan::from_probe(ctx.probe.as_ref().unwrap());
+        plan.container = "exotic".into();
+        save_plan(&mut ctx, &plan);
+
+        let mut events = vec![];
+        let mut cb = |e: StepProgress| events.push(e);
+        PlanDropUnsupportedSubsStep
+            .execute(&Default::default(), &mut ctx, &mut cb)
+            .await
+            .unwrap();
+
+        let plan = load_plan(&ctx).unwrap();
+        // Falls back to MKV allowlist: subrip kept, mov_text dropped.
+        assert_eq!(plan.kept_indices(), vec![0, 1]);
+        // Warning log line surfaced.
+        assert!(
+            events.iter().any(|e| matches!(e, StepProgress::Log(s) if s.contains("not in the per-container allowlist"))),
+            "expected fallback warning log line, got: {events:?}"
+        );
     }
 
     #[tokio::test]
