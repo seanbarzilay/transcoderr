@@ -2,10 +2,11 @@ import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "../api/client";
 
-const KINDS = ["discord", "ntfy", "telegram", "webhook"] as const;
+const KINDS = ["discord", "jellyfin", "ntfy", "telegram", "webhook"] as const;
 
 const PLACEHOLDERS: Record<string, string> = {
   discord:  '{"url":"https://discord.com/api/webhooks/..."}',
+  jellyfin: '{"url":"http://jellyfin:8096","api_key":"..."}',
   ntfy:     '{"server":"https://ntfy.sh","topic":"my-topic"}',
   telegram: '{"bot_token":"123:ABC","chat_id":"-1001234"}',
   webhook:  '{"url":"https://example.com/hook"}',
