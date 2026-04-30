@@ -91,4 +91,36 @@ mod tests {
         let s = eval_string_template("✗ {{ file.path }} — ✓ done", &ctx).unwrap();
         assert_eq!(s, "✗ /m/Dune.mkv — ✓ done");
     }
+
+    /// Step outputs (whether from built-in steps or plugins via
+    /// `context_set`) live under `ctx.steps.<key>` and are reachable from
+    /// templates as `{{ steps.<key>.<field> }}`. The bare `{{ <key>... }}`
+    /// form is *not* available -- bind_context only exposes the top-level
+    /// Context fields (file, probe, steps, failed). This pins the contract
+    /// down so a future binder change doesn't silently break notify
+    /// templates that plugins document.
+    #[test]
+    fn template_reads_step_output_via_steps_prefix() {
+        let mut ctx = Context::for_file("/m/Dune.mkv");
+        ctx.steps.insert(
+            "size_report".into(),
+            json!({"ratio_pct": 38.4, "after_bytes": 7659011840u64}),
+        );
+        let s = eval_string_template(
+            "saved {{ steps.size_report.ratio_pct }}% to {{ steps.size_report.after_bytes }}",
+            &ctx,
+        )
+        .unwrap();
+        assert!(s.contains("38.4"), "ratio missing: {s}");
+        assert!(s.contains("7659011840"), "after_bytes missing: {s}");
+
+        // The bare-key form has no binding and must fail with the same
+        // UndeclaredReference error operators saw in the wild before the
+        // size-report README was corrected.
+        let err = eval_string_template("{{ size_report.ratio_pct }}", &ctx).unwrap_err();
+        assert!(
+            err.to_string().contains("UndeclaredReference"),
+            "expected UndeclaredReference, got: {err}"
+        );
+    }
 }

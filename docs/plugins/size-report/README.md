@@ -43,7 +43,7 @@ steps:
   - use: notify
     with:
       channel: tg-main
-      template: "✓ {{ file.path }} — saved {{ size_report.ratio_pct }}% ({{ size_report.before_bytes }} → {{ size_report.after_bytes }})"
+      template: "✓ {{ file.path }} — saved {{ steps.size_report.ratio_pct }}% ({{ steps.size_report.before_bytes }} → {{ steps.size_report.after_bytes }})"
 ```
 
 After both steps run, `ctx.steps.size_report` looks like:

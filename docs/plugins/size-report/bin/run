@@ -1,8 +1,10 @@
 #!/bin/sh
 # size-report -- record before/after file size and compression ratio so
-# notify templates can reference {{ size_report.before_bytes }},
-# {{ size_report.after_bytes }}, {{ size_report.ratio_pct }},
-# {{ size_report.saved_bytes }}.
+# notify templates can reference {{ steps.size_report.before_bytes }},
+# {{ steps.size_report.after_bytes }}, {{ steps.size_report.ratio_pct }},
+# {{ steps.size_report.saved_bytes }}. (The `steps.` prefix is required --
+# CEL templates only see the top-level Context fields: file, probe,
+# steps, failed.)
 #
 # Provides two step names from this one entrypoint:
 #   - size.report.before  runs before plan.execute, captures original size
