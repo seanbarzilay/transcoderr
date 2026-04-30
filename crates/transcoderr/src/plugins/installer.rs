@@ -25,6 +25,18 @@ pub struct InstalledPlugin {
     pub tarball_sha256: String,
 }
 
+struct StagingGuard(Option<PathBuf>);
+impl StagingGuard {
+    fn disarm(&mut self) { self.0.take(); }
+}
+impl Drop for StagingGuard {
+    fn drop(&mut self) {
+        if let Some(p) = self.0.take() {
+            let _ = std::fs::remove_dir_all(p);
+        }
+    }
+}
+
 /// Download, verify, extract, atomic-swap. Returns details of the
 /// installed plugin on success. The caller is responsible for the
 /// post-install bookkeeping (sync_discovered, registry rebuild).
@@ -39,12 +51,16 @@ pub async fn install_from_entry(
     let staging = plugins_dir.join(format!(".tcr-install.{suffix}"));
     let _ = std::fs::remove_dir_all(&staging);
     std::fs::create_dir_all(&staging)?;
+    let mut guard = StagingGuard(Some(staging.clone()));
 
-    // Stream-download into the staging dir as a temp file, hashing as we go.
+    // Buffer the full tarball, sha256 it, then write to disk. Acceptable
+    // for the KB-scale plugins we ship in the official catalog. A real
+    // streaming implementation (resp.bytes_stream() feeding both the
+    // hasher and the file writer) is a follow-up if a plugin grows past
+    // a few MB.
     let tmp_tar = staging.join("plugin.tar.gz");
     let resp = reqwest::Client::new().get(&entry.tarball_url).send().await?;
     if !resp.status().is_success() {
-        let _ = std::fs::remove_dir_all(&staging);
         return Err(InstallError::Layout(format!("HTTP {}", resp.status())));
     }
     let body = resp.bytes().await?;
@@ -52,7 +68,6 @@ pub async fn install_from_entry(
     hasher.update(&body);
     let got = hex(&hasher.finalize());
     if got != entry.tarball_sha256.to_lowercase() {
-        let _ = std::fs::remove_dir_all(&staging);
         return Err(InstallError::ShaMismatch {
             expected: entry.tarball_sha256.clone(),
             got,
@@ -77,7 +92,6 @@ pub async fn install_from_entry(
         .map(|e| e.path())
         .collect();
     if top_dirs.len() != 1 {
-        let _ = std::fs::remove_dir_all(&staging);
         return Err(InstallError::Layout(format!(
             "expected 1 top-level dir, got {}", top_dirs.len()
         )));
@@ -85,7 +99,6 @@ pub async fn install_from_entry(
     let top_dir = top_dirs.remove(0);
     let top_name = top_dir.file_name().and_then(|n| n.to_str()).unwrap_or("");
     if top_name != entry.name {
-        let _ = std::fs::remove_dir_all(&staging);
         return Err(InstallError::Layout(format!(
             "top-level dir is {top_name:?}, expected {:?}", entry.name
         )));
@@ -97,7 +110,6 @@ pub async fn install_from_entry(
     let manifest: crate::plugins::manifest::Manifest = toml::from_str(&manifest_raw)
         .map_err(|e| InstallError::Manifest(format!("parse: {e}")))?;
     if manifest.name != entry.name {
-        let _ = std::fs::remove_dir_all(&staging);
         return Err(InstallError::Manifest(format!(
             "manifest.name is {:?}, expected {:?}", manifest.name, entry.name
         )));
@@ -111,6 +123,7 @@ pub async fn install_from_entry(
     }
     std::fs::rename(&top_dir, &target)?;
     let _ = std::fs::remove_dir_all(&backup);
+    guard.disarm();
     let _ = std::fs::remove_dir_all(&staging);
 
     Ok(InstalledPlugin {
