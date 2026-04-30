@@ -848,33 +848,24 @@ tbody tr:hover td { background: var(--surface); }
 }
 
 .notifier-form { display: flex; flex-direction: column; gap: var(--space-3); }
-.notifier-form-row {
-  display: grid;
-  grid-template-columns: 140px 1fr;
-  gap: var(--space-3);
-  align-items: start;
+.notifier-form-fields {
+  display: flex;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+  align-items: center;
 }
-.notifier-form-label {
-  font-size: 11px;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  color: var(--text-dim);
-  padding-top: 8px;
-  font-weight: 600;
-}
-.notifier-form-required { color: var(--accent); }
-.notifier-form-input { display: flex; flex-direction: column; gap: 4px; }
-.notifier-form-input input { width: 100%; }
-.notifier-form-hint {
-  font-size: 11px;
-  color: var(--text-muted);
-  line-height: 1.4;
-}
+.notifier-form-fields > input { min-width: 180px; }
 
-.notifier-form-mappings { display: flex; flex-direction: column; gap: var(--space-2); }
+.notifier-form-mappings-block {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding-top: var(--space-2);
+  border-top: 1px dashed var(--border);
+}
 .notifier-form-mapping-row {
   display: grid;
-  grid-template-columns: 1fr 16px 1fr 28px;
+  grid-template-columns: 1fr 16px 1fr 32px;
   gap: var(--space-2);
   align-items: center;
 }
@@ -888,15 +879,21 @@ tbody tr:hover td { background: var(--surface); }
   font-size: 11px;
   line-height: 1;
 }
+.notifier-form-mapping-actions {
+  display: flex;
+  gap: var(--space-3);
+  align-items: center;
+  flex-wrap: wrap;
+}
+.notifier-form-hint {
+  font-size: 11px;
+  color: var(--text-muted);
+  line-height: 1.4;
+}
 
 @media (max-width: 600px) {
-  .notifier-form-row {
-    grid-template-columns: 1fr;
-    gap: 4px;
-  }
-  .notifier-form-label { padding-top: 0; }
   .notifier-form-mapping-row {
-    grid-template-columns: 1fr 28px;
+    grid-template-columns: 1fr 32px;
     grid-template-areas:
       "from   remove"
       "to     remove";
