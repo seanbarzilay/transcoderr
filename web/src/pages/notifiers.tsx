@@ -146,7 +146,6 @@ export default function Notifiers() {
             value={addValue}
             onChange={setAddValue}
             isEdit={false}
-            idPrefix="add"
           />
           <div style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 8 }}>
             <button onClick={() => create.mutate()} disabled={addDisabled}>
@@ -207,7 +206,6 @@ export default function Notifiers() {
                         }))
                       }
                       isEdit={true}
-                      idPrefix={`edit-${n.id}`}
                     />
                   ) : (
                     <ConfigSummary config={n.config} />
