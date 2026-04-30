@@ -241,4 +241,142 @@ provides_steps = ["{name}.do"]
             .collect();
         assert!(leftovers.is_empty(), "staging dirs should be cleaned up");
     }
+
+    #[tokio::test]
+    async fn install_fails_on_sha_mismatch_and_leaves_no_staging() {
+        let (bytes, _real_sha) = build_tarball("hello", &manifest_for("hello"), true);
+        let server = MockServer::start().await;
+        Mock::given(method("GET")).and(path("/hello.tar.gz"))
+            .respond_with(ResponseTemplate::new(200).set_body_bytes(bytes))
+            .mount(&server).await;
+
+        let plugins_dir = tempdir().unwrap();
+        let entry = IndexEntry {
+            name: "hello".into(),
+            version: "0.1.0".into(),
+            summary: "".into(),
+            tarball_url: format!("{}/hello.tar.gz", server.uri()),
+            tarball_sha256: "0".repeat(64),  // wrong
+            homepage: None,
+            min_transcoderr_version: None,
+            kind: "subprocess".into(),
+            provides_steps: vec![],
+        };
+        let err = install_from_entry(&entry, plugins_dir.path()).await.unwrap_err();
+        assert!(matches!(err, InstallError::ShaMismatch { .. }));
+        // Plugin dir was not created and staging was cleaned.
+        assert!(!plugins_dir.path().join("hello").exists());
+        let entries: Vec<_> = std::fs::read_dir(plugins_dir.path()).unwrap()
+            .filter_map(|e| e.ok()).collect();
+        assert!(entries.is_empty());
+    }
+
+    #[tokio::test]
+    async fn install_fails_when_top_dir_does_not_match_name() {
+        // Tarball top-level dir is "wrong", entry says it's "hello".
+        let (bytes, sha) = build_tarball("wrong", &manifest_for("wrong"), true);
+        let server = MockServer::start().await;
+        Mock::given(method("GET")).and(path("/x.tar.gz"))
+            .respond_with(ResponseTemplate::new(200).set_body_bytes(bytes))
+            .mount(&server).await;
+
+        let plugins_dir = tempdir().unwrap();
+        let entry = IndexEntry {
+            name: "hello".into(),
+            version: "0.1.0".into(),
+            summary: "".into(),
+            tarball_url: format!("{}/x.tar.gz", server.uri()),
+            tarball_sha256: sha,
+            homepage: None,
+            min_transcoderr_version: None,
+            kind: "subprocess".into(),
+            provides_steps: vec![],
+        };
+        let err = install_from_entry(&entry, plugins_dir.path()).await.unwrap_err();
+        match err {
+            InstallError::Layout(msg) => assert!(msg.contains("wrong"), "msg: {msg}"),
+            other => panic!("expected Layout, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn install_fails_when_manifest_name_does_not_match_entry() {
+        // Manifest says name="other" but the entry insists it's "hello".
+        // The tarball's top-dir IS "hello" so layout passes -- only the
+        // manifest cross-check catches it.
+        let mut bad_manifest = manifest_for("other");
+        // Tarball top-dir mismatch would be caught earlier; build a
+        // tarball whose top-dir is "hello" but manifest says "other".
+        bad_manifest = bad_manifest.replace("name = \"other\"", "name = \"other\"");
+
+        // Build a custom tarball with "hello/" as top-dir + bad_manifest.
+        let mut gz = GzEncoder::new(Vec::new(), Compression::default());
+        {
+            let mut tar = tar::Builder::new(&mut gz);
+            let mut hdr = tar::Header::new_gnu();
+            hdr.set_path("hello/").unwrap(); hdr.set_mode(0o755); hdr.set_size(0); hdr.set_cksum();
+            tar.append(&hdr, std::io::empty()).unwrap();
+            let body = bad_manifest.as_bytes();
+            let mut hdr = tar::Header::new_gnu();
+            hdr.set_path("hello/manifest.toml").unwrap();
+            hdr.set_mode(0o644); hdr.set_size(body.len() as u64); hdr.set_cksum();
+            tar.append(&hdr, body).unwrap();
+            tar.finish().unwrap();
+        }
+        let bytes = gz.finish().unwrap();
+        let mut h = Sha256::new(); h.update(&bytes);
+        let sha = hex(&h.finalize());
+
+        let server = MockServer::start().await;
+        Mock::given(method("GET")).and(path("/x.tar.gz"))
+            .respond_with(ResponseTemplate::new(200).set_body_bytes(bytes))
+            .mount(&server).await;
+
+        let plugins_dir = tempdir().unwrap();
+        let entry = IndexEntry {
+            name: "hello".into(),
+            version: "0.1.0".into(),
+            summary: "".into(),
+            tarball_url: format!("{}/x.tar.gz", server.uri()),
+            tarball_sha256: sha,
+            homepage: None, min_transcoderr_version: None,
+            kind: "subprocess".into(), provides_steps: vec![],
+        };
+        let err = install_from_entry(&entry, plugins_dir.path()).await.unwrap_err();
+        match err {
+            InstallError::Manifest(msg) => assert!(msg.contains("other")),
+            other => panic!("expected Manifest, got {other:?}"),
+        }
+        assert!(!plugins_dir.path().join("hello").exists());
+    }
+
+    #[tokio::test]
+    async fn install_replaces_existing_plugin_dir() {
+        // Pre-existing plugins/hello/ has a sentinel file.
+        let plugins_dir = tempdir().unwrap();
+        let target = plugins_dir.path().join("hello");
+        std::fs::create_dir_all(&target).unwrap();
+        std::fs::write(target.join("sentinel"), "old").unwrap();
+
+        let (bytes, sha) = build_tarball("hello", &manifest_for("hello"), true);
+        let server = MockServer::start().await;
+        Mock::given(method("GET")).and(path("/h.tar.gz"))
+            .respond_with(ResponseTemplate::new(200).set_body_bytes(bytes))
+            .mount(&server).await;
+
+        let entry = IndexEntry {
+            name: "hello".into(),
+            version: "0.1.0".into(),
+            summary: "".into(),
+            tarball_url: format!("{}/h.tar.gz", server.uri()),
+            tarball_sha256: sha,
+            homepage: None, min_transcoderr_version: None,
+            kind: "subprocess".into(), provides_steps: vec![],
+        };
+        install_from_entry(&entry, plugins_dir.path()).await.unwrap();
+
+        assert!(target.join("manifest.toml").exists());
+        assert!(target.join("bin/run").exists());
+        assert!(!target.join("sentinel").exists(), "old contents replaced");
+    }
 }
