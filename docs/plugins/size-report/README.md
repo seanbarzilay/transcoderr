@@ -7,8 +7,9 @@ compression ratio, so notify templates can render lines like:
 ✓ /mnt/movies/Foo (2024)/Foo.mkv — saved 38.4% (12433551104 → 7659011840)
 ```
 
-It's a working example of a transcoderr subprocess plugin: ~120 lines of
-stdlib Python, no dependencies, two step names from one entrypoint.
+It's a working example of a transcoderr subprocess plugin: pure POSIX
+shell + `awk` + `wc`, no dependencies, two step names from one entrypoint.
+Runs as-is on every transcoderr image.
 
 ## Install
 
@@ -21,8 +22,6 @@ docker restart transcoderr
 
 The `bin/run` file must be executable (`chmod +x bin/run`). Then enable
 **size-report** under the **Plugins** page in the web UI.
-
-Requires `python3` on the host PATH. The shipped Docker images include it.
 
 ## Use it
 

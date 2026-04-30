@@ -1,137 +1,145 @@
-#!/usr/bin/env python3
-"""
-size-report — record before/after file size and compression ratio so notify
-templates can reference {{ size_report.before_bytes }}, {{ size_report.after_bytes }},
-{{ size_report.ratio_pct }}, {{ size_report.saved_bytes }}.
+#!/bin/sh
+# size-report -- record before/after file size and compression ratio so
+# notify templates can reference {{ size_report.before_bytes }},
+# {{ size_report.after_bytes }}, {{ size_report.ratio_pct }},
+# {{ size_report.saved_bytes }}.
+#
+# Provides two step names from this one entrypoint:
+#   - size.report.before  runs before plan.execute, captures original size
+#   - size.report.after   runs after output, captures final size + diff
+#
+# Pure POSIX shell + coreutils + awk -- no python, jq, or anything else
+# the runtime images don't already ship. The full README.md walks through
+# how to wire it into a flow.
+#
+# Protocol: reads two JSON-RPC lines on stdin (init, execute), emits JSON
+# event lines on stdout (log, context_set, result). See
+# crates/transcoderr/src/plugins/subprocess.rs for the host side.
+set -eu
 
-Provides two step names from this one entrypoint:
-  - size.report.before   runs before plan.execute, captures original size
-  - size.report.after    runs after output, captures final size + computes diff
+# JSON output helpers. Messages we emit are static strings we author here,
+# so no escaping is required. We never echo untrusted strings (file paths,
+# user input) into stdout JSON.
 
-Wire it into a flow like:
-    steps:
-      - use: probe
-      - use: size.report.before
-      - use: plan.init
-      - ...plan.* steps...
-      - use: plan.execute
-      - use: output
-      - use: size.report.after
-      - use: notify
-        with: { channel: tg-main, template: "{{ file.path }} -- saved {{ size_report.ratio_pct }}% ({{ size_report.before_bytes }} -> {{ size_report.after_bytes }})" }
-
-Protocol: reads two JSON-RPC lines on stdin (init, then execute), emits
-JSON event lines on stdout (progress, log, context_set, result). See
-crates/transcoderr/src/plugins/subprocess.rs for the host side.
-"""
-
-import json
-import os
-import sys
-
-
-CTX_KEY = "size_report"
-
-
-def emit(event):
-    sys.stdout.write(json.dumps(event) + "\n")
-    sys.stdout.flush()
-
-
-def file_size(path):
-    """Bytes on disk for a path. Raises OSError if the file is gone."""
-    return os.path.getsize(path)
-
-
-def fail(msg):
-    emit({"event": "result", "status": "error", "error": {"msg": msg}})
-    sys.exit(0)
-
-
-def ok(outputs=None):
-    emit({"event": "result", "status": "ok", "outputs": outputs or {}})
-    sys.exit(0)
-
-
-def step_before(ctx):
-    path = ctx.get("file", {}).get("path")
-    if not path:
-        fail("size.report.before: ctx.file.path missing")
-    try:
-        size = file_size(path)
-    except OSError as e:
-        fail(f"size.report.before: cannot stat {path}: {e}")
-    emit({"event": "log", "msg": f"size.report.before: {size} bytes at {path}"})
-    emit({"event": "context_set", "key": CTX_KEY, "value": {"before_bytes": size}})
-    ok()
-
-
-def step_after(ctx):
-    path = ctx.get("file", {}).get("path")
-    if not path:
-        fail("size.report.after: ctx.file.path missing")
-    prior = ctx.get("steps", {}).get(CTX_KEY) or {}
-    before = prior.get("before_bytes")
-    if before is None:
-        fail("size.report.after: no before_bytes in ctx -- run size.report.before earlier in the flow")
-    try:
-        after = file_size(path)
-    except OSError as e:
-        fail(f"size.report.after: cannot stat {path}: {e}")
-
-    # ratio_pct is "% saved" -- positive means the file got smaller, negative
-    # means it grew (some flows transcode to a less efficient codec on purpose,
-    # e.g. for compatibility, so we don't clamp).
-    saved = before - after
-    ratio = (saved / before * 100.0) if before > 0 else 0.0
-
-    emit({
-        "event": "log",
-        "msg": f"size.report.after: {before} -> {after} bytes ({ratio:.1f}% saved)",
-    })
-    emit({
-        "event": "context_set",
-        "key": CTX_KEY,
-        "value": {
-            "before_bytes": before,
-            "after_bytes": after,
-            "saved_bytes": saved,
-            "ratio_pct": round(ratio, 1),
-        },
-    })
-    ok()
-
-
-DISPATCH = {
-    "size.report.before": step_before,
-    "size.report.after": step_after,
+emit_log() {
+    printf '{"event":"log","msg":"%s"}\n' "$1"
 }
 
+emit_result_ok() {
+    printf '{"event":"result","status":"ok","outputs":{}}\n'
+    exit 0
+}
 
-def main():
-    # init
-    init_line = sys.stdin.readline()
-    if not init_line:
-        fail("no init message on stdin")
+emit_result_err() {
+    # Static reason strings keep us out of escaping trouble. Any place we'd
+    # want to interpolate (e.g. a path) is left out of the message itself
+    # and surfaced via emit_log earlier.
+    printf '{"event":"result","status":"error","error":{"msg":"%s"}}\n' "$1"
+    exit 0
+}
 
-    # execute
-    exec_line = sys.stdin.readline()
-    if not exec_line:
-        fail("no execute message on stdin")
-    try:
-        msg = json.loads(exec_line)
-    except json.JSONDecodeError as e:
-        fail(f"execute message is not valid JSON: {e}")
+# Surgical JSON extraction. The protocol is host-controlled and the shapes
+# are stable, so awk regex against the known field positions is reliable
+# enough -- much more than parsing arbitrary JSON would be. Pathnames with
+# embedded double-quotes would break this (and a lot of other shell
+# plumbing); everything else is fine.
 
-    params = msg.get("params") or {}
-    step_id = params.get("step_id")
-    ctx = params.get("context") or {}
+extract_step_id() {
+    awk '
+        match($0, /"step_id"[[:space:]]*:[[:space:]]*"[^"]*"/) {
+            v = substr($0, RSTART, RLENGTH)
+            sub(/.*"step_id"[[:space:]]*:[[:space:]]*"/, "", v)
+            sub(/"$/, "", v)
+            print v
+        }
+    ' <<EOF
+$1
+EOF
+}
 
-    handler = DISPATCH.get(step_id)
-    if handler is None:
-        fail(f"unknown step_id {step_id!r}")
-    handler(ctx)
+# Extracts ctx.file.path. Anchors the match to "file":{"path":"..."} so we
+# don't pick up some other field named "path" elsewhere in the context.
+extract_file_path() {
+    awk '
+        match($0, /"file"[[:space:]]*:[[:space:]]*\{[^}]*"path"[[:space:]]*:[[:space:]]*"[^"]*"/) {
+            v = substr($0, RSTART, RLENGTH)
+            sub(/.*"path"[[:space:]]*:[[:space:]]*"/, "", v)
+            sub(/"$/, "", v)
+            print v
+        }
+    ' <<EOF
+$1
+EOF
+}
 
+# Reads ctx.steps.size_report.before_bytes if the prior `before` step
+# wrote it. Empty output if the key is absent.
+extract_before_bytes() {
+    awk '
+        match($0, /"size_report"[[:space:]]*:[[:space:]]*\{[^}]*"before_bytes"[[:space:]]*:[[:space:]]*[0-9]+/) {
+            v = substr($0, RSTART, RLENGTH)
+            sub(/.*"before_bytes"[[:space:]]*:[[:space:]]*/, "", v)
+            print v
+        }
+    ' <<EOF
+$1
+EOF
+}
 
-if __name__ == "__main__":
-    main()
+file_size() {
+    # `wc -c < "$path"` is portable across Linux + macOS. stat(1)'s flags
+    # differ between platforms (-c on GNU, -f on BSD) so we avoid it.
+    wc -c < "$1" | tr -d ' \n'
+}
+
+# --- main -----------------------------------------------------------------
+
+# init line (ignored)
+read -r _ || emit_result_err "no init message on stdin"
+# execute line
+read -r EXEC || emit_result_err "no execute message on stdin"
+
+STEP_ID=$(extract_step_id "$EXEC")
+FILE_PATH=$(extract_file_path "$EXEC")
+
+if [ -z "$STEP_ID" ]; then
+    emit_result_err "could not parse step_id from execute message"
+fi
+if [ -z "$FILE_PATH" ]; then
+    emit_result_err "could not parse ctx.file.path from execute message"
+fi
+if [ ! -f "$FILE_PATH" ]; then
+    emit_log "size-report: file does not exist on disk"
+    emit_result_err "file does not exist"
+fi
+
+case "$STEP_ID" in
+"size.report.before")
+    BEFORE=$(file_size "$FILE_PATH")
+    emit_log "size.report.before: ${BEFORE} bytes"
+    printf '{"event":"context_set","key":"size_report","value":{"before_bytes":%s}}\n' "$BEFORE"
+    emit_result_ok
+    ;;
+
+"size.report.after")
+    BEFORE=$(extract_before_bytes "$EXEC")
+    if [ -z "$BEFORE" ]; then
+        emit_result_err "no before_bytes in ctx -- run size.report.before earlier in the flow"
+    fi
+    AFTER=$(file_size "$FILE_PATH")
+    SAVED=$((BEFORE - AFTER))
+    # POSIX shell has no float math; awk does the percentage with one
+    # decimal place. Emits 0.0 when before is zero so we never divide by
+    # zero, and never clamps -- a negative ratio (file got bigger) is a
+    # real signal the operator probably wants in their notify message.
+    RATIO=$(awk -v b="$BEFORE" -v a="$AFTER" 'BEGIN { if (b+0 > 0) printf "%.1f", (b-a)/b*100; else printf "0.0" }')
+    emit_log "size.report.after: ${BEFORE} -> ${AFTER} bytes (${RATIO}% saved)"
+    printf '{"event":"context_set","key":"size_report","value":{"before_bytes":%s,"after_bytes":%s,"saved_bytes":%s,"ratio_pct":%s}}\n' \
+        "$BEFORE" "$AFTER" "$SAVED" "$RATIO"
+    emit_result_ok
+    ;;
+
+*)
+    emit_result_err "unknown step_id"
+    ;;
+esac

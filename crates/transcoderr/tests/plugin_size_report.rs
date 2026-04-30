@@ -10,16 +10,6 @@ use transcoderr::flow::Context;
 use transcoderr::plugins::{discover, subprocess::SubprocessStep};
 use transcoderr::steps::{Step, StepProgress};
 
-fn python3_available() -> bool {
-    std::process::Command::new("python3")
-        .arg("--version")
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .status()
-        .map(|s| s.success())
-        .unwrap_or(false)
-}
-
 fn plugin_dir() -> std::path::PathBuf {
     // tests run from crates/transcoderr/, so repo root is two up.
     std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -42,10 +32,6 @@ fn make_step(step_name: &str) -> SubprocessStep {
 
 #[tokio::test]
 async fn before_then_after_records_ratio_into_ctx() {
-    if !python3_available() {
-        eprintln!("python3 not on PATH; skipping size-report e2e test");
-        return;
-    }
 
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("Movie.mkv");
@@ -99,10 +85,6 @@ async fn before_then_after_records_ratio_into_ctx() {
 
 #[tokio::test]
 async fn after_without_before_fails_with_clear_message() {
-    if !python3_available() {
-        eprintln!("python3 not on PATH; skipping size-report e2e test");
-        return;
-    }
 
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("Movie.mkv");
