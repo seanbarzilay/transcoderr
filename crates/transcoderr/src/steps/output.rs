@@ -59,6 +59,11 @@ impl Step for OutputStep {
                 ))),
             }
         }
+
+        // Downstream steps (notify → jellyfin, etc.) read ctx.file.path
+        // to reference the on-disk file. Without this update they'd see
+        // the pre-rename .mp4 path after a .mp4 → .mkv container swap.
+        ctx.file.path = final_path;
         Ok(())
     }
 }
@@ -152,6 +157,8 @@ mod tests {
         assert!(!source_mp4.exists(), "source .mp4 should be deleted on extension change");
         assert_eq!(std::fs::read(&final_mkv).unwrap(), b"mkv bytes",
             "the .mkv should land at the swapped-extension path");
+        assert_eq!(ctx.file.path, final_mkv.to_string_lossy(),
+            "ctx.file.path must point at the new .mkv so downstream steps see the right path");
     }
 
     #[tokio::test]

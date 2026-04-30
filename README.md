@@ -29,8 +29,8 @@ Webhook in, ffmpeg out, configurable in between.
 - **Live observability.** Per-run progress bar, the latest ffmpeg status line
   streamed live (one event every ~1.5s), structured timeline of every step
   decision, Prometheus-compatible `/metrics`.
-- **Notifiers.** Discord, ntfy, Telegram, generic webhook. Configurable in the
-  UI.
+- **Notifiers.** Discord, ntfy, Telegram, generic webhook, and Jellyfin
+  (per-file rescan via `/Library/Media/Updated`). Configurable in the UI.
 - **Single binary.** Rust + embedded SQLite + embedded React SPA. One image,
   one volume mount, no broker, no external DB.
 

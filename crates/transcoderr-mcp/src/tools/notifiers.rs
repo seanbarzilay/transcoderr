@@ -30,7 +30,7 @@ pub struct DeleteNotifierArgs {
 
 #[tool_router(router = notifiers_router, vis = "pub")]
 impl Server {
-    #[tool(name = "list_notifiers", description = "List notifier channels (discord/ntfy/telegram/webhook). Secret-bearing config keys are redacted to `***` for token-authed callers.")]
+    #[tool(name = "list_notifiers", description = "List notifier channels (discord/jellyfin/ntfy/telegram/webhook). Secret-bearing config keys are redacted to `***` for token-authed callers.")]
     pub async fn list_notifiers(&self, _: Parameters<super::NoArgs>) -> Result<Json<Vec<NotifierSummary>>, ErrorData> {
         self.api
             .get::<Vec<NotifierSummary>>("/api/notifiers")
@@ -51,7 +51,7 @@ impl Server {
             .map_err(|e| e.into_error_data())
     }
 
-    #[tool(name = "create_notifier", description = "Create a new notifier channel. Side effect: registers a new outbound notification target. `kind` is one of `discord|ntfy|telegram|webhook`; `config` shape depends on kind (e.g. telegram needs `bot_token` + `chat_id`; ntfy needs `server` + `topic`).")]
+    #[tool(name = "create_notifier", description = "Create a new notifier channel. Side effect: registers a new outbound notification target. `kind` is one of `discord|jellyfin|ntfy|telegram|webhook`; `config` shape depends on kind (e.g. telegram needs `bot_token` + `chat_id`; ntfy needs `server` + `topic`; jellyfin needs `url` + `api_key` and triggers a per-file rescan instead of sending a chat message).")]
     pub async fn create_notifier(
         &self,
         Parameters(a): Parameters<NotifierReq>,
