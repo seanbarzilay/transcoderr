@@ -80,14 +80,19 @@ mod tests {
         }
     }
 
-    async fn pool() -> SqlitePool {
+    /// Keep the `TempDir` alive for the test's lifetime -- on Linux the
+    /// directory disappears the moment the helper returns, and the pool
+    /// can't open new connections for the second `sync_discovered` call.
+    /// Caller binds both return values: `let (pool, _dir) = open_pool().await;`
+    async fn open_pool() -> (SqlitePool, tempfile::TempDir) {
         let dir = tempdir().unwrap();
-        crate::db::open(dir.path()).await.unwrap()
+        let pool = crate::db::open(dir.path()).await.unwrap();
+        (pool, dir)
     }
 
     #[tokio::test]
     async fn sync_inserts_new_plugins() {
-        let pool = pool().await;
+        let (pool, _dir) = open_pool().await;
         sync_discovered(&pool, &[discovered("size-report", "0.1.0")])
             .await
             .unwrap();
@@ -104,7 +109,7 @@ mod tests {
     async fn sync_preserves_enabled_on_redeploy() {
         // Operator disabled the plugin via the UI toggle, then redeployed.
         // The toggle state should win over the boot-time sync.
-        let pool = pool().await;
+        let (pool, _dir) = open_pool().await;
         sync_discovered(&pool, &[discovered("size-report", "0.1.0")])
             .await.unwrap();
         sqlx::query("UPDATE plugins SET enabled = 0 WHERE name = 'size-report'")
@@ -122,7 +127,7 @@ mod tests {
 
     #[tokio::test]
     async fn sync_drops_plugins_no_longer_on_disk() {
-        let pool = pool().await;
+        let (pool, _dir) = open_pool().await;
         sync_discovered(&pool, &[
             discovered("a", "0.1.0"),
             discovered("b", "0.1.0"),
@@ -138,7 +143,7 @@ mod tests {
 
     #[tokio::test]
     async fn sync_with_empty_list_clears_table() {
-        let pool = pool().await;
+        let (pool, _dir) = open_pool().await;
         sync_discovered(&pool, &[discovered("x", "0.1.0")]).await.unwrap();
         sync_discovered(&pool, &[]).await.unwrap();
         let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM plugins")
