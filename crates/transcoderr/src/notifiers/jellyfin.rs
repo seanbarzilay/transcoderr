@@ -72,10 +72,9 @@ fn rewrite_path(path: &str, mappings: &[PathMapping]) -> String {
 #[async_trait]
 impl Notifier for Jellyfin {
     async fn send(&self, _message: &str, extra: &Value) -> anyhow::Result<()> {
-        let path = extra
-            .get("file")
-            .and_then(|f| f.get("path"))
-            .and_then(|p| p.as_str());
+        // The notify step passes `{"file": ctx.file.path}` -- where
+        // ctx.file.path is a string, not a nested object.
+        let path = extra.get("file").and_then(|f| f.as_str());
         let client = reqwest::Client::new();
 
         let resp = match path {
@@ -92,6 +91,8 @@ impl Notifier for Jellyfin {
                     .await?
             }
             None => {
+                // Test button path (extra is Null). Validate URL +
+                // token without triggering a real scan.
                 client
                     .get(format!("{}/System/Info", self.url))
                     .header("X-Emby-Token", &self.api_key)
@@ -100,8 +101,19 @@ impl Notifier for Jellyfin {
             }
         };
 
-        if !resp.status().is_success() {
-            anyhow::bail!("jellyfin: {}", resp.status());
+        let status = resp.status();
+        if !status.is_success() {
+            // Surface Jellyfin's own error body in the run timeline so
+            // the operator sees *why* the rescan failed (path not in
+            // any library, auth scope wrong, etc.) instead of just a
+            // bare status code.
+            let body = resp.text().await.unwrap_or_default();
+            let trimmed = body.trim();
+            if trimmed.is_empty() {
+                anyhow::bail!("jellyfin: {}", status);
+            } else {
+                anyhow::bail!("jellyfin: {} - {}", status, trimmed);
+            }
         }
         Ok(())
     }
@@ -164,10 +176,18 @@ mod tests {
 
     #[tokio::test]
     async fn send_with_file_posts_library_media_updated() {
+        // Extra shape mirrors what the notify step actually passes:
+        // `{"file": "<path string>"}` -- not a nested object. The earlier
+        // test used `{"file": {"path": "..."}}` which never occurs in
+        // production and masked the bug that the notifier wasn't seeing
+        // the path at all.
         let server = MockServer::start().await;
         Mock::given(method("POST"))
             .and(path("/Library/Media/Updated"))
             .and(header("X-Emby-Token", "test-key"))
+            .and(body_partial_json(json!({
+                "Updates": [{ "Path": "/mnt/movies/Foo.mkv", "UpdateType": "Modified" }]
+            })))
             .respond_with(ResponseTemplate::new(204))
             .expect(1)
             .mount(&server)
@@ -179,7 +199,7 @@ mod tests {
         }))
         .unwrap();
 
-        jf.send("ignored", &json!({"file": {"path": "/mnt/movies/Foo.mkv"}}))
+        jf.send("ignored", &json!({"file": "/mnt/movies/Foo.mkv"}))
             .await
             .unwrap();
     }
@@ -226,7 +246,7 @@ mod tests {
         }))
         .unwrap();
 
-        jf.send("ignored", &json!({"file": {"path": "/mnt/movies/Foo.mkv"}}))
+        jf.send("ignored", &json!({"file": "/mnt/movies/Foo.mkv"}))
             .await
             .unwrap();
     }
@@ -247,9 +267,39 @@ mod tests {
         .unwrap();
 
         let err = jf
-            .send("x", &json!({"file": {"path": "/x.mkv"}}))
+            .send("x", &json!({"file": "/x.mkv"}))
             .await
             .unwrap_err();
         assert!(err.to_string().contains("401"));
+    }
+
+    #[tokio::test]
+    async fn error_body_is_included_in_run_failure() {
+        // 4xx with a body -- the operator should see Jellyfin's reason
+        // ("Path is required.", "Access denied.", etc.) in the run
+        // timeline, not just a bare status code.
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/Library/Media/Updated"))
+            .respond_with(
+                ResponseTemplate::new(400)
+                    .set_body_string("Path /mnt/movies/Foo.mkv is not in any library."),
+            )
+            .mount(&server)
+            .await;
+
+        let jf = Jellyfin::new(&json!({
+            "url": server.uri(),
+            "api_key": "k",
+        }))
+        .unwrap();
+
+        let err = jf
+            .send("x", &json!({"file": "/mnt/movies/Foo.mkv"}))
+            .await
+            .unwrap_err();
+        let msg = err.to_string();
+        assert!(msg.contains("400"), "status missing: {msg}");
+        assert!(msg.contains("not in any library"), "body missing: {msg}");
     }
 }
