@@ -85,6 +85,79 @@ async fn plugins_list_empty() {
     assert!(plugins.is_empty());
 }
 
+/// Drop a plugin directory on disk, call sync_discovered, and assert that
+/// both the list and detail endpoints surface the manifest and README.
+/// This is the contract the new Plugins page depends on.
+#[tokio::test]
+async fn plugins_detail_returns_manifest_and_readme() {
+    use std::fs;
+
+    let app = boot().await;
+    let client = reqwest::Client::new();
+
+    // Lay down a fake plugin in {data_dir}/plugins/example/.
+    let plugin_dir = app.data_dir.join("plugins").join("example");
+    fs::create_dir_all(plugin_dir.join("bin")).unwrap();
+    fs::write(plugin_dir.join("manifest.toml"), r#"
+name = "example"
+version = "0.2.0"
+kind = "subprocess"
+entrypoint = "bin/run"
+provides_steps = ["example.do", "example.undo"]
+capabilities = ["fs.read"]
+"#).unwrap();
+    fs::write(plugin_dir.join("README.md"), "# Example\n\nUse it like `use: example.do`.\n").unwrap();
+    fs::write(plugin_dir.join("schema.json"), r#"{"type":"object"}"#).unwrap();
+
+    // Same call boot() would make at startup if there had been plugins.
+    let discovered =
+        transcoderr::plugins::discover(&app.data_dir.join("plugins")).unwrap();
+    transcoderr::db::plugins::sync_discovered(&app.pool, &discovered)
+        .await
+        .unwrap();
+
+    // List surfaces provides_steps and *not* an enabled flag.
+    let list: Vec<serde_json::Value> = client.get(format!("{}/api/plugins", app.url))
+        .send().await.unwrap().json().await.unwrap();
+    assert_eq!(list.len(), 1);
+    let row = &list[0];
+    assert_eq!(row["name"].as_str().unwrap(), "example");
+    assert_eq!(row["version"].as_str().unwrap(), "0.2.0");
+    assert_eq!(row["kind"].as_str().unwrap(), "subprocess");
+    assert_eq!(
+        row["provides_steps"].as_array().unwrap(),
+        &vec![json!("example.do"), json!("example.undo")]
+    );
+    assert!(row.get("enabled").is_none(), "enabled should not appear in the list response");
+
+    // Detail returns the manifest *and* the README contents.
+    let id = row["id"].as_i64().unwrap();
+    let detail: serde_json::Value = client.get(format!("{}/api/plugins/{id}", app.url))
+        .send().await.unwrap().json().await.unwrap();
+    assert_eq!(detail["name"].as_str().unwrap(), "example");
+    assert_eq!(
+        detail["capabilities"].as_array().unwrap(),
+        &vec![json!("fs.read")]
+    );
+    assert!(detail["readme"].as_str().unwrap().contains("# Example"));
+    assert!(detail["path"].as_str().unwrap().ends_with("plugins/example"));
+}
+
+/// PATCH /api/plugins/:id should be gone -- the toggle was removed in
+/// favour of "all plugins are always-on".
+#[tokio::test]
+async fn plugins_patch_endpoint_no_longer_exists() {
+    let app = boot().await;
+    let client = reqwest::Client::new();
+    let resp = client
+        .patch(format!("{}/api/plugins/1", app.url))
+        .json(&json!({"enabled": false}))
+        .send().await.unwrap();
+    // axum returns 405 Method Not Allowed when the path exists for a
+    // different method (GET).
+    assert_eq!(resp.status(), 405);
+}
+
 #[tokio::test]
 async fn notifiers_crud() {
     let app = boot().await;

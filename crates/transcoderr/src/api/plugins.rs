@@ -1,49 +1,124 @@
 use crate::http::AppState;
+use crate::plugins::manifest::Manifest;
 use axum::{extract::{Path, State}, http::StatusCode, Json};
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use sqlx::Row;
+use std::path::PathBuf;
 
+/// Summary row in the list view. Includes `provides_steps` so the page
+/// can show the operator-facing step names without an extra round-trip.
 #[derive(Serialize)]
 pub struct PluginRow {
     pub id: i64,
     pub name: String,
     pub version: String,
     pub kind: String,
-    pub schema: serde_json::Value,
-    pub enabled: bool,
+    pub provides_steps: Vec<String>,
 }
 
-#[derive(Deserialize)]
-pub struct PatchPluginReq { pub enabled: bool }
+/// Full detail for the expanded view. Includes the entire manifest plus
+/// the contents of README.md from the plugin directory if one exists.
+/// Markdown is returned raw -- the UI renders it.
+#[derive(Serialize)]
+pub struct PluginDetail {
+    pub id: i64,
+    pub name: String,
+    pub version: String,
+    pub kind: String,
+    pub provides_steps: Vec<String>,
+    pub capabilities: Vec<String>,
+    pub requires: serde_json::Value,
+    pub schema: serde_json::Value,
+    /// Filesystem path of the plugin directory on the server. Useful as
+    /// a "where to edit this" hint -- we render it in the detail view.
+    pub path: String,
+    /// Verbatim README.md contents. `None` when the plugin doesn't ship one.
+    pub readme: Option<String>,
+}
 
 pub async fn list(State(state): State<AppState>) -> Result<Json<Vec<PluginRow>>, StatusCode> {
-    let rows = sqlx::query("SELECT id, name, version, kind, schema_json, enabled FROM plugins ORDER BY name")
+    let rows = sqlx::query("SELECT id, name, version, kind, path FROM plugins ORDER BY name")
         .fetch_all(&state.pool).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    let out = rows.into_iter().map(|r| {
-        let schema_str: String = r.get(4);
-        PluginRow {
-            id: r.get(0),
-            name: r.get(1),
-            version: r.get(2),
-            kind: r.get(3),
-            schema: serde_json::from_str(&schema_str).unwrap_or_default(),
-            enabled: r.get::<i64, _>(5) != 0,
-        }
-    }).collect();
+    let out = rows
+        .into_iter()
+        .map(|r| {
+            let path: Option<String> = r.get(4);
+            let provides_steps = path
+                .as_deref()
+                .and_then(read_manifest)
+                .map(|m| m.provides_steps)
+                .unwrap_or_default();
+            PluginRow {
+                id: r.get(0),
+                name: r.get(1),
+                version: r.get(2),
+                kind: r.get(3),
+                provides_steps,
+            }
+        })
+        .collect();
     Ok(Json(out))
 }
 
-pub async fn update(
+pub async fn get(
     State(state): State<AppState>,
     Path(id): Path<i64>,
-    Json(req): Json<PatchPluginReq>,
-) -> Result<StatusCode, StatusCode> {
-    let result = sqlx::query("UPDATE plugins SET enabled = ? WHERE id = ?")
-        .bind(if req.enabled { 1i64 } else { 0i64 }).bind(id)
-        .execute(&state.pool).await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    if result.rows_affected() == 0 {
-        return Err(StatusCode::NOT_FOUND);
+) -> Result<Json<PluginDetail>, StatusCode> {
+    let row = sqlx::query("SELECT id, name, version, kind, path, schema_json FROM plugins WHERE id = ?")
+        .bind(id)
+        .fetch_optional(&state.pool).await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .ok_or(StatusCode::NOT_FOUND)?;
+
+    let path_str: Option<String> = row.get(4);
+    let path_str = path_str.unwrap_or_default();
+    let manifest = read_manifest(&path_str);
+    let readme = read_readme(&path_str);
+    let schema_str: String = row.get(5);
+    let schema: serde_json::Value = serde_json::from_str(&schema_str).unwrap_or_default();
+
+    let (provides_steps, capabilities, requires) = match manifest {
+        Some(m) => (m.provides_steps, m.capabilities, m.requires),
+        None => (vec![], vec![], serde_json::Value::Null),
+    };
+
+    Ok(Json(PluginDetail {
+        id: row.get(0),
+        name: row.get(1),
+        version: row.get(2),
+        kind: row.get(3),
+        provides_steps,
+        capabilities,
+        requires,
+        schema,
+        path: path_str,
+        readme,
+    }))
+}
+
+/// Re-parse the on-disk manifest. Returns None if the directory is gone
+/// or the file isn't valid TOML — we'd rather show partial data than
+/// blow up the whole list.
+fn read_manifest(dir: &str) -> Option<Manifest> {
+    if dir.is_empty() {
+        return None;
     }
-    Ok(StatusCode::NO_CONTENT)
+    let mp = PathBuf::from(dir).join("manifest.toml");
+    let raw = std::fs::read_to_string(&mp).ok()?;
+    toml::from_str(&raw).ok()
+}
+
+/// Slurp README.md from the plugin directory. Cap the read at a sensible
+/// size so a hostile or accidentally-huge file can't pin server memory.
+fn read_readme(dir: &str) -> Option<String> {
+    const MAX_BYTES: u64 = 256 * 1024;
+    if dir.is_empty() {
+        return None;
+    }
+    let p = PathBuf::from(dir).join("README.md");
+    let meta = std::fs::metadata(&p).ok()?;
+    if meta.len() > MAX_BYTES {
+        return None;
+    }
+    std::fs::read_to_string(&p).ok()
 }
