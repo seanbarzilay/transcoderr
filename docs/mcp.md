@@ -63,6 +63,26 @@ create a new one.
 - `delete_notifier({id, confirm: true})`
 - `test_notifier(id)`
 
+### Plugins
+
+Read-and-act surface — install or remove plugins from a configured catalog,
+inspect what's installed, see what's available. **Catalog management
+(adding / removing catalog URLs) is intentionally NOT exposed to MCP** — that's
+infrastructure config the operator owns, like notifier secrets. The AI
+client gets to operate within whatever catalog set the operator has
+already approved.
+
+- `list_plugins()` — installed plugins with `provides_steps` and the
+  `catalog_id`/`tarball_sha256` provenance (NULL for manual installs).
+- `get_plugin(id)` — full manifest detail + verbatim README.md.
+- `browse_plugins()` — `{entries, errors}` merged across all catalogs.
+  Use the `catalog_id` + `name` from an entry to install it.
+- `install_plugin({catalog_id, name})` — sha256-verified atomic-swap
+  install; live-reloads the step registry so the new steps dispatch
+  without a server restart.
+- `uninstall_plugin({id, confirm: true})` — destructive; removes
+  `{data_dir}/plugins/<name>/` and drops the DB row.
+
 ### Library browse (Radarr / Sonarr proxy)
 
 These tools mirror the **Browse Radarr / Sonarr** pages in the web UI: they

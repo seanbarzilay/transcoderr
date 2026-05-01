@@ -1,6 +1,7 @@
 pub mod browse;
 pub mod flows;
 pub mod notifiers;
+pub mod plugins;
 pub mod runs;
 pub mod sources;
 pub mod system;

@@ -39,6 +39,7 @@ impl Server {
             + Self::flows_router()
             + Self::sources_router()
             + Self::notifiers_router()
+            + Self::plugins_router()
             + Self::browse_router()
             + Self::system_router();
         Self { api, tool_router }
@@ -52,7 +53,7 @@ impl ServerHandler for Server {
             protocol_version: ProtocolVersion::V_2025_03_26,
             capabilities: ServerCapabilities::builder().enable_tools().build(),
             server_info: Implementation::from_build_env(),
-            instructions: Some("transcoderr MCP proxy -- drives runs, flows, sources, notifiers.".into()),
+            instructions: Some("transcoderr MCP proxy -- drives runs, flows, sources, notifiers, plugins.".into()),
         }
     }
 }

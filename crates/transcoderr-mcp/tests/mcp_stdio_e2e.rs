@@ -129,6 +129,17 @@ bearer_token = "test"
     let tools = listed["result"]["tools"].as_array().expect("tools array");
     assert!(tools.iter().any(|t| t["name"] == "list_runs"), "tools/list missing list_runs: {listed}");
     assert!(tools.iter().any(|t| t["name"] == "create_flow"), "tools/list missing create_flow");
+    // Plugin tools surface but catalog management does not -- catalogs
+    // are infrastructure config (like notifier secrets), plugins are
+    // operational state the AI client can act on.
+    assert!(tools.iter().any(|t| t["name"] == "list_plugins"), "tools/list missing list_plugins");
+    assert!(tools.iter().any(|t| t["name"] == "browse_plugins"), "tools/list missing browse_plugins");
+    assert!(tools.iter().any(|t| t["name"] == "install_plugin"), "tools/list missing install_plugin");
+    assert!(tools.iter().any(|t| t["name"] == "uninstall_plugin"), "tools/list missing uninstall_plugin");
+    assert!(
+        !tools.iter().any(|t| t["name"].as_str().is_some_and(|n| n.contains("catalog"))),
+        "catalog management tools should not surface to MCP: {listed}"
+    );
 
     // call list_runs (empty list initially)
     send(&mut stdin, serde_json::json!({
