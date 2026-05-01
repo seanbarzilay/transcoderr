@@ -273,6 +273,13 @@ function PluginDetailBody({ detail }: { detail: PluginDetail }) {
             </>
           )}
 
+          {detail.deps && (
+            <>
+              <div className="label">Deps</div>
+              <code className="dim" style={{ wordBreak: "break-all" }}>{detail.deps}</code>
+            </>
+          )}
+
           {!requiresEmpty && (
             <>
               <div className="label">Requires</div>
@@ -364,6 +371,11 @@ function Browse() {
                   {e.runtimes && e.runtimes.length > 0 && (
                     <div className="muted" style={{ fontSize: 11, marginTop: 2 }}>
                       runtimes: {e.runtimes.join(", ")}
+                    </div>
+                  )}
+                  {e.deps && (
+                    <div className="muted" style={{ fontSize: 11, marginTop: 2, wordBreak: "break-all" }}>
+                      deps: <code>{e.deps}</code>
                     </div>
                   )}
                 </td>

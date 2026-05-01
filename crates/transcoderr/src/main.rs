@@ -69,6 +69,26 @@ async fn main() -> anyhow::Result<()> {
                     );
                 }
             }
+
+            // Run each plugin's `deps` shell command (e.g.
+            // `pip install -r requirements.txt`) before the registry
+            // is built, so the plugin's runtime imports are satisfied
+            // when its steps eventually dispatch. Failure logs warn
+            // and the plugin still registers; the operator sees the
+            // error in the server log AND the plugin will eventually
+            // fail at dispatch with a clearer error from bin/run.
+            for d in &discovered {
+                if let Some(deps) = &d.manifest.deps {
+                    tracing::info!(plugin = %d.manifest.name, "running plugin deps");
+                    if let Err(e) = transcoderr::plugins::deps::run(&d.manifest_dir, deps).await {
+                        tracing::warn!(
+                            plugin = %d.manifest.name,
+                            error = %e,
+                            "plugin deps failed at boot; flow runs that dispatch its steps will likely fail"
+                        );
+                    }
+                }
+            }
             let ffmpeg_caps = std::sync::Arc::new(
                 transcoderr::ffmpeg_caps::FfmpegCaps::probe().await,
             );

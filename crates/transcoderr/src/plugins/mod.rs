@@ -1,4 +1,5 @@
 pub mod catalog;
+pub mod deps;
 pub mod installer;
 pub mod manifest;
 pub mod runtime;

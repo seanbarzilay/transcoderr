@@ -27,6 +27,9 @@ export type PluginDetail = {
   summary: string | null;
   min_transcoderr_version: string | null;
   runtimes: string[];
+  /// Shell command run on install + every boot (e.g.
+  /// `pip install -r requirements.txt`).
+  deps: string | null;
   readme: string | null;
 };
 
@@ -56,6 +59,8 @@ export type CatalogEntry = {
   runtimes: string[];
   /// Subset of `runtimes` not on the server's PATH. Empty = installable.
   missing_runtimes: string[];
+  /// Shell command run on install + every boot.
+  deps: string | null;
 };
 
 export type CatalogFetchError = {

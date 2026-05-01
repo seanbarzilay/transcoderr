@@ -41,6 +41,12 @@ pub struct IndexEntry {
     /// Surfaced from manifest.toml by the catalog repo's publish.py.
     #[serde(default)]
     pub runtimes: Vec<String>,
+    /// Optional shell command the catalog entry advertises (e.g.
+    /// `pip install -r requirements.txt`). Surfaced from manifest.toml
+    /// by the catalog repo's publish.py. The Browse tab shows it so the
+    /// operator sees what will run on install / boot.
+    #[serde(default)]
+    pub deps: Option<String>,
 }
 
 /// Resolved entry served to the API: an index entry tagged with the

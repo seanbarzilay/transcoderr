@@ -241,6 +241,7 @@ provides_steps = ["{name}.do"]
             kind: "subprocess".into(),
             provides_steps: vec!["hello.do".into()],
             runtimes: vec![],
+            deps: None,
         };
         let installed = install_from_entry(&entry, plugins_dir.path()).await.unwrap();
         assert_eq!(installed.name, "hello");
@@ -276,6 +277,7 @@ provides_steps = ["{name}.do"]
             kind: "subprocess".into(),
             provides_steps: vec![],
             runtimes: vec![],
+            deps: None,
         };
         let err = install_from_entry(&entry, plugins_dir.path()).await.unwrap_err();
         assert!(matches!(err, InstallError::ShaMismatch { .. }));
@@ -307,6 +309,7 @@ provides_steps = ["{name}.do"]
             kind: "subprocess".into(),
             provides_steps: vec![],
             runtimes: vec![],
+            deps: None,
         };
         let err = install_from_entry(&entry, plugins_dir.path()).await.unwrap_err();
         match err {
@@ -355,7 +358,7 @@ provides_steps = ["{name}.do"]
             tarball_url: format!("{}/x.tar.gz", server.uri()),
             tarball_sha256: sha,
             homepage: None, min_transcoderr_version: None,
-            kind: "subprocess".into(), provides_steps: vec![], runtimes: vec![],
+            kind: "subprocess".into(), provides_steps: vec![], runtimes: vec![], deps: None,
         };
         let err = install_from_entry(&entry, plugins_dir.path()).await.unwrap_err();
         match err {
@@ -386,7 +389,7 @@ provides_steps = ["{name}.do"]
             tarball_url: format!("{}/h.tar.gz", server.uri()),
             tarball_sha256: sha,
             homepage: None, min_transcoderr_version: None,
-            kind: "subprocess".into(), provides_steps: vec![], runtimes: vec![],
+            kind: "subprocess".into(), provides_steps: vec![], runtimes: vec![], deps: None,
         };
         install_from_entry(&entry, plugins_dir.path()).await.unwrap();
 

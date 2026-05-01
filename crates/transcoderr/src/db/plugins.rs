@@ -93,6 +93,7 @@ mod tests {
                 summary: None,
                 min_transcoderr_version: None,
                 runtimes: vec![],
+                deps: None,
             },
             manifest_dir: PathBuf::from(format!("/data/plugins/{name}")),
             schema: serde_json::json!({"type": "object"}),
