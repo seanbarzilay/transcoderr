@@ -1,0 +1,38 @@
+---
+const BASE = import.meta.env.BASE_URL;
+const catalogUrl = 'https://github.com/seanbarzilay/transcoderr-plugins';
+---
+<section class="mx-auto max-w-6xl px-6 py-24">
+  <h2 class="font-mono text-3xl font-semibold">Plugins</h2>
+  <p class="mt-4 max-w-prose text-muted">
+    Extend flows with new step kinds. Browse the
+    <a href={catalogUrl} class="text-accent hover:underline">default catalog</a>
+    or add your own. Install pulls the tarball, sha256-verifies it, runs any
+    deps the plugin declared, and live-reloads the step registry &mdash; no
+    restart. Plugins are any executable that speaks JSON-RPC over stdin/stdout:
+    POSIX shell, Python, Go, anything.
+  </p>
+
+  <div class="mt-10 grid grid-cols-1 lg:grid-cols-2 gap-4">
+    <figure>
+      <img
+        src={`${BASE}/screenshots/plugins-browse.png`}
+        alt="Plugins -> Browse tab showing the catalog"
+        class="w-full rounded-lg border border-muted/15"
+        loading="lazy"
+        decoding="async"
+      />
+      <figcaption class="mt-3 text-sm text-muted">Browse a catalog, click Install.</figcaption>
+    </figure>
+    <figure>
+      <img
+        src={`${BASE}/screenshots/plugins-installed.png`}
+        alt="Plugins -> Installed tab"
+        class="w-full rounded-lg border border-muted/15"
+        loading="lazy"
+        decoding="async"
+      />
+      <figcaption class="mt-3 text-sm text-muted">Installed plugins live-reload without a restart.</figcaption>
+    </figure>
+  </div>
+</section>

@@ -1,0 +1,10 @@
+# docker-compose.yml
+services:
+  transcoderr:
+    image: ghcr.io/seanbarzilay/transcoderr:cpu-latest
+    restart: unless-stopped
+    ports: ["8099:8080"]
+    volumes:
+      - ./data:/data
+      # IMPORTANT: mount your media at the SAME path it has in Radarr/Sonarr.
+      - /mnt/movies:/mnt/movies

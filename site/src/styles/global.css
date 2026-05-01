@@ -1,0 +1,27 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: dark;
+}
+
+html, body {
+  background: theme('colors.bg');
+  color: theme('colors.text');
+  font-family: theme('fontFamily.sans');
+}
+
+body {
+  background-image: radial-gradient(
+    circle at 50% -20%,
+    rgba(125, 211, 252, 0.06),
+    transparent 60%
+  );
+  background-attachment: fixed;
+}
+
+::selection {
+  background: theme('colors.accent');
+  color: theme('colors.bg');
+}

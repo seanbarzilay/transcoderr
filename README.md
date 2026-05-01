@@ -229,6 +229,8 @@ Create the token under **Settings → API tokens** in the web UI. See
 
 ## Documentation
 
+- [`seanbarzilay.github.io/transcoderr`](https://seanbarzilay.github.io/transcoderr/) —
+  the showcase site (one-page tour with live UI screenshots)
 - [`docs/deploy.md`](docs/deploy.md) — production deploy notes
 - [`docs/mcp.md`](docs/mcp.md) — MCP server reference
 - [`docs/flows/`](docs/flows/) — example flow YAMLs

@@ -1,0 +1,48 @@
+---
+import { Code } from 'astro:components';
+import compose from '../content/compose.yaml?raw';
+---
+<section class="mx-auto max-w-5xl px-6 py-24">
+  <h2 class="font-mono text-3xl font-semibold">Deploy in 30 seconds</h2>
+
+  <div class="mt-8 relative rounded-lg border border-muted/15 bg-surface overflow-hidden">
+    <div class="flex items-center justify-between px-4 py-2 border-b border-muted/15">
+      <span class="font-mono text-xs text-muted">docker-compose.yml</span>
+      <button
+        type="button"
+        data-copy
+        data-copy-target="deploy-compose"
+        class="font-mono text-xs text-muted hover:text-accent transition-colors"
+      >
+        Copy
+      </button>
+    </div>
+    <div id="deploy-compose"><Code code={compose} lang="yaml" theme="github-dark" /></div>
+  </div>
+
+  <p class="mt-6 text-muted">
+    Then <code class="font-mono text-accent">docker compose up -d</code> and
+    open <code class="font-mono">http://localhost:8099</code>. The web UI walks
+    you through sources, notifiers, plugins, and your first flow.
+  </p>
+</section>
+
+<script is:inline>
+  // The only client-side JS on the page: a Copy button.
+  document.querySelectorAll('button[data-copy]').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      const id = btn.getAttribute('data-copy-target');
+      const node = document.getElementById(id);
+      if (!node) return;
+      const text = node.innerText.trim();
+      try {
+        await navigator.clipboard.writeText(text);
+        const original = btn.textContent;
+        btn.textContent = 'Copied';
+        setTimeout(() => { btn.textContent = original; }, 1500);
+      } catch (e) {
+        btn.textContent = 'Copy failed';
+      }
+    });
+  });
+</script>

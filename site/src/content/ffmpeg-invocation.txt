@@ -1,0 +1,6 @@
+ffmpeg -hwaccel cuda -i input.mkv \
+  -map 0:v:0 -c:v hevc_nvenc -preset p5 -cq 19 -pix_fmt p010le \
+  -map 0:a:0 -c:a ac3 -b:a 640k -ac 6 -metadata:s:a:0 language=eng \
+  -map 0:s? -c:s copy \
+  -map -0:t? -map -0:V? \
+  -movflags +faststart -y output.mkv
