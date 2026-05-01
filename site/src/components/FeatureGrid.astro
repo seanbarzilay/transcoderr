@@ -1,0 +1,42 @@
+---
+import FeatureCard from './FeatureCard.astro';
+
+const features = [
+  {
+    icon: 'lucide:webhook',
+    title: 'Push-driven',
+    body: 'Typed webhook adapters for Radarr, Sonarr, and Lidarr plus a generic /webhook/:name. No library scanning, no polling.',
+  },
+  {
+    icon: 'lucide:list-checks',
+    title: 'Plan-then-execute',
+    body: 'Compose declarative plan.* steps. One plan.execute materializes the whole flow into a single ffmpeg call. No chained tmp files.',
+  },
+  {
+    icon: 'lucide:cpu',
+    title: 'Hardware-aware',
+    body: 'Boot-time probe of NVENC, QSV, VAAPI, and VideoToolbox. Per-device concurrency limits, runtime CPU fallback when a GPU encode fails mid-job.',
+  },
+  {
+    icon: 'lucide:activity',
+    title: 'Live observability',
+    body: 'Per-run progress bar, ffmpeg status streamed live, structured timeline of every step decision, Prometheus-compatible /metrics.',
+  },
+  {
+    icon: 'lucide:puzzle',
+    title: 'Plugins',
+    body: 'Browse a catalog, click Install. Tarballs are sha256-verified, deps run, and the step registry live-reloads — no restart.',
+  },
+  {
+    icon: 'lucide:package',
+    title: 'Single binary',
+    body: 'Rust + embedded SQLite + embedded React SPA. One image, one volume mount, no broker, no external DB.',
+  },
+];
+---
+<section class="mx-auto max-w-5xl px-6 py-24">
+  <h2 class="font-mono text-3xl font-semibold">What it does</h2>
+  <div class="mt-10 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+    {features.map((f) => <FeatureCard {...f} />)}
+  </div>
+</section>
