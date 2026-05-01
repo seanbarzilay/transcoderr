@@ -8,7 +8,8 @@
  * Auth is assumed OFF on the operator's server. If you turn auth on,
  * extend this script with a /login flow.
  *
- * Outputs site/public/screenshots/raw/<name>.png (gitignored).
+ * Outputs site/.screenshots-raw/<name>.png (gitignored, kept outside
+ * site/public/ so Astro doesn't copy raws into dist/).
  */
 import { chromium } from 'playwright';
 import { mkdir } from 'node:fs/promises';
@@ -18,7 +19,7 @@ import shots from './shots.config.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = resolve(__dirname, '..');
-const RAW_DIR   = resolve(REPO_ROOT, 'site/public/screenshots/raw');
+const RAW_DIR   = resolve(REPO_ROOT, 'site/.screenshots-raw');
 
 const BASE_URL = process.env.TRANSCODERR_URL || 'http://192.168.1.176:8099';
 

@@ -13,7 +13,7 @@ import config from './redact.config.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = resolve(__dirname, '..');
-const RAW_DIR   = resolve(REPO_ROOT, 'site/public/screenshots/raw');
+const RAW_DIR   = resolve(REPO_ROOT, 'site/.screenshots-raw');
 const OUT_DIR   = resolve(REPO_ROOT, 'site/public/screenshots');
 
 await mkdir(OUT_DIR, { recursive: true });
