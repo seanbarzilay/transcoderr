@@ -40,10 +40,11 @@ pub async fn boot() -> TestApp {
     let hw_caps = std::sync::Arc::new(tokio::sync::RwLock::new(caps));
 
     // Initialize the step registry with no subprocess plugins for tests.
+    let ffmpeg_caps = std::sync::Arc::new(transcoderr::ffmpeg_caps::FfmpegCaps::default());
     transcoderr::steps::registry::init(
         pool.clone(),
         hw_devices.clone(),
-        std::sync::Arc::new(transcoderr::ffmpeg_caps::FfmpegCaps::default()),
+        ffmpeg_caps.clone(),
         vec![],
     )
     .await;
@@ -73,6 +74,7 @@ pub async fn boot() -> TestApp {
             cfg,
             hw_caps,
             hw_devices,
+            ffmpeg_caps,
             bus,
             ready,
             metrics,
@@ -81,6 +83,7 @@ pub async fn boot() -> TestApp {
             arr_cache: std::sync::Arc::new(transcoderr::arr::cache::ArrCache::new(
                 std::time::Duration::from_secs(300),
             )),
+            catalog_client: std::sync::Arc::new(transcoderr::plugins::catalog::CatalogClient::default()),
         },
         std::time::Duration::from_secs(300),
     );

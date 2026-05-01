@@ -1,8 +1,12 @@
 use crate::http::AppState;
+use crate::plugins::catalog::ListAllResult;
+use crate::plugins::installer;
 use crate::plugins::manifest::Manifest;
+use crate::plugins::uninstaller;
 use axum::{extract::{Path, State}, http::StatusCode, Json};
 use serde::Serialize;
 use sqlx::Row;
+use std::collections::HashMap;
 use std::path::PathBuf;
 
 /// Summary row in the list view. Includes `provides_steps` so the page
@@ -94,6 +98,89 @@ pub async fn get(
         path: path_str,
         readme,
     }))
+}
+
+pub async fn browse(
+    State(state): State<AppState>,
+) -> Result<Json<ListAllResult>, StatusCode> {
+    state.catalog_client
+        .list_all(&state.pool)
+        .await
+        .map(Json)
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)
+}
+
+/// POST /api/plugin-catalog-entries/:catalog_id/:name/install
+///
+/// Resolves the catalog entry, downloads & verifies the tarball via the
+/// installer, then re-discovers, syncs the DB with the catalog provenance
+/// for this plugin, and rebuilds the in-memory step registry so the new
+/// step set is live before the response returns.
+pub async fn install(
+    State(state): State<AppState>,
+    Path((catalog_id, name)): Path<(i64, String)>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    state.catalog_client.invalidate(catalog_id).await;
+    let res = state
+        .catalog_client
+        .list_all(&state.pool)
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    let entry = res
+        .entries
+        .into_iter()
+        .find(|e| e.catalog_id == catalog_id && e.entry.name == name)
+        .ok_or((
+            StatusCode::NOT_FOUND,
+            format!("entry {name} not in catalog {catalog_id}"),
+        ))?;
+
+    let plugins_dir = state.cfg.data_dir.join("plugins");
+    let installed = installer::install_from_entry(&entry.entry, &plugins_dir)
+        .await
+        .map_err(|e| (StatusCode::UNPROCESSABLE_ENTITY, e.to_string()))?;
+
+    let discovered = crate::plugins::discover(&plugins_dir)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    let mut provenance = HashMap::new();
+    provenance.insert(
+        installed.name.clone(),
+        (catalog_id, installed.tarball_sha256),
+    );
+    crate::db::plugins::sync_discovered(&state.pool, &discovered, &provenance)
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    crate::steps::registry::rebuild_from_discovered(discovered).await;
+
+    Ok(Json(serde_json::json!({"installed": installed.name})))
+}
+
+/// DELETE /api/plugins/:id
+///
+/// Removes the on-disk plugin directory and DB row, then rediscovers the
+/// remaining set, syncs the DB (which prunes the now-missing row if
+/// uninstall raced anything), and rebuilds the step registry so the
+/// removed plugin's steps are no longer dispatchable.
+pub async fn uninstall(
+    State(state): State<AppState>,
+    Path(id): Path<i64>,
+) -> Result<StatusCode, (StatusCode, String)> {
+    let plugins_dir = state.cfg.data_dir.join("plugins");
+    uninstaller::uninstall(&state.pool, &plugins_dir, id)
+        .await
+        .map_err(|e| match e {
+            uninstaller::UninstallError::NotFound(_) => (StatusCode::NOT_FOUND, e.to_string()),
+            _ => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
+        })?;
+
+    let discovered = crate::plugins::discover(&plugins_dir)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    crate::db::plugins::sync_discovered(&state.pool, &discovered, &HashMap::new())
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    crate::steps::registry::rebuild_from_discovered(discovered).await;
+
+    Ok(StatusCode::NO_CONTENT)
 }
 
 /// Re-parse the on-disk manifest. Returns None if the directory is gone

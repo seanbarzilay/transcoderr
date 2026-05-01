@@ -35,8 +35,19 @@ export const api = {
     delete: (id: number) => req<void>(`/sources/${id}`, { method: "DELETE" }),
   },
   plugins: {
-    list: () => req<import("../types").Plugin[]>("/plugins"),
-    get:  (id: number) => req<import("../types").PluginDetail>(`/plugins/${id}`),
+    list:      () => req<import("../types").Plugin[]>("/plugins"),
+    get:       (id: number) => req<import("../types").PluginDetail>(`/plugins/${id}`),
+    uninstall: (id: number) => req<void>(`/plugins/${id}`, { method: "DELETE" }),
+    browse:    () => req<import("../types").CatalogListResponse>("/plugin-catalog-entries"),
+    install:   (catalogId: number, name: string) =>
+      req<{ installed: string }>(`/plugin-catalog-entries/${catalogId}/${encodeURIComponent(name)}/install`, { method: "POST" }),
+  },
+  pluginCatalogs: {
+    list:    () => req<import("../types").PluginCatalog[]>("/plugin-catalogs"),
+    create:  (body: { name: string; url: string; auth_header?: string; priority?: number }) =>
+      req<{ id: number }>("/plugin-catalogs", { method: "POST", body: JSON.stringify(body) }),
+    delete:  (id: number) => req<void>(`/plugin-catalogs/${id}`, { method: "DELETE" }),
+    refresh: (id: number) => req<void>(`/plugin-catalogs/${id}/refresh`, { method: "POST" }),
   },
   notifiers: {
     list:   () => req<import("../types").Notifier[]>("/notifiers"),

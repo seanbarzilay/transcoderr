@@ -1,5 +1,6 @@
 use crate::plugins::manifest::DiscoveredPlugin;
 use sqlx::SqlitePool;
+use std::collections::HashMap;
 
 /// Sync discovered-on-disk plugins into the `plugins` table that the UI
 /// reads from. Upserts every discovered plugin (preserving the existing
@@ -7,29 +8,44 @@ use sqlx::SqlitePool;
 /// rows for plugins no longer on disk so the UI list doesn't accumulate
 /// dead entries.
 ///
+/// `provenance` is a per-plugin-name `(catalog_id, tarball_sha256)` map
+/// recorded by the installer when a plugin is installed from a catalog.
+/// Boot-time syncs (where we just rediscover what's already on disk) pass
+/// an empty map; the upsert preserves any previously-recorded provenance
+/// via `COALESCE`.
+///
 /// Without this call the UI page is permanently empty even though the
 /// in-memory step registry happily dispatches the discovered steps.
 pub async fn sync_discovered(
     pool: &SqlitePool,
     discovered: &[DiscoveredPlugin],
+    provenance: &HashMap<String, (i64, String)>,
 ) -> anyhow::Result<()> {
     for d in discovered {
         let schema_json = serde_json::to_string(&d.schema)?;
         let path_str = d.manifest_dir.to_string_lossy().to_string();
+        let prov = provenance.get(&d.manifest.name);
+        let catalog_id = prov.map(|(id, _)| *id);
+        let sha = prov.map(|(_, sha)| sha.clone());
+
         sqlx::query(
-            "INSERT INTO plugins (name, version, kind, path, schema_json, enabled)
-             VALUES (?, ?, ?, ?, ?, 1)
+            "INSERT INTO plugins (name, version, kind, path, schema_json, enabled, catalog_id, tarball_sha256)
+             VALUES (?, ?, ?, ?, ?, 1, ?, ?)
              ON CONFLICT(name) DO UPDATE SET
-               version     = excluded.version,
-               kind        = excluded.kind,
-               path        = excluded.path,
-               schema_json = excluded.schema_json",
+               version        = excluded.version,
+               kind           = excluded.kind,
+               path           = excluded.path,
+               schema_json    = excluded.schema_json,
+               catalog_id     = COALESCE(excluded.catalog_id, plugins.catalog_id),
+               tarball_sha256 = COALESCE(excluded.tarball_sha256, plugins.tarball_sha256)",
         )
         .bind(&d.manifest.name)
         .bind(&d.manifest.version)
         .bind(&d.manifest.kind)
         .bind(&path_str)
         .bind(&schema_json)
+        .bind(catalog_id)
+        .bind(&sha)
         .execute(pool)
         .await?;
     }
@@ -93,7 +109,7 @@ mod tests {
     #[tokio::test]
     async fn sync_inserts_new_plugins() {
         let (pool, _dir) = open_pool().await;
-        sync_discovered(&pool, &[discovered("size-report", "0.1.0")])
+        sync_discovered(&pool, &[discovered("size-report", "0.1.0")], &HashMap::new())
             .await
             .unwrap();
 
@@ -110,13 +126,13 @@ mod tests {
         // Operator disabled the plugin via the UI toggle, then redeployed.
         // The toggle state should win over the boot-time sync.
         let (pool, _dir) = open_pool().await;
-        sync_discovered(&pool, &[discovered("size-report", "0.1.0")])
+        sync_discovered(&pool, &[discovered("size-report", "0.1.0")], &HashMap::new())
             .await.unwrap();
         sqlx::query("UPDATE plugins SET enabled = 0 WHERE name = 'size-report'")
             .execute(&pool).await.unwrap();
 
         // Sync again with a bumped version -- enabled must stay 0.
-        sync_discovered(&pool, &[discovered("size-report", "0.2.0")])
+        sync_discovered(&pool, &[discovered("size-report", "0.2.0")], &HashMap::new())
             .await.unwrap();
 
         let row = sqlx::query("SELECT version, enabled FROM plugins WHERE name = 'size-report'")
@@ -131,10 +147,10 @@ mod tests {
         sync_discovered(&pool, &[
             discovered("a", "0.1.0"),
             discovered("b", "0.1.0"),
-        ]).await.unwrap();
+        ], &HashMap::new()).await.unwrap();
 
         // 'b' deleted from the plugins dir.
-        sync_discovered(&pool, &[discovered("a", "0.1.0")]).await.unwrap();
+        sync_discovered(&pool, &[discovered("a", "0.1.0")], &HashMap::new()).await.unwrap();
 
         let names: Vec<String> = sqlx::query_scalar("SELECT name FROM plugins ORDER BY name")
             .fetch_all(&pool).await.unwrap();
@@ -144,8 +160,8 @@ mod tests {
     #[tokio::test]
     async fn sync_with_empty_list_clears_table() {
         let (pool, _dir) = open_pool().await;
-        sync_discovered(&pool, &[discovered("x", "0.1.0")]).await.unwrap();
-        sync_discovered(&pool, &[]).await.unwrap();
+        sync_discovered(&pool, &[discovered("x", "0.1.0")], &HashMap::new()).await.unwrap();
+        sync_discovered(&pool, &[], &HashMap::new()).await.unwrap();
         let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM plugins")
             .fetch_one(&pool).await.unwrap();
         assert_eq!(count, 0);

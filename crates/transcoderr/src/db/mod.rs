@@ -37,6 +37,7 @@ pub fn now_unix() -> i64 {
 pub mod flows;
 pub mod jobs;
 pub mod notifiers;
+pub mod plugin_catalogs;
 pub mod plugins;
 pub mod run_events;
 pub mod checkpoints;
@@ -72,5 +73,16 @@ mod tests {
         let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM flows")
             .fetch_one(&pool).await.unwrap();
         assert_eq!(count, 0);
+    }
+
+    #[tokio::test]
+    async fn migration_seeds_official_plugin_catalog() {
+        let dir = tempdir().unwrap();
+        let pool = open(dir.path()).await.unwrap();
+        let row = sqlx::query("SELECT name, priority FROM plugin_catalogs WHERE name = 'transcoderr official'")
+            .fetch_one(&pool).await.unwrap();
+        use sqlx::Row;
+        assert_eq!(row.get::<String, _>(0), "transcoderr official");
+        assert_eq!(row.get::<i64, _>(1), 0);
     }
 }

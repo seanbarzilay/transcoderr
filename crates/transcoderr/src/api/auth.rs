@@ -205,3 +205,67 @@ pub fn unredact_notifier_config(
         }
     }
 }
+
+const SECRET_CATALOG_KEYS: &[&str] = &["auth_header"];
+
+/// Replace secret catalog fields in-place with `"***"` for token-authed
+/// responses. Mirrors `redact_notifier_config` but operates on a flat
+/// catalog row JSON rather than a notifier `config` blob.
+pub fn redact_catalog_row(row: &mut serde_json::Value) {
+    if let Some(obj) = row.as_object_mut() {
+        for k in SECRET_CATALOG_KEYS {
+            if obj.get(*k).is_some_and(|v| !v.is_null()) {
+                obj.insert((*k).into(), serde_json::Value::String("***".into()));
+            }
+        }
+    }
+}
+
+/// On PUT, replace any `"***"` values at known SECRET_CATALOG_KEYS
+/// positions with the row's current value -- prevents a token-authed
+/// caller from accidentally overwriting the real secret with the
+/// redaction sentinel during a GET → mutate → PUT round trip.
+pub fn unredact_catalog_row(
+    new_row: &mut serde_json::Value,
+    current_row: &serde_json::Value,
+) {
+    let (Some(new_obj), Some(cur_obj)) = (new_row.as_object_mut(), current_row.as_object()) else {
+        return;
+    };
+    for k in SECRET_CATALOG_KEYS {
+        if new_obj.get(*k) == Some(&serde_json::Value::String("***".into())) {
+            if let Some(real) = cur_obj.get(*k) {
+                new_obj.insert((*k).into(), real.clone());
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod catalog_redaction_tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn redact_replaces_auth_header_with_sentinel() {
+        let mut row = json!({"id": 1, "name": "x", "auth_header": "Bearer secret"});
+        redact_catalog_row(&mut row);
+        assert_eq!(row["auth_header"], "***");
+    }
+
+    #[test]
+    fn redact_leaves_null_auth_header_alone() {
+        let mut row = json!({"id": 1, "name": "x", "auth_header": null});
+        redact_catalog_row(&mut row);
+        assert!(row["auth_header"].is_null());
+    }
+
+    #[test]
+    fn unredact_restores_real_value_on_round_trip() {
+        let current = json!({"auth_header": "Bearer secret"});
+        let mut new = json!({"auth_header": "***", "name": "renamed"});
+        unredact_catalog_row(&mut new, &current);
+        assert_eq!(new["auth_header"], "Bearer secret");
+        assert_eq!(new["name"], "renamed");
+    }
+}
