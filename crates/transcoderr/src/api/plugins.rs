@@ -1,4 +1,5 @@
 use crate::http::AppState;
+use crate::plugins::catalog::ListAllResult;
 use crate::plugins::manifest::Manifest;
 use axum::{extract::{Path, State}, http::StatusCode, Json};
 use serde::Serialize;
@@ -94,6 +95,16 @@ pub async fn get(
         path: path_str,
         readme,
     }))
+}
+
+pub async fn browse(
+    State(state): State<AppState>,
+) -> Result<Json<ListAllResult>, StatusCode> {
+    state.catalog_client
+        .list_all(&state.pool)
+        .await
+        .map(Json)
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)
 }
 
 /// Re-parse the on-disk manifest. Returns None if the directory is gone

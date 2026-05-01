@@ -51,6 +51,7 @@ pub fn router(state: AppState) -> Router<AppState> {
         .route("/sources/:id/transcode", post(arr_browse::transcode))
         .route("/plugins",            get(plugins::list))
         .route("/plugins/:id",        get(plugins::get))
+        .route("/plugin-catalog-entries",   get(plugins::browse))
         .route("/plugin-catalogs",          get(plugin_catalogs::list).post(plugin_catalogs::create))
         .route("/plugin-catalogs/:id",      delete(plugin_catalogs::delete))
         .route("/plugin-catalogs/:id/refresh", post(plugin_catalogs::refresh))
