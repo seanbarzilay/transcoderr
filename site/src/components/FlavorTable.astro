@@ -1,0 +1,39 @@
+---
+const rows = [
+  { tag: ':cpu-latest',    base: 'debian:bookworm-slim + ffmpeg',     accel: 'software only' },
+  { tag: ':intel-latest',  base: 'bookworm + intel-media-va-driver',  accel: 'QSV / VAAPI' },
+  { tag: ':nvidia-latest', base: 'jrottenberg/ffmpeg-nvidia',         accel: 'NVENC / NVDEC' },
+  { tag: ':full-latest',   base: 'NVIDIA base + Intel runtime',       accel: 'NVENC + QSV / VAAPI' },
+];
+---
+<section class="mx-auto max-w-5xl px-6 py-24">
+  <h2 class="font-mono text-3xl font-semibold">Image flavors</h2>
+
+  <div class="mt-8 overflow-x-auto rounded-lg border border-muted/15">
+    <table class="min-w-full text-sm">
+      <thead class="bg-surface">
+        <tr class="text-left">
+          <th class="px-4 py-3 font-mono text-muted">tag</th>
+          <th class="px-4 py-3 font-mono text-muted">base</th>
+          <th class="px-4 py-3 font-mono text-muted">hardware accel</th>
+        </tr>
+      </thead>
+      <tbody class="divide-y divide-muted/15">
+        {rows.map((r) => (
+          <tr class="hover:bg-surface/60">
+            <td class="px-4 py-3 font-mono text-accent">{r.tag}</td>
+            <td class="px-4 py-3 text-muted">{r.base}</td>
+            <td class="px-4 py-3">{r.accel}</td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  </div>
+
+  <p class="mt-6 text-sm text-muted">
+    Each tag also exists pinned to a version (<code class="font-mono">:cpu-v0.27.0</code>, etc.).
+    Static binaries (<code class="font-mono">linux-amd64</code>, <code class="font-mono">linux-arm64</code>,
+    <code class="font-mono">darwin-arm64</code>) ship attached to each
+    <a href="https://github.com/seanbarzilay/transcoderr/releases" class="text-accent hover:underline">GitHub Release</a>.
+  </p>
+</section>
