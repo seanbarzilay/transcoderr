@@ -1,12 +1,13 @@
 import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { marked } from "marked";
 import { api } from "../api/client";
-import type { Plugin, PluginDetail } from "../types";
+import type { Plugin, PluginDetail, CatalogEntry } from "../types";
+
+type Tab = "installed" | "browse" | "catalogs";
 
 export default function Plugins() {
-  const plugins = useQuery({ queryKey: ["plugins"], queryFn: api.plugins.list });
-  const [openId, setOpenId] = useState<number | null>(null);
+  const [tab, setTab] = useState<Tab>("installed");
 
   return (
     <div className="page">
@@ -16,38 +17,114 @@ export default function Plugins() {
           <h2>Plugins</h2>
         </div>
       </div>
-      <div className="surface">
-        <table>
-          <thead>
-            <tr>
-              <th>Name</th>
-              <th style={{ width: 110 }}>Version</th>
-              <th style={{ width: 130 }}>Kind</th>
-              <th>Provides</th>
-            </tr>
-          </thead>
-          <tbody>
-            {(plugins.data ?? []).map((p: Plugin) => (
+
+      <div className="plugin-tabs" role="tablist">
+        <button
+          className={"plugin-tab" + (tab === "installed" ? " is-active" : "")}
+          onClick={() => setTab("installed")}
+          role="tab"
+        >
+          Installed
+        </button>
+        <button
+          className={"plugin-tab" + (tab === "browse" ? " is-active" : "")}
+          onClick={() => setTab("browse")}
+          role="tab"
+        >
+          Browse
+        </button>
+        <button
+          className={"plugin-tab" + (tab === "catalogs" ? " is-active" : "")}
+          onClick={() => setTab("catalogs")}
+          role="tab"
+        >
+          Catalogs
+        </button>
+      </div>
+
+      {tab === "installed" && <Installed />}
+      {tab === "browse" && <Browse />}
+      {tab === "catalogs" && <Catalogs />}
+    </div>
+  );
+}
+
+function Installed() {
+  const qc = useQueryClient();
+  const plugins = useQuery({ queryKey: ["plugins"], queryFn: api.plugins.list });
+  const browse = useQuery({ queryKey: ["plugin-catalog-entries"], queryFn: api.plugins.browse });
+  const [openId, setOpenId] = useState<number | null>(null);
+
+  const uninstall = useMutation({
+    mutationFn: (id: number) => api.plugins.uninstall(id),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["plugins"] }),
+  });
+  const install = useMutation({
+    mutationFn: ({ catalogId, name }: { catalogId: number; name: string }) =>
+      api.plugins.install(catalogId, name),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["plugins"] });
+      qc.invalidateQueries({ queryKey: ["plugin-catalog-entries"] });
+    },
+  });
+
+  /// Index by name for the "update available?" check.
+  const catalogByName = new Map<string, CatalogEntry>();
+  for (const e of browse.data?.entries ?? []) catalogByName.set(e.name, e);
+
+  return (
+    <div className="surface">
+      <table>
+        <thead>
+          <tr>
+            <th>Name</th>
+            <th style={{ width: 110 }}>Version</th>
+            <th style={{ width: 130 }}>Kind</th>
+            <th>Provides</th>
+            <th style={{ width: 220 }}></th>
+          </tr>
+        </thead>
+        <tbody>
+          {(plugins.data ?? []).map((p: Plugin) => {
+            const open = openId === p.id;
+            const cat = catalogByName.get(p.name);
+            const updateAvailable =
+              cat &&
+              p.catalog_id === cat.catalog_id &&
+              cat.version !== p.version;
+            return (
               <PluginRows
                 key={p.id}
                 plugin={p}
-                open={openId === p.id}
+                open={open}
                 onToggle={() => setOpenId(s => (s === p.id ? null : p.id))}
+                onUninstall={() => {
+                  if (confirm(`Uninstall plugin "${p.name}"? This deletes its directory.`)) {
+                    uninstall.mutate(p.id);
+                  }
+                }}
+                onUpdate={
+                  updateAvailable && cat
+                    ? () => install.mutate({ catalogId: cat.catalog_id, name: cat.name })
+                    : undefined
+                }
+                updateAvailable={!!updateAvailable}
               />
-            ))}
-            {(plugins.data ?? []).length === 0 && !plugins.isLoading && (
-              <tr>
-                <td colSpan={4} className="empty">
-                  No plugins discovered.
-                  <div className="hint">
-                    Drop a plugin directory into <code>data/plugins/</code> and restart.
-                  </div>
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
-      </div>
+            );
+          })}
+          {(plugins.data ?? []).length === 0 && !plugins.isLoading && (
+            <tr>
+              <td colSpan={5} className="empty">
+                No plugins discovered.
+                <div className="hint">
+                  Use the Browse tab to install one, or drop a directory into{" "}
+                  <code>data/plugins/</code> and restart.
+                </div>
+              </td>
+            </tr>
+          )}
+        </tbody>
+      </table>
     </div>
   );
 }
@@ -56,43 +133,52 @@ interface RowProps {
   plugin: Plugin;
   open: boolean;
   onToggle: () => void;
+  onUninstall: () => void;
+  onUpdate?: () => void;
+  updateAvailable: boolean;
 }
 
-function PluginRows({ plugin, open, onToggle }: RowProps) {
+function PluginRows({ plugin, open, onToggle, onUninstall, onUpdate, updateAvailable }: RowProps) {
   return (
     <>
-      <tr
-        className={"plugin-row" + (open ? " is-open" : "")}
-        onClick={onToggle}
-        role="button"
-        aria-expanded={open}
-        tabIndex={0}
-        onKeyDown={e => {
-          if (e.key === "Enter" || e.key === " ") {
-            e.preventDefault();
-            onToggle();
-          }
-        }}
-      >
-        <td className="mono">
+      <tr className={"plugin-row" + (open ? " is-open" : "")} aria-expanded={open}>
+        <td
+          className="mono"
+          onClick={onToggle}
+          role="button"
+          tabIndex={0}
+          onKeyDown={e => {
+            if (e.key === "Enter" || e.key === " ") {
+              e.preventDefault();
+              onToggle();
+            }
+          }}
+        >
           <span className="plugin-row-caret" aria-hidden="true">
             {open ? "▾" : "▸"}
           </span>{" "}
           {plugin.name}
         </td>
-        <td className="dim tnum">{plugin.version}</td>
+        <td className="dim tnum">
+          {plugin.version}
+          {updateAvailable && <span className="plugin-update-badge">update</span>}
+        </td>
         <td>
           <span className="label">{plugin.kind}</span>
         </td>
         <td className="mono dim">
-          {plugin.provides_steps.length === 0
-            ? "—"
-            : plugin.provides_steps.join(", ")}
+          {plugin.provides_steps.length === 0 ? "—" : plugin.provides_steps.join(", ")}
+        </td>
+        <td>
+          {onUpdate && <button onClick={onUpdate}>Update</button>}{" "}
+          <button className="btn-danger" onClick={onUninstall}>
+            Uninstall
+          </button>
         </td>
       </tr>
       {open && (
         <tr className="plugin-detail-row">
-          <td colSpan={4}>
+          <td colSpan={5}>
             <PluginDetailPanel id={plugin.id} />
           </td>
         </tr>
@@ -191,4 +277,12 @@ function PluginDetailBody({ detail }: { detail: PluginDetail }) {
       </div>
     </div>
   );
+}
+
+function Browse() {
+  return <div className="muted">Browse tab — task 15.</div>;
+}
+
+function Catalogs() {
+  return <div className="muted">Catalogs tab — task 16.</div>;
 }
