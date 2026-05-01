@@ -90,6 +90,8 @@ mod tests {
                 provides_steps: vec![format!("{name}.step")],
                 requires: serde_json::json!({}),
                 capabilities: vec![],
+                summary: None,
+                min_transcoderr_version: None,
             },
             manifest_dir: PathBuf::from(format!("/data/plugins/{name}")),
             schema: serde_json::json!({"type": "object"}),
