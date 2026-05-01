@@ -36,6 +36,12 @@ pub struct PluginDetail {
     /// Filesystem path of the plugin directory on the server. Useful as
     /// a "where to edit this" hint -- we render it in the detail view.
     pub path: String,
+    /// One-line description from the manifest's `summary` field. `None`
+    /// for older / hand-rolled plugins that don't set it.
+    pub summary: Option<String>,
+    /// Manifest's `min_transcoderr_version` field if set. Rendered as a
+    /// "Min version v0.X.0" badge in the detail panel.
+    pub min_transcoderr_version: Option<String>,
     /// Verbatim README.md contents. `None` when the plugin doesn't ship one.
     pub readme: Option<String>,
 }
@@ -81,9 +87,15 @@ pub async fn get(
     let schema_str: String = row.get(5);
     let schema: serde_json::Value = serde_json::from_str(&schema_str).unwrap_or_default();
 
-    let (provides_steps, capabilities, requires) = match manifest {
-        Some(m) => (m.provides_steps, m.capabilities, m.requires),
-        None => (vec![], vec![], serde_json::Value::Null),
+    let (provides_steps, capabilities, requires, summary, min_transcoderr_version) = match manifest {
+        Some(m) => (
+            m.provides_steps,
+            m.capabilities,
+            m.requires,
+            m.summary,
+            m.min_transcoderr_version,
+        ),
+        None => (vec![], vec![], serde_json::Value::Null, None, None),
     };
 
     Ok(Json(PluginDetail {
@@ -96,6 +108,8 @@ pub async fn get(
         requires,
         schema,
         path: path_str,
+        summary,
+        min_transcoderr_version,
         readme,
     }))
 }

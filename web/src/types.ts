@@ -24,6 +24,8 @@ export type PluginDetail = {
   requires: any;
   schema: any;
   path: string;
+  summary: string | null;
+  min_transcoderr_version: string | null;
   readme: string | null;
 };
 
