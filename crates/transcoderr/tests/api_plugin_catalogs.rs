@@ -171,12 +171,25 @@ async fn install_then_uninstall_round_trip() {
         .send().await.unwrap();
     assert_eq!(resp.status(), 200);
 
-    // /api/plugins now lists demo with provides_steps from the manifest.
+    // /api/plugins now lists demo with provides_steps from the manifest
+    // AND with catalog_id + tarball_sha256 set from the install path.
+    // The Installed-tab "Update available?" detection in the UI joins on
+    // catalog_id, so this contract has to hold for the Update button to
+    // render.
     let plugins: Vec<serde_json::Value> = client
         .get(format!("{}/api/plugins", app.url))
         .send().await.unwrap().json().await.unwrap();
     assert_eq!(plugins.len(), 1);
     assert_eq!(plugins[0]["name"], "demo");
+    assert_eq!(
+        plugins[0]["catalog_id"].as_i64(),
+        Some(cid),
+        "catalog_id must be the catalog the plugin was installed from"
+    );
+    assert!(
+        plugins[0]["tarball_sha256"].is_string(),
+        "tarball_sha256 must be the install-time hash, not null"
+    );
     let pid = plugins[0]["id"].as_i64().unwrap();
 
     // Uninstall via the API.
