@@ -147,6 +147,7 @@ async fn main() -> anyhow::Result<()> {
                 cancellations,
                 public_url: public_url_arc,
                 arr_cache,
+                catalog_client: std::sync::Arc::new(transcoderr::plugins::catalog::CatalogClient::default()),
             };
             ready.mark_ready().await;
 

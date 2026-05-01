@@ -4,6 +4,7 @@ pub mod dryrun;
 pub mod flows;
 pub mod jobs;
 pub mod notifiers;
+pub mod plugin_catalogs;
 pub mod plugins;
 pub mod runs;
 pub mod settings;
@@ -50,6 +51,9 @@ pub fn router(state: AppState) -> Router<AppState> {
         .route("/sources/:id/transcode", post(arr_browse::transcode))
         .route("/plugins",            get(plugins::list))
         .route("/plugins/:id",        get(plugins::get))
+        .route("/plugin-catalogs",          get(plugin_catalogs::list).post(plugin_catalogs::create))
+        .route("/plugin-catalogs/:id",      delete(plugin_catalogs::delete))
+        .route("/plugin-catalogs/:id/refresh", post(plugin_catalogs::refresh))
         .route("/notifiers",          get(notifiers::list).post(notifiers::create))
         .route("/notifiers/:id",      get(notifiers::get).put(notifiers::update).delete(notifiers::delete))
         .route("/notifiers/:id/test", post(notifiers::test))
