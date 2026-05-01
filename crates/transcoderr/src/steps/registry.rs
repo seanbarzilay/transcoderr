@@ -136,6 +136,7 @@ mod tests {
                 summary: None,
                 min_transcoderr_version: None,
                 runtimes: vec![],
+                deps: None,
             },
             manifest_dir: plugin_dir,
             schema: serde_json::Value::Null,

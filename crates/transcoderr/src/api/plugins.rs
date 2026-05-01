@@ -54,6 +54,10 @@ pub struct PluginDetail {
     /// Bare executable names the plugin shells out to. Rendered next to
     /// Capabilities so the operator sees what the plugin needs.
     pub runtimes: Vec<String>,
+    /// Manifest's `deps` shell command if set (e.g. `pip install -r
+    /// requirements.txt`). Rendered as a `<code>` block in the detail
+    /// panel so the operator sees what's run on install / boot.
+    pub deps: Option<String>,
     /// Verbatim README.md contents. `None` when the plugin doesn't ship one.
     pub readme: Option<String>,
 }
@@ -106,18 +110,34 @@ pub async fn get(
     let schema_str: String = row.get(5);
     let schema: serde_json::Value = serde_json::from_str(&schema_str).unwrap_or_default();
 
-    let (provides_steps, capabilities, requires, summary, min_transcoderr_version, runtimes) =
-        match manifest {
-            Some(m) => (
-                m.provides_steps,
-                m.capabilities,
-                m.requires,
-                m.summary,
-                m.min_transcoderr_version,
-                m.runtimes,
-            ),
-            None => (vec![], vec![], serde_json::Value::Null, None, None, vec![]),
-        };
+    let (
+        provides_steps,
+        capabilities,
+        requires,
+        summary,
+        min_transcoderr_version,
+        runtimes,
+        deps,
+    ) = match manifest {
+        Some(m) => (
+            m.provides_steps,
+            m.capabilities,
+            m.requires,
+            m.summary,
+            m.min_transcoderr_version,
+            m.runtimes,
+            m.deps,
+        ),
+        None => (
+            vec![],
+            vec![],
+            serde_json::Value::Null,
+            None,
+            None,
+            vec![],
+            None,
+        ),
+    };
 
     Ok(Json(PluginDetail {
         id: row.get(0),
@@ -132,6 +152,7 @@ pub async fn get(
         summary,
         min_transcoderr_version,
         runtimes,
+        deps,
         readme,
     }))
 }
@@ -195,6 +216,23 @@ pub async fn install(
     let installed = installer::install_from_entry(&entry.entry, &plugins_dir)
         .await
         .map_err(|e| (StatusCode::UNPROCESSABLE_ENTITY, e.to_string()))?;
+
+    // Run the plugin's `deps` shell command if it declared one (e.g.
+    // `pip install -r requirements.txt`). On failure, roll back the
+    // install -- delete the just-extracted plugin dir -- so the
+    // operator can fix the issue and retry without a half-installed
+    // plugin sitting on disk.
+    if let Some(deps_cmd) = read_manifest(&installed.plugin_dir.to_string_lossy())
+        .and_then(|m| m.deps)
+    {
+        if let Err(e) = crate::plugins::deps::run(&installed.plugin_dir, &deps_cmd).await {
+            let _ = std::fs::remove_dir_all(&installed.plugin_dir);
+            return Err((
+                StatusCode::UNPROCESSABLE_ENTITY,
+                format!("deps install failed: {e}"),
+            ));
+        }
+    }
 
     let discovered = crate::plugins::discover(&plugins_dir)
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;

@@ -29,6 +29,15 @@ pub struct Manifest {
     /// coreutils only" — always present on supported images.
     #[serde(default)]
     pub runtimes: Vec<String>,
+    /// Optional shell command run by `/bin/sh -c` in the plugin's
+    /// directory at install time and on every server boot. Used by
+    /// authors of e.g. Python plugins to declare `pip install -r
+    /// requirements.txt`. Failure at install returns 422 and rolls
+    /// back the install; failure at boot logs a warning and the
+    /// plugin still registers (so the operator can see it in the UI
+    /// to debug).
+    #[serde(default)]
+    pub deps: Option<String>,
 }
 
 #[derive(Debug, Clone)]

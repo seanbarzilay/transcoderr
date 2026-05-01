@@ -274,3 +274,107 @@ async fn install_refuses_when_declared_runtime_is_missing() {
         .send().await.unwrap().json().await.unwrap();
     assert!(plugins.is_empty(), "no plugin should be installed");
 }
+
+/// A plugin that declares `deps = "false"` in its manifest must fail
+/// install with 422 AND have its on-disk dir cleaned up so a retry
+/// after the operator fixes the deps doesn't run into a half-installed
+/// dir.
+#[tokio::test]
+async fn install_refuses_when_deps_command_exits_non_zero() {
+    use flate2::write::GzEncoder;
+    use flate2::Compression;
+    use sha2::{Digest, Sha256};
+    use wiremock::matchers::{method, path};
+    use wiremock::{Mock, MockServer, ResponseTemplate};
+
+    let app = boot().await;
+    let client = reqwest::Client::new();
+
+    // Tarball: top-level "broken-deps/" with a manifest declaring
+    // `deps = "false"` (the POSIX `false` exits 1).
+    let manifest = "name = \"broken-deps\"\n\
+                    version = \"0.1.0\"\n\
+                    kind = \"subprocess\"\n\
+                    entrypoint = \"bin/run\"\n\
+                    provides_steps = [\"broken.do\"]\n\
+                    deps = \"false\"\n";
+    let mut gz = GzEncoder::new(Vec::new(), Compression::default());
+    {
+        let mut tar = tar::Builder::new(&mut gz);
+        let mut hdr = tar::Header::new_gnu();
+        hdr.set_path("broken-deps/").unwrap();
+        hdr.set_mode(0o755); hdr.set_size(0); hdr.set_cksum();
+        tar.append(&hdr, std::io::empty()).unwrap();
+        let body = manifest.as_bytes();
+        let mut hdr = tar::Header::new_gnu();
+        hdr.set_path("broken-deps/manifest.toml").unwrap();
+        hdr.set_mode(0o644); hdr.set_size(body.len() as u64); hdr.set_cksum();
+        tar.append(&hdr, body).unwrap();
+        let run = b"#!/bin/sh\necho ok\n";
+        let mut hdr = tar::Header::new_gnu();
+        hdr.set_path("broken-deps/bin/run").unwrap();
+        hdr.set_mode(0o755); hdr.set_size(run.len() as u64); hdr.set_cksum();
+        tar.append(&hdr, &run[..]).unwrap();
+        tar.finish().unwrap();
+    }
+    let bytes = gz.finish().unwrap();
+    let mut h = Sha256::new(); h.update(&bytes);
+    let sha: String = h.finalize().iter().map(|b| format!("{b:02x}")).collect();
+
+    let server = MockServer::start().await;
+    let url = server.uri();
+    Mock::given(method("GET")).and(path("/index.json"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "schema_version": 1,
+            "plugins": [{
+                "name": "broken-deps",
+                "version": "0.1.0",
+                "summary": "manifest declares deps that always fail",
+                "tarball_url": format!("{url}/broken-deps.tar.gz"),
+                "tarball_sha256": sha,
+                "kind": "subprocess",
+                "provides_steps": ["broken.do"],
+                "deps": "false"
+            }]
+        })))
+        .mount(&server).await;
+    Mock::given(method("GET")).and(path("/broken-deps.tar.gz"))
+        .respond_with(ResponseTemplate::new(200).set_body_bytes(bytes))
+        .mount(&server).await;
+
+    // Replace the seed catalog with the mock.
+    let list: Vec<serde_json::Value> = client
+        .get(format!("{}/api/plugin-catalogs", app.url))
+        .send().await.unwrap().json().await.unwrap();
+    let seed_id = list[0]["id"].as_i64().unwrap();
+    client.delete(format!("{}/api/plugin-catalogs/{seed_id}", app.url))
+        .send().await.unwrap();
+    let create: serde_json::Value = client
+        .post(format!("{}/api/plugin-catalogs", app.url))
+        .json(&json!({"name": "mock", "url": format!("{url}/index.json")}))
+        .send().await.unwrap().json().await.unwrap();
+    let cid = create["id"].as_i64().unwrap();
+
+    // Install refuses with 422.
+    let resp = client
+        .post(format!("{}/api/plugin-catalog-entries/{cid}/broken-deps/install", app.url))
+        .send().await.unwrap();
+    assert_eq!(resp.status(), 422);
+    let body = resp.text().await.unwrap();
+    assert!(
+        body.contains("deps install failed"),
+        "deps failure error must be surfaced, got: {body}"
+    );
+
+    // Plugin dir was rolled back -- nothing on disk.
+    assert!(
+        !app.data_dir.join("plugins").join("broken-deps").exists(),
+        "rollback must remove the on-disk plugin dir on deps failure"
+    );
+
+    // No plugin row landed.
+    let plugins: Vec<serde_json::Value> = client
+        .get(format!("{}/api/plugins", app.url))
+        .send().await.unwrap().json().await.unwrap();
+    assert!(plugins.is_empty(), "no plugin should be installed");
+}
