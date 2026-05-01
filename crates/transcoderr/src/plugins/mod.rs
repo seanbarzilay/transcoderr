@@ -2,6 +2,7 @@ pub mod catalog;
 pub mod installer;
 pub mod manifest;
 pub mod subprocess;
+pub mod uninstaller;
 
 use manifest::{DiscoveredPlugin, load_from_dir};
 use std::path::Path;
