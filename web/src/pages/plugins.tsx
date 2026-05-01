@@ -361,5 +361,96 @@ function Browse() {
 }
 
 function Catalogs() {
-  return <div className="muted">Catalogs tab — task 16.</div>;
+  const qc = useQueryClient();
+  const list = useQuery({ queryKey: ["plugin-catalogs"], queryFn: api.pluginCatalogs.list });
+
+  const [name, setName] = useState("");
+  const [url, setUrl] = useState("");
+  const [authHeader, setAuthHeader] = useState("");
+  const [priority, setPriority] = useState("0");
+  const [addError, setAddError] = useState<string | null>(null);
+
+  const create = useMutation({
+    mutationFn: () => api.pluginCatalogs.create({
+      name: name.trim(),
+      url: url.trim(),
+      auth_header: authHeader.trim() || undefined,
+      priority: Number.parseInt(priority, 10) || 0,
+    }),
+    onSuccess: () => {
+      setName(""); setUrl(""); setAuthHeader(""); setPriority("0");
+      setAddError(null);
+      qc.invalidateQueries({ queryKey: ["plugin-catalogs"] });
+      qc.invalidateQueries({ queryKey: ["plugin-catalog-entries"] });
+    },
+    onError: (e: any) => setAddError(e?.message ?? "create failed"),
+  });
+  const del = useMutation({
+    mutationFn: (id: number) => api.pluginCatalogs.delete(id),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["plugin-catalogs"] });
+      qc.invalidateQueries({ queryKey: ["plugin-catalog-entries"] });
+    },
+  });
+  const refresh = useMutation({
+    mutationFn: (id: number) => api.pluginCatalogs.refresh(id),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["plugin-catalog-entries"] }),
+  });
+
+  return (
+    <>
+      <div className="surface" style={{ padding: 16, marginBottom: 16 }}>
+        <div className="label" style={{ marginBottom: 8 }}>Add catalog</div>
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+          <input placeholder="name" value={name} onChange={e => setName(e.target.value)} style={{ minWidth: 180 }} />
+          <input placeholder="https://.../index.json" value={url} onChange={e => setUrl(e.target.value)} style={{ flex: 1, minWidth: 280 }} />
+          <input type="password" placeholder="auth header (optional)" value={authHeader} onChange={e => setAuthHeader(e.target.value)} style={{ minWidth: 220 }} />
+          <input type="number" placeholder="priority" value={priority} onChange={e => setPriority(e.target.value)} style={{ width: 100 }} />
+          <button onClick={() => create.mutate()} disabled={create.isPending || !name.trim() || !url.trim()}>Add</button>
+        </div>
+        {addError && <div style={{ color: "var(--bad)", marginTop: 8, fontSize: 12 }}>{addError}</div>}
+      </div>
+
+      <div className="surface">
+        <table>
+          <thead>
+            <tr>
+              <th>Name</th>
+              <th>URL</th>
+              <th style={{ width: 90 }}>Priority</th>
+              <th style={{ width: 160 }}>Last fetched</th>
+              <th style={{ width: 220 }}></th>
+            </tr>
+          </thead>
+          <tbody>
+            {(list.data ?? []).map(c => (
+              <tr key={c.id}>
+                <td className="mono">{c.name}</td>
+                <td className="dim mono" style={{ fontSize: 11, wordBreak: "break-all" }}>{c.url}</td>
+                <td className="tnum dim">{c.priority}</td>
+                <td className="dim" style={{ fontSize: 11 }}>
+                  {c.last_fetched_at
+                    ? new Date(c.last_fetched_at * 1000).toLocaleString()
+                    : "never"}
+                  {c.last_error && (
+                    <div style={{ color: "var(--bad)", marginTop: 2 }}>{c.last_error}</div>
+                  )}
+                </td>
+                <td>
+                  <button className="btn-ghost" onClick={() => refresh.mutate(c.id)}>Refresh</button>{" "}
+                  <button className="btn-danger"
+                    onClick={() => {
+                      if (confirm(`Delete catalog "${c.name}"?`)) del.mutate(c.id);
+                    }}>Delete</button>
+                </td>
+              </tr>
+            ))}
+            {(list.data ?? []).length === 0 && !list.isLoading && (
+              <tr><td colSpan={5} className="empty">No catalogs configured.</td></tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+    </>
+  );
 }
