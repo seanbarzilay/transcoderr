@@ -1,0 +1,28 @@
+---
+import { Code } from 'astro:components';
+import flowYaml from '../content/flow-example.yaml?raw';
+import ffmpegCmd from '../content/ffmpeg-invocation.txt?raw';
+---
+<section class="mx-auto max-w-6xl px-6 py-24">
+  <h2 class="font-mono text-3xl font-semibold">One ffmpeg pass</h2>
+  <p class="mt-4 max-w-prose text-muted">
+    No chained tmp files, no per-step IO churn. The flow engine builds a stream
+    plan in memory; one <code class="font-mono text-accent">plan.execute</code> step
+    materializes it into a single ffmpeg call.
+  </p>
+
+  <div class="mt-10 grid grid-cols-1 lg:grid-cols-2 gap-4">
+    <div class="rounded-lg border border-muted/15 bg-surface overflow-hidden">
+      <div class="px-4 py-2 border-b border-muted/15 font-mono text-xs text-muted">
+        flow.yaml
+      </div>
+      <Code code={flowYaml} lang="yaml" theme="github-dark" />
+    </div>
+    <div class="rounded-lg border border-muted/15 bg-surface overflow-hidden">
+      <div class="px-4 py-2 border-b border-muted/15 font-mono text-xs text-muted">
+        plan.execute &mdash; the ffmpeg call
+      </div>
+      <Code code={ffmpegCmd} lang="bash" theme="github-dark" />
+    </div>
+  </div>
+</section>

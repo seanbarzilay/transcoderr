@@ -1,0 +1,27 @@
+name: hevc-normalize
+triggers:
+  - radarr: [downloaded, upgraded]
+  - sonarr: [downloaded]
+
+steps:
+  - use: probe
+  - use: plan.init
+  - use: plan.streams.drop_cover_art
+
+  - if: probe.streams[0].codec_name == "hevc"
+    then: []
+    else:
+      - use: plan.video.encode
+        with:
+          codec: x265
+          crf: 19
+          preset: fast
+          hw: { prefer: [nvenc, qsv, vaapi, videotoolbox], fallback: cpu }
+
+  - use: plan.audio.ensure
+    with: { codec: ac3, channels: 6, language: eng }
+
+  - use: plan.execute        # ONE ffmpeg pass
+  - use: verify.playable
+  - use: output
+    with: { mode: replace }
