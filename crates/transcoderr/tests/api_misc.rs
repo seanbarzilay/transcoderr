@@ -112,7 +112,7 @@ capabilities = ["fs.read"]
     // Same call boot() would make at startup if there had been plugins.
     let discovered =
         transcoderr::plugins::discover(&app.data_dir.join("plugins")).unwrap();
-    transcoderr::db::plugins::sync_discovered(&app.pool, &discovered)
+    transcoderr::db::plugins::sync_discovered(&app.pool, &discovered, &std::collections::HashMap::new())
         .await
         .unwrap();
 

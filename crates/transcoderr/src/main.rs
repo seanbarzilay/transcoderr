@@ -50,7 +50,7 @@ async fn main() -> anyhow::Result<()> {
             // page lists what was discovered. Without this the UI is
             // permanently empty even though the in-memory step registry
             // happily dispatches the steps.
-            transcoderr::db::plugins::sync_discovered(&pool, &discovered).await?;
+            transcoderr::db::plugins::sync_discovered(&pool, &discovered, &std::collections::HashMap::new()).await?;
             let ffmpeg_caps = std::sync::Arc::new(
                 transcoderr::ffmpeg_caps::FfmpegCaps::probe().await,
             );
