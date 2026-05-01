@@ -135,6 +135,30 @@ Each tag also exists pinned to a version (`:cpu-v0.6.2`, etc.). Static
 binaries (`linux-amd64`, `linux-arm64`, `darwin-arm64`) ship attached to
 each GitHub Release.
 
+### Plugin runtimes
+
+Plugins from the [catalog](docs/plugins/) can declare extra runtimes
+they need (e.g. `python3`, `nodejs`). The base images stay small —
+no extra interpreters by default. To install them at container boot
+set the `TRANSCODERR_RUNTIMES` env var to a comma-separated list of
+apt package names:
+
+```yaml
+services:
+  transcoderr:
+    image: ghcr.io/seanbarzilay/transcoderr:cpu-latest
+    environment:
+      TRANSCODERR_RUNTIMES: "python3,nodejs"
+    # ...
+```
+
+The entrypoint runs `apt-get install` on each boot, so a fresh image
+always matches the declared runtimes. Trade-off: ~10–60s added to
+container start depending on which runtimes you ask for; empty /
+unset is a no-op (the default). Names are passed verbatim to apt;
+the entrypoint rejects anything outside `[a-zA-Z0-9.+-]` to stop
+shell-metachar mischief in the env var.
+
 ## Build from source
 
 ```bash
