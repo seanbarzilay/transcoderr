@@ -1,4 +1,13 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <!-- transcoder/r mark — amber dot + amber "/r" on the dark page bg.
+       Matches the sidebar brand mark (.brand-dot + .brand-x in app CSS).
+       Mark width ≈ 38 → left/right margins ≈ 13 (symmetric). -->
   <rect width="64" height="64" rx="12" fill="#0b0d0e"/>
-  <circle cx="32" cy="32" r="14" fill="#ffb627"/>
+  <circle cx="18" cy="32" r="5" fill="#ffb627"/>
+  <text x="27" y="40"
+        font-family="ui-monospace, 'SF Mono', Menlo, Consolas, monospace"
+        font-size="22"
+        font-weight="700"
+        fill="#ffb627"
+        letter-spacing="-1">/r</text>
 </svg>
