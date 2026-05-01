@@ -35,16 +35,28 @@ pub struct IndexEntry {
     pub kind: String,
     #[serde(default)]
     pub provides_steps: Vec<String>,
+    /// Bare executable names the plugin needs on PATH (`["python3"]`,
+    /// `["node"]`, etc.). Defaults to empty -- "POSIX shell + coreutils
+    /// only", which every supported transcoderr image already has.
+    /// Surfaced from manifest.toml by the catalog repo's publish.py.
+    #[serde(default)]
+    pub runtimes: Vec<String>,
 }
 
 /// Resolved entry served to the API: an index entry tagged with the
-/// catalog it came from.
+/// catalog it came from, plus a server-computed `missing_runtimes`
+/// list so the FE can disable Install before the operator clicks.
 #[derive(Debug, Clone, Serialize)]
 pub struct CatalogEntry {
     pub catalog_id: i64,
     pub catalog_name: String,
     #[serde(flatten)]
     pub entry: IndexEntry,
+    /// Subset of `entry.runtimes` not on this host's PATH. Empty list
+    /// means installable. Populated by the browse handler per-request,
+    /// not by the catalog client itself (which has no PATH knowledge).
+    #[serde(default)]
+    pub missing_runtimes: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -127,6 +139,7 @@ impl CatalogClient {
                                     catalog_id: c.id,
                                     catalog_name: c.name.clone(),
                                     entry: p.clone(),
+                                    missing_runtimes: Vec::new(),
                                 });
                             },
                             Err(msg) => errors.push(CatalogFetchError {
@@ -159,6 +172,7 @@ impl CatalogClient {
                             catalog_id: c.id,
                             catalog_name: c.name.clone(),
                             entry: p,
+                            missing_runtimes: Vec::new(),
                         });
                     }
                 }

@@ -352,6 +352,15 @@ function Browse() {
                 <td>
                   {installed ? (
                     <span className="dim">Installed</span>
+                  ) : e.missing_runtimes && e.missing_runtimes.length > 0 ? (
+                    <div>
+                      <button disabled title={`Missing runtime(s) on the server's PATH: ${e.missing_runtimes.join(", ")}`}>
+                        Install
+                      </button>
+                      <div className="muted" style={{ fontSize: 11, marginTop: 2 }}>
+                        Missing: {e.missing_runtimes.join(", ")}
+                      </div>
+                    </div>
                   ) : (
                     <button onClick={() => {
                       if (confirm(`Install "${e.name}"? This plugin runs as the transcoderr user.`)) {

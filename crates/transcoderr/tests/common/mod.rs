@@ -84,6 +84,7 @@ pub async fn boot() -> TestApp {
                 std::time::Duration::from_secs(300),
             )),
             catalog_client: std::sync::Arc::new(transcoderr::plugins::catalog::CatalogClient::default()),
+            runtime_checker: std::sync::Arc::new(transcoderr::plugins::runtime::RuntimeChecker::default()),
         },
         std::time::Duration::from_secs(300),
     );

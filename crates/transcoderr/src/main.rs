@@ -51,6 +51,24 @@ async fn main() -> anyhow::Result<()> {
             // permanently empty even though the in-memory step registry
             // happily dispatches the steps.
             transcoderr::db::plugins::sync_discovered(&pool, &discovered, &std::collections::HashMap::new()).await?;
+
+            // Diagnostic warning: a manually-installed plugin whose
+            // declared runtimes aren't on $PATH will register fine but
+            // fail at first dispatch. Surfacing this at boot makes the
+            // failure mode debuggable from the server log.
+            let runtime_checker = std::sync::Arc::new(
+                transcoderr::plugins::runtime::RuntimeChecker::default(),
+            );
+            for d in &discovered {
+                let missing = runtime_checker.missing(&d.manifest.runtimes).await;
+                if !missing.is_empty() {
+                    tracing::warn!(
+                        plugin = %d.manifest.name,
+                        missing = ?missing,
+                        "plugin declares runtime(s) not on PATH; runs that dispatch its steps will fail until they're installed",
+                    );
+                }
+            }
             let ffmpeg_caps = std::sync::Arc::new(
                 transcoderr::ffmpeg_caps::FfmpegCaps::probe().await,
             );
@@ -148,6 +166,7 @@ async fn main() -> anyhow::Result<()> {
                 public_url: public_url_arc,
                 arr_cache,
                 catalog_client: std::sync::Arc::new(transcoderr::plugins::catalog::CatalogClient::default()),
+                runtime_checker: runtime_checker.clone(),
             };
             ready.mark_ready().await;
 

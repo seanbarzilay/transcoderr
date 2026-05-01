@@ -51,6 +51,10 @@ export type CatalogEntry = {
   min_transcoderr_version: string | null;
   kind: string;
   provides_steps: string[];
+  /// Bare executable names the plugin needs on PATH.
+  runtimes: string[];
+  /// Subset of `runtimes` not on the server's PATH. Empty = installable.
+  missing_runtimes: string[];
 };
 
 export type CatalogFetchError = {
