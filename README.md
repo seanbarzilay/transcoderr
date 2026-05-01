@@ -31,12 +31,16 @@ Webhook in, ffmpeg out, configurable in between.
   decision, Prometheus-compatible `/metrics`.
 - **Notifiers.** Discord, ntfy, Telegram, generic webhook, and Jellyfin
   (per-file rescan via `/Library/Media/Updated`). Configurable in the UI.
-- **Plugins.** Extend flows with new step kinds by dropping a directory
-  into `{data_dir}/plugins/` — any executable that speaks JSON-RPC over
-  stdin/stdout works (POSIX shell, Python, Go…). Ships with an example
-  [`size-report`](docs/plugins/size-report/) plugin that records
-  before/after byte counts so notify templates can render
-  `saved 38.4% (12.4G → 7.6G)` lines.
+- **Plugins.** Extend flows with new step kinds. The **Plugins → Browse**
+  page lists everything in the configured catalogs — click Install and
+  the server fetches the tarball, sha256-verifies it, and live-reloads
+  the step registry without a restart. Plugins are any executable that
+  speaks JSON-RPC over stdin/stdout (POSIX shell, Python, Go…); the
+  manifest declares its `runtimes` and an optional `deps` shell command
+  (e.g. `pip install -r requirements.txt`) so the server gates install
+  on PATH availability and runs the deps before the steps go live. The
+  default catalog is [`seanbarzilay/transcoderr-plugins`](https://github.com/seanbarzilay/transcoderr-plugins);
+  add your own private catalogs in **Plugins → Catalogs**.
 - **Single binary.** Rust + embedded SQLite + embedded React SPA. One image,
   one volume mount, no broker, no external DB.
 
@@ -73,7 +77,10 @@ walks you through:
    - Password: the secret token (Basic auth is supported alongside Bearer)
 2. **Notifiers → Add.** Optional. Configure Discord/ntfy/Telegram/webhook so
    flows can `notify`.
-3. **Flows → New flow.** Paste in a flow YAML (example below).
+3. **Plugins → Browse.** Optional. Install plugins from the official
+   catalog (or your own) to add custom flow steps. The default catalog
+   ships [`size-report`](https://github.com/seanbarzilay/transcoderr-plugins/tree/main/size-report).
+4. **Flows → New flow.** Paste in a flow YAML (example below).
 
 ## Example flow
 
@@ -197,9 +204,11 @@ step's checkpoint.
 `transcoderr-mcp` is a stdio MCP binary that lets AI clients (Claude Desktop,
 Cursor) drive transcoderr's read & write surface. Download the binary for
 your platform from the latest GitHub Release, then point your AI client at
-it. Tools cover runs, flows, sources, notifiers, plus library browse +
-per-file transcode — so prompts like "queue every non-HEVC movie" or
-"re-encode every 1080p episode of *this* show" work as one operation.
+it. Tools cover runs, flows, sources, notifiers, plugins (list / browse /
+install / uninstall — catalog management stays operator-owned), plus
+library browse + per-file transcode — so prompts like "queue every non-HEVC
+movie" or "re-encode every 1080p episode of *this* show" work as one
+operation.
 
 ```json
 {
@@ -225,6 +234,8 @@ Create the token under **Settings → API tokens** in the web UI. See
 - [`docs/flows/`](docs/flows/) — example flow YAMLs
 - [`docs/plugins/`](docs/plugins/) — example subprocess plugins
   (drop into `{data_dir}/plugins/`)
+- [`seanbarzilay/transcoderr-plugins`](https://github.com/seanbarzilay/transcoderr-plugins) —
+  the default plugin catalog (browse + install via **Plugins → Browse**)
 - [`docs/superpowers/specs/`](docs/superpowers/specs/) — original design spec
 - [`docs/superpowers/plans/`](docs/superpowers/plans/) — phase-by-phase
   implementation plans

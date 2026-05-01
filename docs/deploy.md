@@ -13,12 +13,17 @@ Mount `/data` for state. The directory layout:
 
 ```
 /data
-  ├── data.db           SQLite (jobs, flows, runs, settings)
+  ├── data.db           SQLite (jobs, flows, runs, settings, catalogs)
   ├── data.db-wal/-shm  WAL artifacts (don't edit)
-  ├── plugins/          Subprocess plugin directories
+  ├── plugins/          Installed plugin directories (managed via UI / MCP)
   ├── logs/             Spilled run-event payloads
   └── tmp/              Transcoder scratch (auto-cleaned)
 ```
+
+`plugins/` is server-managed: install / uninstall via **Plugins → Browse**
+in the UI (or the `install_plugin` / `uninstall_plugin` MCP tools). Hand-
+dropping a directory here still works for local development, but won't
+get a catalog provenance row.
 
 Mount your media library read/write under whatever path your flows reference (commonly `/media`).
 
@@ -55,6 +60,32 @@ The binary serves both webhooks and the UI on the same port. To require login on
 2. UI traffic now requires a session cookie. Webhooks remain authenticated by their per-source token regardless.
 
 If you put the binary behind nginx/caddy/traefik, terminate TLS at the proxy. WebSocket-style streaming is not used — SSE works through any HTTP/1.1 proxy.
+
+## Plugin catalogs and runtimes
+
+The default catalog is
+[`seanbarzilay/transcoderr-plugins`](https://github.com/seanbarzilay/transcoderr-plugins);
+add private catalogs in **Plugins → Catalogs** (any HTTPS-served
+`index.json` + sha256-pinned tarballs). Install gates on the plugin's
+declared `runtimes` being on PATH and runs the plugin's `deps` shell
+command (e.g. `pip install -r requirements.txt`) before the steps
+register; failures roll the install back.
+
+To add interpreters to the container without baking a new image, set
+`TRANSCODERR_RUNTIMES` to a comma-separated list of apt package names:
+
+```yaml
+services:
+  transcoderr:
+    image: ghcr.io/seanbarzilay/transcoderr:cpu-latest
+    environment:
+      TRANSCODERR_RUNTIMES: "python3,nodejs"
+```
+
+The entrypoint runs `apt-get install` on every boot — fresh containers
+always match the env var. Adds ~10–60s to startup depending on which
+runtimes you ask for; empty/unset is a no-op. Names are passed verbatim
+to apt; the entrypoint rejects anything outside `[a-zA-Z0-9.+-]`.
 
 ## Backups
 
