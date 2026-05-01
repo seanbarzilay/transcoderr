@@ -141,12 +141,10 @@ fn hex(bytes: &[u8]) -> String {
 }
 
 #[cfg(test)]
-#[allow(unused_imports)]
 mod tests {
     use super::*;
     use flate2::write::GzEncoder;
     use flate2::Compression;
-    use serde_json::json;
     use tempfile::tempdir;
     use wiremock::matchers::{method, path};
     use wiremock::{Mock, MockServer, ResponseTemplate};
@@ -304,10 +302,9 @@ provides_steps = ["{name}.do"]
         // Manifest says name="other" but the entry insists it's "hello".
         // The tarball's top-dir IS "hello" so layout passes -- only the
         // manifest cross-check catches it.
-        let mut bad_manifest = manifest_for("other");
+        let bad_manifest = manifest_for("other");
         // Tarball top-dir mismatch would be caught earlier; build a
         // tarball whose top-dir is "hello" but manifest says "other".
-        bad_manifest = bad_manifest.replace("name = \"other\"", "name = \"other\"");
 
         // Build a custom tarball with "hello/" as top-dir + bad_manifest.
         let mut gz = GzEncoder::new(Vec::new(), Compression::default());
