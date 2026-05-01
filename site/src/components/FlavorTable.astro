@@ -9,7 +9,7 @@ const rows = [
 <section class="mx-auto max-w-5xl px-6 py-24">
   <h2 class="font-mono text-3xl font-semibold">Image flavors</h2>
 
-  <div class="mt-8 overflow-x-auto rounded-lg border border-muted/15">
+  <div class="mt-8 overflow-x-auto rounded-lg border border-border">
     <table class="min-w-full text-sm">
       <thead class="bg-surface">
         <tr class="text-left">
@@ -18,7 +18,7 @@ const rows = [
           <th class="px-4 py-3 font-mono text-muted">hardware accel</th>
         </tr>
       </thead>
-      <tbody class="divide-y divide-muted/15">
+      <tbody class="divide-y divide-border">
         {rows.map((r) => (
           <tr class="hover:bg-surface/60">
             <td class="px-4 py-3 font-mono text-accent">{r.tag}</td>

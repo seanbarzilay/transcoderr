@@ -8,7 +8,7 @@ interface Props {
 }
 const { icon, title, body } = Astro.props;
 ---
-<div class="rounded-lg border border-muted/15 bg-surface p-6 hover:border-accent/40 transition-colors">
+<div class="rounded-lg border border-border bg-surface p-6 hover:border-accent transition-colors">
   <Icon name={icon} class="h-6 w-6 text-accent" />
   <h3 class="mt-4 font-mono text-lg font-semibold">{title}</h3>
   <p class="mt-2 text-muted leading-relaxed">{body}</p>

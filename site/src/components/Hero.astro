@@ -1,4 +1,5 @@
 ---
+import Brand from './Brand.astro';
 import FlowDiagram from './FlowDiagram.astro';
 
 const githubUrl   = 'https://github.com/seanbarzilay/transcoderr';
@@ -6,10 +7,10 @@ const releasesUrl = 'https://github.com/seanbarzilay/transcoderr/releases/latest
 const docsUrl     = 'https://github.com/seanbarzilay/transcoderr/tree/main/docs';
 ---
 <section class="mx-auto max-w-5xl px-6 pt-24 pb-16">
-  <h1 class="font-mono text-5xl sm:text-6xl font-semibold tracking-tight">
-    transcoderr
+  <h1 class="leading-none">
+    <Brand size="xl" />
   </h1>
-  <p class="mt-6 text-2xl sm:text-3xl text-text/90 max-w-prose">
+  <p class="mt-8 text-2xl sm:text-3xl text-text/90 max-w-prose">
     Push-driven, single-binary media transcoder.
   </p>
   <p class="mt-3 text-lg text-muted max-w-prose">
@@ -22,11 +23,11 @@ const docsUrl     = 'https://github.com/seanbarzilay/transcoderr/tree/main/docs'
       Download
     </a>
     <a href={githubUrl}
-       class="inline-flex items-center rounded-md border border-muted/40 px-4 py-2 font-medium hover:border-muted">
+       class="inline-flex items-center rounded-md border border-border-strong px-4 py-2 font-medium hover:border-faint">
       GitHub
     </a>
     <a href={docsUrl}
-       class="inline-flex items-center rounded-md border border-muted/40 px-4 py-2 font-medium hover:border-muted">
+       class="inline-flex items-center rounded-md border border-border-strong px-4 py-2 font-medium hover:border-faint">
       Docs
     </a>
   </div>
