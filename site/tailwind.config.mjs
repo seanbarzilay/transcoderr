@@ -4,16 +4,28 @@ export default {
   theme: {
     extend: {
       colors: {
-        bg: '#0b0d10',
-        surface: '#14171c',
-        'surface-2': '#1c2027',
-        accent: '#7dd3fc',
-        muted: '#94a3b8',
-        text: '#e5e7eb',
+        // Match crates/transcoderr's web/src/index.css palette.
+        bg: '#0b0d0e',
+        'bg-deep': '#08090a',
+        surface: '#131618',
+        'surface-2': '#181c1f',
+        'surface-3': '#1f2326',
+        border: '#232830',
+        'border-strong': '#2f353d',
+        text: '#ece9e1',
+        // Marketing-page naming: `muted` = web app's --text-dim (visible dim),
+        // `faint` = web app's --text-muted (deeper dim for labels).
+        muted: '#9ca0a4',
+        faint: '#686d72',
+        accent: '#ffb627',
+        'accent-soft': '#ffb62733',
+        'accent-dim': '#c98712',
+        'accent-line': '#ffb62755',
       },
       fontFamily: {
-        mono: ['ui-monospace', 'SFMono-Regular', 'Menlo', 'Consolas', 'monospace'],
-        sans: ['system-ui', '-apple-system', 'Segoe UI', 'Roboto', 'sans-serif'],
+        // Web app uses JetBrains Mono for both body and mono.
+        mono: ['"JetBrains Mono"', 'ui-monospace', 'SFMono-Regular', 'Menlo', 'Consolas', 'monospace'],
+        sans: ['"JetBrains Mono"', 'ui-monospace', 'SFMono-Regular', 'monospace'],
       },
       maxWidth: { prose: '72ch' },
     },

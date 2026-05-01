@@ -1,3 +1,5 @@
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&display=swap');
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
@@ -10,12 +12,13 @@ html, body {
   background: theme('colors.bg');
   color: theme('colors.text');
   font-family: theme('fontFamily.sans');
+  letter-spacing: -0.01em;
 }
 
 body {
   background-image: radial-gradient(
     circle at 50% -20%,
-    rgba(125, 211, 252, 0.06),
+    rgba(255, 182, 39, 0.06),
     transparent 60%
   );
   background-attachment: fixed;
