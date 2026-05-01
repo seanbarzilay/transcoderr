@@ -1,0 +1,108 @@
+---
+const BASE = import.meta.env.BASE_URL;
+
+const shots = [
+  {
+    id: 'runs',
+    label: 'Runs',
+    file: 'runs-dashboard.png',
+    caption: 'Every job, with status, source, file, and timing.',
+  },
+  {
+    id: 'live',
+    label: 'Live run',
+    file: 'live-run.png',
+    caption: 'Per-run progress bar plus the ffmpeg status line, streamed live.',
+  },
+  {
+    id: 'flows',
+    label: 'Flows editor',
+    file: 'flows-editor.png',
+    caption: 'YAML on the left, visual mirror on the right. Edits round-trip.',
+  },
+  {
+    id: 'browse',
+    label: 'Browse',
+    file: 'browse-manual.png',
+    caption: 'Search any source\u2019s library. Click a file, queue it against every matching flow.',
+  },
+  {
+    id: 'plugins',
+    label: 'Plugins',
+    file: 'plugins-browse.png',
+    caption: 'Default catalog plus any private ones you add. Click Install, sha256-verified.',
+  },
+];
+---
+<section class="mx-auto max-w-6xl px-6 py-24">
+  <h2 class="font-mono text-3xl font-semibold">See it work</h2>
+
+  <div class="mt-10 showcase">
+    {shots.map((s, i) => (
+      <input
+        type="radio"
+        name="showcase"
+        id={`shot-${s.id}`}
+        class="sr-only"
+        checked={i === 0}
+      />
+    ))}
+
+    <div class="flex flex-wrap gap-2">
+      {shots.map((s) => (
+        <label
+          for={`shot-${s.id}`}
+          class="cursor-pointer rounded-md border border-muted/30 px-3 py-1.5 font-mono text-sm hover:border-muted"
+          data-shot={s.id}
+        >
+          {s.label}
+        </label>
+      ))}
+    </div>
+
+    <div class="mt-6">
+      {shots.map((s) => (
+        <figure class="shot-panel" data-shot={s.id}>
+          <img
+            src={`${BASE}/screenshots/${s.file}`}
+            alt={s.caption}
+            class="w-full rounded-lg border border-muted/15"
+            loading="lazy"
+            decoding="async"
+          />
+          <figcaption class="mt-3 text-muted">{s.caption}</figcaption>
+        </figure>
+      ))}
+    </div>
+  </div>
+</section>
+
+<style>
+  /* Default: hide all panels */
+  .showcase .shot-panel { display: none; }
+
+  /* Wire each radio's :checked state to its matching panel */
+  .showcase input[id="shot-runs"]:checked    ~ * .shot-panel[data-shot="runs"],
+  .showcase input[id="shot-live"]:checked    ~ * .shot-panel[data-shot="live"],
+  .showcase input[id="shot-flows"]:checked   ~ * .shot-panel[data-shot="flows"],
+  .showcase input[id="shot-browse"]:checked  ~ * .shot-panel[data-shot="browse"],
+  .showcase input[id="shot-plugins"]:checked ~ * .shot-panel[data-shot="plugins"] {
+    display: block;
+  }
+
+  /* Active label styling */
+  .showcase input[id="shot-runs"]:checked    ~ * label[data-shot="runs"],
+  .showcase input[id="shot-live"]:checked    ~ * label[data-shot="live"],
+  .showcase input[id="shot-flows"]:checked   ~ * label[data-shot="flows"],
+  .showcase input[id="shot-browse"]:checked  ~ * label[data-shot="browse"],
+  .showcase input[id="shot-plugins"]:checked ~ * label[data-shot="plugins"] {
+    border-color: theme('colors.accent');
+    color: theme('colors.accent');
+  }
+
+  /* Keyboard focus visibility (sr-only hides visually but Tab still focuses) */
+  .showcase input:focus-visible + * label[data-shot] {
+    outline: 2px solid theme('colors.accent');
+    outline-offset: 2px;
+  }
+</style>
