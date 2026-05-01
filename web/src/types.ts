@@ -26,6 +26,7 @@ export type PluginDetail = {
   path: string;
   summary: string | null;
   min_transcoderr_version: string | null;
+  runtimes: string[];
   readme: string | null;
 };
 

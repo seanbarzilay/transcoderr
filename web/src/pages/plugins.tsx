@@ -260,6 +260,19 @@ function PluginDetailBody({ detail }: { detail: PluginDetail }) {
             </>
           )}
 
+          {detail.runtimes.length > 0 && (
+            <>
+              <div className="label">Runtimes</div>
+              <div>
+                {detail.runtimes.map(r => (
+                  <code key={r} className="plugin-detail-step">
+                    {r}
+                  </code>
+                ))}
+              </div>
+            </>
+          )}
+
           {!requiresEmpty && (
             <>
               <div className="label">Requires</div>
@@ -348,6 +361,11 @@ function Browse() {
                 <td><span className="label">{e.catalog_name}</span></td>
                 <td className="mono dim">
                   {e.provides_steps.length === 0 ? "—" : e.provides_steps.join(", ")}
+                  {e.runtimes && e.runtimes.length > 0 && (
+                    <div className="muted" style={{ fontSize: 11, marginTop: 2 }}>
+                      runtimes: {e.runtimes.join(", ")}
+                    </div>
+                  )}
                 </td>
                 <td>
                   {installed ? (

@@ -51,6 +51,9 @@ pub struct PluginDetail {
     /// Manifest's `min_transcoderr_version` field if set. Rendered as a
     /// "Min version v0.X.0" badge in the detail panel.
     pub min_transcoderr_version: Option<String>,
+    /// Bare executable names the plugin shells out to. Rendered next to
+    /// Capabilities so the operator sees what the plugin needs.
+    pub runtimes: Vec<String>,
     /// Verbatim README.md contents. `None` when the plugin doesn't ship one.
     pub readme: Option<String>,
 }
@@ -103,16 +106,18 @@ pub async fn get(
     let schema_str: String = row.get(5);
     let schema: serde_json::Value = serde_json::from_str(&schema_str).unwrap_or_default();
 
-    let (provides_steps, capabilities, requires, summary, min_transcoderr_version) = match manifest {
-        Some(m) => (
-            m.provides_steps,
-            m.capabilities,
-            m.requires,
-            m.summary,
-            m.min_transcoderr_version,
-        ),
-        None => (vec![], vec![], serde_json::Value::Null, None, None),
-    };
+    let (provides_steps, capabilities, requires, summary, min_transcoderr_version, runtimes) =
+        match manifest {
+            Some(m) => (
+                m.provides_steps,
+                m.capabilities,
+                m.requires,
+                m.summary,
+                m.min_transcoderr_version,
+                m.runtimes,
+            ),
+            None => (vec![], vec![], serde_json::Value::Null, None, None, vec![]),
+        };
 
     Ok(Json(PluginDetail {
         id: row.get(0),
@@ -126,6 +131,7 @@ pub async fn get(
         path: path_str,
         summary,
         min_transcoderr_version,
+        runtimes,
         readme,
     }))
 }
