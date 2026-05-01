@@ -280,7 +280,84 @@ function PluginDetailBody({ detail }: { detail: PluginDetail }) {
 }
 
 function Browse() {
-  return <div className="muted">Browse tab — task 15.</div>;
+  const qc = useQueryClient();
+  const plugins = useQuery({ queryKey: ["plugins"], queryFn: api.plugins.list });
+  const browse = useQuery({ queryKey: ["plugin-catalog-entries"], queryFn: api.plugins.browse });
+
+  const install = useMutation({
+    mutationFn: ({ catalogId, name }: { catalogId: number; name: string }) =>
+      api.plugins.install(catalogId, name),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["plugins"] });
+      qc.invalidateQueries({ queryKey: ["plugin-catalog-entries"] });
+    },
+  });
+
+  const installedNames = new Set((plugins.data ?? []).map(p => p.name));
+
+  return (
+    <div className="surface">
+      {(browse.data?.errors ?? []).length > 0 && (
+        <div className="catalog-fetch-banner">
+          <strong>{browse.data!.errors.length} catalog(s) unreachable:</strong>
+          <ul>
+            {browse.data!.errors.map(e => (
+              <li key={e.catalog_id}>
+                <code>{e.catalog_name}</code> — {e.error}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+      <table>
+        <thead>
+          <tr>
+            <th>Plugin</th>
+            <th style={{ width: 110 }}>Version</th>
+            <th style={{ width: 160 }}>From</th>
+            <th>Provides</th>
+            <th style={{ width: 140 }}></th>
+          </tr>
+        </thead>
+        <tbody>
+          {(browse.data?.entries ?? []).map((e: CatalogEntry) => {
+            const installed = installedNames.has(e.name);
+            return (
+              <tr key={`${e.catalog_id}/${e.name}`}>
+                <td className="mono">
+                  {e.name}
+                  <div className="muted" style={{ fontSize: 11 }}>{e.summary}</div>
+                </td>
+                <td className="dim tnum">{e.version}</td>
+                <td><span className="label">{e.catalog_name}</span></td>
+                <td className="mono dim">
+                  {e.provides_steps.length === 0 ? "—" : e.provides_steps.join(", ")}
+                </td>
+                <td>
+                  {installed ? (
+                    <span className="dim">Installed</span>
+                  ) : (
+                    <button onClick={() => {
+                      if (confirm(`Install "${e.name}"? This plugin runs as the transcoderr user.`)) {
+                        install.mutate({ catalogId: e.catalog_id, name: e.name });
+                      }
+                    }}>Install</button>
+                  )}
+                </td>
+              </tr>
+            );
+          })}
+          {(browse.data?.entries ?? []).length === 0 && !browse.isLoading && (
+            <tr>
+              <td colSpan={5} className="empty">
+                No plugins available from configured catalogs.
+              </td>
+            </tr>
+          )}
+        </tbody>
+      </table>
+    </div>
+  );
 }
 
 function Catalogs() {
