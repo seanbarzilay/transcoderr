@@ -16,6 +16,7 @@ pub struct AppState {
     pub cfg: Arc<Config>,
     pub hw_caps: Arc<tokio::sync::RwLock<crate::hw::HwCaps>>,
     pub hw_devices: crate::hw::semaphores::DeviceRegistry,
+    pub ffmpeg_caps: Arc<crate::ffmpeg_caps::FfmpegCaps>,
     pub bus: crate::bus::Bus,
     pub ready: crate::ready::Readiness,
     pub metrics: std::sync::Arc<crate::metrics::Metrics>,

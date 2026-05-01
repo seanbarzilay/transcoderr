@@ -140,6 +140,7 @@ async fn main() -> anyhow::Result<()> {
                 cfg: cfg.clone(),
                 hw_caps,
                 hw_devices: registry,
+                ffmpeg_caps: ffmpeg_caps.clone(),
                 bus,
                 ready: ready.clone(),
                 metrics,
