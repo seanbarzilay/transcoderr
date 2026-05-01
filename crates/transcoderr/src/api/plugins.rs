@@ -133,11 +133,17 @@ pub async fn get(
 pub async fn browse(
     State(state): State<AppState>,
 ) -> Result<Json<ListAllResult>, StatusCode> {
-    state.catalog_client
+    let mut res = state
+        .catalog_client
         .list_all(&state.pool)
         .await
-        .map(Json)
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    // Compute per-entry runtime availability so the FE can disable
+    // Install up front instead of bouncing the operator on click.
+    for e in &mut res.entries {
+        e.missing_runtimes = state.runtime_checker.missing(&e.entry.runtimes).await;
+    }
+    Ok(Json(res))
 }
 
 /// POST /api/plugin-catalog-entries/:catalog_id/:name/install
@@ -164,6 +170,20 @@ pub async fn install(
             StatusCode::NOT_FOUND,
             format!("entry {name} not in catalog {catalog_id}"),
         ))?;
+
+    // Refuse install if any declared runtime isn't on $PATH. The check
+    // runs *before* download/extraction so a misconfigured host doesn't
+    // leak a half-installed plugin.
+    let missing = state.runtime_checker.missing(&entry.entry.runtimes).await;
+    if !missing.is_empty() {
+        return Err((
+            StatusCode::UNPROCESSABLE_ENTITY,
+            format!(
+                "missing runtime(s) on PATH: {} -- install them on the host first",
+                missing.join(", ")
+            ),
+        ));
+    }
 
     let plugins_dir = state.cfg.data_dir.join("plugins");
     let installed = installer::install_from_entry(&entry.entry, &plugins_dir)

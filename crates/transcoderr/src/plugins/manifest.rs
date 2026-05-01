@@ -23,6 +23,12 @@ pub struct Manifest {
     /// in the detail panel.
     #[serde(default)]
     pub min_transcoderr_version: Option<String>,
+    /// Bare executable names the plugin shells out to (e.g.
+    /// `["python3"]`, `["node"]`). The server checks each is on `$PATH`
+    /// before allowing install. Empty / omitted means "POSIX shell +
+    /// coreutils only" — always present on supported images.
+    #[serde(default)]
+    pub runtimes: Vec<String>,
 }
 
 #[derive(Debug, Clone)]

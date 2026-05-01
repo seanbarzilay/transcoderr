@@ -24,6 +24,7 @@ pub struct AppState {
     pub public_url: std::sync::Arc<String>,
     pub arr_cache: std::sync::Arc<crate::arr::cache::ArrCache>,
     pub catalog_client: std::sync::Arc<crate::plugins::catalog::CatalogClient>,
+    pub runtime_checker: std::sync::Arc<crate::plugins::runtime::RuntimeChecker>,
 }
 
 pub fn router(state: AppState, dedup_window: Duration) -> Router {

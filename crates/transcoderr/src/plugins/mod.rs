@@ -1,6 +1,7 @@
 pub mod catalog;
 pub mod installer;
 pub mod manifest;
+pub mod runtime;
 pub mod subprocess;
 pub mod uninstaller;
 

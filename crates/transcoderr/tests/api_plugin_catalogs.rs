@@ -203,3 +203,74 @@ async fn install_then_uninstall_round_trip() {
         .send().await.unwrap().json().await.unwrap();
     assert!(plugins_after.is_empty());
 }
+
+/// A catalog entry that declares a runtime not on the host's PATH must
+/// be refused at install time and surface its missing runtime in the
+/// browse response. Pins the contract: the integrity check is the
+/// sha256, the *operability* check is the runtime list.
+#[tokio::test]
+async fn install_refuses_when_declared_runtime_is_missing() {
+    use wiremock::matchers::{method, path};
+    use wiremock::{Mock, MockServer, ResponseTemplate};
+
+    let app = boot().await;
+    let client = reqwest::Client::new();
+
+    let server = MockServer::start().await;
+    let url = server.uri();
+    Mock::given(method("GET")).and(path("/index.json"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "schema_version": 1,
+            "plugins": [{
+                "name": "needs-fake",
+                "version": "0.1.0",
+                "summary": "needs an interpreter that doesn't exist on this host",
+                "tarball_url": format!("{url}/needs-fake.tar.gz"),
+                "tarball_sha256": "0".repeat(64),
+                "kind": "subprocess",
+                "provides_steps": ["needs.fake.do"],
+                "runtimes": ["definitely-not-a-real-binary-12345abcxyz"]
+            }]
+        })))
+        .mount(&server).await;
+
+    // Replace the seed catalog with the mock.
+    let list: Vec<serde_json::Value> = client
+        .get(format!("{}/api/plugin-catalogs", app.url))
+        .send().await.unwrap().json().await.unwrap();
+    let seed_id = list[0]["id"].as_i64().unwrap();
+    client.delete(format!("{}/api/plugin-catalogs/{seed_id}", app.url))
+        .send().await.unwrap();
+    let create: serde_json::Value = client
+        .post(format!("{}/api/plugin-catalogs", app.url))
+        .json(&json!({"name": "mock", "url": format!("{url}/index.json")}))
+        .send().await.unwrap().json().await.unwrap();
+    let cid = create["id"].as_i64().unwrap();
+
+    // Browse surfaces the missing runtime per entry.
+    let body: serde_json::Value = client
+        .get(format!("{}/api/plugin-catalog-entries", app.url))
+        .send().await.unwrap().json().await.unwrap();
+    let entries = body["entries"].as_array().unwrap();
+    assert_eq!(entries.len(), 1);
+    let missing = entries[0]["missing_runtimes"].as_array().unwrap();
+    assert_eq!(missing.len(), 1);
+    assert_eq!(missing[0], "definitely-not-a-real-binary-12345abcxyz");
+
+    // Install refuses with 422.
+    let resp = client
+        .post(format!("{}/api/plugin-catalog-entries/{cid}/needs-fake/install", app.url))
+        .send().await.unwrap();
+    assert_eq!(resp.status(), 422);
+    let body = resp.text().await.unwrap();
+    assert!(
+        body.contains("definitely-not-a-real-binary-12345abcxyz"),
+        "missing-runtime error must name the runtime, got: {body}"
+    );
+
+    // No plugin row landed.
+    let plugins: Vec<serde_json::Value> = client
+        .get(format!("{}/api/plugins", app.url))
+        .send().await.unwrap().json().await.unwrap();
+    assert!(plugins.is_empty(), "no plugin should be installed");
+}
