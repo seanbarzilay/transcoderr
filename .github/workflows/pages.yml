@@ -34,17 +34,9 @@ jobs:
         working-directory: site
         run: npm ci
 
-      - name: Install oxipng
-        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends oxipng
-
       - name: Build site
         working-directory: site
         run: npm run build
-
-      - name: Compress PNGs (lossless)
-        working-directory: site
-        run: |
-          find dist -name '*.png' -exec oxipng -o 4 --strip safe {} +
 
       - uses: actions/configure-pages@v5
 
