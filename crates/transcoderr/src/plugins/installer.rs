@@ -59,7 +59,12 @@ pub async fn install_from_entry(
     // hasher and the file writer) is a follow-up if a plugin grows past
     // a few MB.
     let tmp_tar = staging.join("plugin.tar.gz");
-    let resp = reqwest::Client::new().get(&entry.tarball_url).send().await?;
+    let client = reqwest::Client::builder()
+        .connect_timeout(std::time::Duration::from_secs(10))
+        .timeout(std::time::Duration::from_secs(60))
+        .build()
+        .expect("reqwest client builds");
+    let resp = client.get(&entry.tarball_url).send().await?;
     if !resp.status().is_success() {
         return Err(InstallError::Layout(format!("HTTP {}", resp.status())));
     }
@@ -118,10 +123,20 @@ pub async fn install_from_entry(
     // Atomic swap.
     let target = plugins_dir.join(&entry.name);
     let backup = plugins_dir.join(format!(".tcr-old.{}.{suffix}", entry.name));
-    if target.exists() {
+    let backed_up = if target.exists() {
         std::fs::rename(&target, &backup)?;
+        true
+    } else {
+        false
+    };
+    if let Err(e) = std::fs::rename(&top_dir, &target) {
+        // step B failed — try to restore the original so the operator
+        // doesn't lose the previously-installed plugin.
+        if backed_up {
+            let _ = std::fs::rename(&backup, &target);
+        }
+        return Err(InstallError::Io(e));
     }
-    std::fs::rename(&top_dir, &target)?;
     let _ = std::fs::remove_dir_all(&backup);
     guard.disarm();
     let _ = std::fs::remove_dir_all(&staging);

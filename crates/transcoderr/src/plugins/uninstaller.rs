@@ -13,6 +13,14 @@ pub enum UninstallError {
 
 /// Remove the plugin directory from disk and drop the row from the DB.
 /// Caller is responsible for the registry rebuild afterwards.
+///
+/// **Concurrency:** if a subprocess plugin is currently mid-run when
+/// uninstall fires, the in-flight `Arc<dyn Step>` snapshot held by the
+/// caller keeps working. On Linux/macOS, removing the entrypoint file
+/// while the subprocess is executing it is safe — the kernel keeps the
+/// inode alive while the file descriptor is open, so the running step
+/// completes against the deleted-on-disk binary. Windows does NOT have
+/// this semantic; transcoderr is documented as Linux/macOS-only.
 pub async fn uninstall(
     pool: &SqlitePool,
     plugins_dir: &Path,

@@ -3,6 +3,7 @@ use serde::{Deserialize, Serialize};
 use sqlx::SqlitePool;
 use std::time::{Duration, Instant};
 use tokio::sync::RwLock;
+use tracing;
 
 pub const CATALOG_SCHEMA_VERSION: u32 = 1;
 const CACHE_TTL: Duration = Duration::from_secs(300);
@@ -77,8 +78,16 @@ impl Default for CatalogClient {
 }
 
 impl CatalogClient {
+    fn http_client() -> reqwest::Client {
+        reqwest::Client::builder()
+            .connect_timeout(std::time::Duration::from_secs(10))
+            .timeout(std::time::Duration::from_secs(30))
+            .build()
+            .expect("reqwest client builds")
+    }
+
     pub async fn fetch_index(&self, catalog: &CatalogRow) -> anyhow::Result<Vec<IndexEntry>> {
-        let mut req = reqwest::Client::new().get(&catalog.url);
+        let mut req = Self::http_client().get(&catalog.url);
         if let Some(h) = &catalog.auth_header {
             req = req.header("Authorization", h);
         }
@@ -142,7 +151,9 @@ impl CatalogClient {
             cache.insert(c.id, CacheEntry { fetched_at: Some(now), result: res.clone() });
             match res {
                 Ok(plugins) => {
-                    let _ = plugin_catalogs::record_fetch_success(pool, c.id).await;
+                    if let Err(e) = plugin_catalogs::record_fetch_success(pool, c.id).await {
+                        tracing::warn!(catalog_id = c.id, error = %e, "failed to persist catalog fetch success");
+                    }
                     for p in plugins {
                         entries.push(CatalogEntry {
                             catalog_id: c.id,
@@ -152,7 +163,9 @@ impl CatalogClient {
                     }
                 }
                 Err(e) => {
-                    let _ = plugin_catalogs::record_fetch_error(pool, c.id, &e).await;
+                    if let Err(db_err) = plugin_catalogs::record_fetch_error(pool, c.id, &e).await {
+                        tracing::warn!(catalog_id = c.id, error = %db_err, "failed to persist catalog fetch error");
+                    }
                     errors.push(CatalogFetchError {
                         catalog_id: c.id,
                         catalog_name: c.name.clone(),

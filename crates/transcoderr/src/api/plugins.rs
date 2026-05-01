@@ -120,6 +120,7 @@ pub async fn install(
     State(state): State<AppState>,
     Path((catalog_id, name)): Path<(i64, String)>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    state.catalog_client.invalidate(catalog_id).await;
     let res = state
         .catalog_client
         .list_all(&state.pool)
