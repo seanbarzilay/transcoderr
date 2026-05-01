@@ -10,7 +10,9 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 
 /// Summary row in the list view. Includes `provides_steps` so the page
-/// can show the operator-facing step names without an extra round-trip.
+/// can show the operator-facing step names without an extra round-trip,
+/// and `catalog_id` so the Installed tab can detect "update available"
+/// by joining against the merged catalog-entries list.
 #[derive(Serialize)]
 pub struct PluginRow {
     pub id: i64,
@@ -18,6 +20,13 @@ pub struct PluginRow {
     pub version: String,
     pub kind: String,
     pub provides_steps: Vec<String>,
+    /// Catalog this plugin was installed from. NULL when installed
+    /// manually (operator dropped the directory into data/plugins/).
+    pub catalog_id: Option<i64>,
+    /// sha256 of the tarball at install time. NULL for manual installs.
+    /// Surfaced for parity with `catalog_id`; not currently consumed by
+    /// the UI but useful for future "drifted from catalog" detection.
+    pub tarball_sha256: Option<String>,
 }
 
 /// Full detail for the expanded view. Includes the entire manifest plus
@@ -41,8 +50,13 @@ pub struct PluginDetail {
 }
 
 pub async fn list(State(state): State<AppState>) -> Result<Json<Vec<PluginRow>>, StatusCode> {
-    let rows = sqlx::query("SELECT id, name, version, kind, path FROM plugins ORDER BY name")
-        .fetch_all(&state.pool).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let rows = sqlx::query(
+        "SELECT id, name, version, kind, path, catalog_id, tarball_sha256 \
+         FROM plugins ORDER BY name",
+    )
+    .fetch_all(&state.pool)
+    .await
+    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     let out = rows
         .into_iter()
         .map(|r| {
@@ -58,6 +72,8 @@ pub async fn list(State(state): State<AppState>) -> Result<Json<Vec<PluginRow>>,
                 version: r.get(2),
                 kind: r.get(3),
                 provides_steps,
+                catalog_id: r.get(5),
+                tarball_sha256: r.get(6),
             }
         })
         .collect();
