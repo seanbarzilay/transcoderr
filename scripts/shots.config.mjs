@@ -2,15 +2,17 @@
 // server base. `viewport` is [width, height]. `wait` is a CSS selector
 // to wait for before screenshotting; falsy = wait for networkidle only.
 // `setup` names a hook in capture.mjs's `setupHooks` map; falsy = no hook.
+// `tabClick` is a label text to click after navigation (for plugins page tabs).
 export default [
-  { name: 'runs-dashboard',    url: '/',                       viewport: [1440, 900], wait: 'main' },
-  { name: 'live-run',          url: '/runs/CURRENT',           viewport: [1440, 900], setup: 'triggerTranscode' },
-  { name: 'flows-editor',      url: '/flows/CURRENT/edit',     viewport: [1600, 1000], wait: 'textarea, .cm-editor' },
-  { name: 'browse-manual',     url: '/browse/CURRENT',         viewport: [1440, 900], wait: 'main' },
-  { name: 'plugins-browse',    url: '/plugins#browse',         viewport: [1440, 900], wait: 'main' },
-  { name: 'plugins-installed', url: '/plugins#installed',      viewport: [1440, 900], wait: 'main' },
-  { name: 'plugins-catalogs',  url: '/plugins#catalogs',       viewport: [1440, 900], wait: 'main' },
-  { name: 'sources-list',      url: '/settings/sources',       viewport: [1440, 900], wait: 'main' },
-  { name: 'notifiers-list',    url: '/settings/notifiers',     viewport: [1440, 900], wait: 'main' },
-  { name: 'hardware-probe',    url: '/settings/hw',            viewport: [1440, 900], wait: 'main' },
+  { name: 'runs-dashboard',    url: '/dashboard',  viewport: [1440, 900], wait: 'h2' },
+  { name: 'live-run',          url: null,          viewport: [1440, 900], setup: 'rerunLatest' },
+  { name: 'flows-editor',      url: '/flows/1',    viewport: [1600, 1000], wait: 'textarea, .cm-editor' },
+  { name: 'browse-manual',     url: '/radarr',     viewport: [1440, 900], wait: 'h2' },
+  { name: 'plugins-browse',    url: '/plugins',    viewport: [1440, 900], wait: '.plugin-tab', tabClick: 'Browse' },
+  { name: 'plugins-installed', url: '/plugins',    viewport: [1440, 900], wait: '.plugin-tab' },
+  { name: 'plugins-catalogs',  url: '/plugins',    viewport: [1440, 900], wait: '.plugin-tab', tabClick: 'Catalogs' },
+  { name: 'sources-list',      url: '/sources',    viewport: [1440, 900], wait: 'h2' },
+  { name: 'notifiers-list',    url: '/notifiers',  viewport: [1440, 900], wait: 'h2' },
+  // hardware-probe: dropped — UI has no dedicated hardware page. Placeholder
+  // PNG in site/public/screenshots/hardware-probe.png stays as-is for footer.
 ];
