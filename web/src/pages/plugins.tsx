@@ -214,9 +214,25 @@ function PluginDetailBody({ detail }: { detail: PluginDetail }) {
   return (
     <div className="plugin-detail">
       <div className="plugin-detail-section">
+        {detail.summary && (
+          <div className="muted" style={{ marginBottom: 8 }}>
+            {detail.summary}
+          </div>
+        )}
         <div className="plugin-detail-grid">
           <div className="label">Path</div>
           <code className="dim">{detail.path}</code>
+
+          {detail.min_transcoderr_version && (
+            <>
+              <div className="label">Min version</div>
+              <div>
+                <span className="plugin-update-badge">
+                  v{detail.min_transcoderr_version}+
+                </span>
+              </div>
+            </>
+          )}
 
           <div className="label">Provides steps</div>
           <div>

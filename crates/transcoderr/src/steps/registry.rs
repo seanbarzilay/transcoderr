@@ -133,6 +133,8 @@ mod tests {
                 provides_steps: vec![step_name.into()],
                 requires: serde_json::Value::Null,
                 capabilities: vec![],
+                summary: None,
+                min_transcoderr_version: None,
             },
             manifest_dir: plugin_dir,
             schema: serde_json::Value::Null,

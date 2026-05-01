@@ -12,6 +12,17 @@ pub struct Manifest {
     pub requires: serde_json::Value,
     #[serde(default)]
     pub capabilities: Vec<String>,
+    /// One-line description shown in the Plugins detail panel and the
+    /// catalog Browse list. Plugin authors set this in manifest.toml;
+    /// the catalog repo's publish.py copies it into index.json.
+    #[serde(default)]
+    pub summary: Option<String>,
+    /// Minimum transcoderr version this plugin is known to work
+    /// against. The catalog Browse tab uses it to gate Install on a
+    /// stale server; for already-installed plugins it's just a label
+    /// in the detail panel.
+    #[serde(default)]
+    pub min_transcoderr_version: Option<String>,
 }
 
 #[derive(Debug, Clone)]
