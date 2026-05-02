@@ -2,23 +2,17 @@ name: tests
 on:
   pull_request:
     branches: [main]
-    # Skip the test suite for PRs that only change docs / the showcase
-    # site / specs / unrelated CI files — there's nothing to test in
-    # those changes. tests.yml itself is intentionally NOT in the
-    # ignore list: changing the workflow should re-run it to catch
-    # regressions in CI config.
-    paths-ignore:
-      - 'README.md'
-      - '**/*.md'
-      - 'docs/**'
-      - 'site/**'
-      - '.github/workflows/auto-release.yml'
-      - '.github/workflows/release.yml'
-      - '.github/workflows/pages.yml'
+    # NOTE: no `paths-ignore` here. Branch protection requires the
+    # `rust` and `web` checks to pass; if the workflow is skipped via
+    # `paths-ignore` the checks never appear and the PR is unmergeable.
+    # Instead, the workflow always runs and the heavy steps inside the
+    # rust/web jobs are gated on whether the PR actually touched
+    # files in their domain (see `changes` job below).
   workflow_dispatch:
 
 permissions:
   contents: read
+  pull-requests: read   # dorny/paths-filter reads the PR's changed files
 
 concurrency:
   # One run per PR. Pushing a new commit cancels the in-flight run.
@@ -26,33 +20,70 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  rust:
+  changes:
     runs-on: ubuntu-latest
+    outputs:
+      rust: ${{ steps.filter.outputs.rust }}
+      web: ${{ steps.filter.outputs.web }}
     steps:
       - uses: actions/checkout@v4
-      - name: Install ffmpeg
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            rust:
+              - 'crates/**'
+              - 'Cargo.toml'
+              - 'Cargo.lock'
+              - '.github/workflows/tests.yml'
+            web:
+              - 'web/**'
+              - '.github/workflows/tests.yml'
+
+  rust:
+    needs: changes
+    runs-on: ubuntu-latest
+    steps:
+      - name: Skip — no rust-relevant changes
+        if: needs.changes.outputs.rust != 'true'
+        run: echo "No changes under crates/, Cargo.{toml,lock}, or tests.yml; skipping the rust test suite."
+      - if: needs.changes.outputs.rust == 'true'
+        uses: actions/checkout@v4
+      - if: needs.changes.outputs.rust == 'true'
+        name: Install ffmpeg
         # Many tests exec ffmpeg/ffprobe (testsrc generation, probe,
         # transcode, remux, verify-playable). 7z is needed by the
         # ISO-extract step's tests.
         run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ffmpeg p7zip-full
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
+      - if: needs.changes.outputs.rust == 'true'
+        uses: dtolnay/rust-toolchain@stable
+      - if: needs.changes.outputs.rust == 'true'
+        uses: Swatinem/rust-cache@v2
         with:
           # Share the cache across PRs — saves ~2 min of cold compile.
           shared-key: rust-tests
-      - name: Run tests
+      - if: needs.changes.outputs.rust == 'true'
+        name: Run tests
         run: cargo test --workspace --locked --all-targets --no-fail-fast
 
   web:
+    needs: changes
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - name: Skip — no web-relevant changes
+        if: needs.changes.outputs.web != 'true'
+        run: echo "No changes under web/ or tests.yml; skipping the web build."
+      - if: needs.changes.outputs.web == 'true'
+        uses: actions/checkout@v4
+      - if: needs.changes.outputs.web == 'true'
+        uses: actions/setup-node@v4
         with:
           node-version: 20
           cache: npm
           cache-dependency-path: web/package-lock.json
-      - name: Install
+      - if: needs.changes.outputs.web == 'true'
+        name: Install
         run: npm --prefix web ci
-      - name: Build
+      - if: needs.changes.outputs.web == 'true'
+        name: Build
         run: npm --prefix web run build
