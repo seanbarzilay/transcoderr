@@ -102,6 +102,13 @@ async fn main() -> anyhow::Result<()> {
                 "ffmpeg caps probed",
             );
 
+            transcoderr::worker::local::register_local_worker(
+                &pool,
+                &ffmpeg_caps,
+                &discovered,
+            )
+            .await?;
+
             transcoderr::steps::registry::init(
                 pool.clone(),
                 registry.clone(),
@@ -114,6 +121,7 @@ async fn main() -> anyhow::Result<()> {
 
             let bus = transcoderr::bus::Bus::default();
             let cancellations = transcoderr::cancellation::JobCancellations::new();
+            transcoderr::worker::local::spawn_local_heartbeat(pool.clone());
             let worker = transcoderr::worker::Worker::new(
                 pool.clone(),
                 bus.clone(),

@@ -111,6 +111,41 @@ pub async fn delete(
     Ok(StatusCode::NO_CONTENT)
 }
 
+#[derive(serde::Deserialize)]
+pub struct PatchReq {
+    pub enabled: Option<bool>,
+}
+
+/// PATCH /api/workers/:id — currently the only mutable field is
+/// `enabled`. Returns the updated row as `WorkerSummary` (un-redacted —
+/// PATCH is session/UI-authed, not a token-replay surface). 404 if id
+/// missing; 400 if no settable fields supplied.
+pub async fn patch(
+    State(state): State<AppState>,
+    Path(id): Path<i64>,
+    Json(req): Json<PatchReq>,
+) -> Result<Json<WorkerSummary>, StatusCode> {
+    let Some(enabled) = req.enabled else {
+        return Err(StatusCode::BAD_REQUEST);
+    };
+    let n = db::workers::set_enabled(&state.pool, id, enabled)
+        .await
+        .map_err(|e| {
+            tracing::error!(error = ?e, id, "failed to set workers.enabled");
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
+    if n == 0 {
+        return Err(StatusCode::NOT_FOUND);
+    }
+    let row = db::workers::get_by_id(&state.pool, id)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .ok_or(StatusCode::NOT_FOUND)?;
+    // PATCH is UI-driven (session-authed) — return un-redacted, same
+    // policy as create() returning the cleartext mint.
+    Ok(Json(row_to_summary(row, false)))
+}
+
 // --- WebSocket upgrade -----------------------------------------------------
 
 use crate::worker::protocol::{Envelope, Message, RegisterAck};

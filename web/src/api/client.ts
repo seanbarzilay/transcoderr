@@ -123,6 +123,11 @@ export const api = {
         method: "POST",
         body: JSON.stringify({ name }),
       }),
+    patch: (id: number, body: { enabled: boolean }) =>
+      req<import("../types").Worker>(`/workers/${id}`, {
+        method: "PATCH",
+        body: JSON.stringify(body),
+      }),
     delete: (id: number) => req<void>(`/workers/${id}`, { method: "DELETE" }),
   },
   arr: {
