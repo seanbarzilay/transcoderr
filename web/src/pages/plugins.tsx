@@ -3,6 +3,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { marked } from "marked";
 import { api } from "../api/client";
 import type { Plugin, PluginDetail, CatalogEntry } from "../types";
+import InstallLogModal from "../components/install-log-modal";
 
 type Tab = "installed" | "browse" | "catalogs";
 
@@ -54,19 +55,11 @@ function Installed() {
   const plugins = useQuery({ queryKey: ["plugins"], queryFn: api.plugins.list });
   const browse = useQuery({ queryKey: ["plugin-catalog-entries"], queryFn: api.plugins.browse });
   const [openId, setOpenId] = useState<number | null>(null);
+  const [installing, setInstalling] = useState<{ catalogId: number; name: string } | null>(null);
 
   const uninstall = useMutation({
     mutationFn: (id: number) => api.plugins.uninstall(id),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["plugins"] }),
-  });
-  const install = useMutation({
-    mutationFn: ({ catalogId, name }: { catalogId: number; name: string }) =>
-      api.plugins.install(catalogId, name),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["plugins"] });
-      qc.invalidateQueries({ queryKey: ["plugin-catalog-entries"] });
-    },
-    onError: (e: Error) => alert(`Install failed.\n\n${e.message}`),
   });
 
   /// Index by name for the "update available?" check.
@@ -106,7 +99,7 @@ function Installed() {
                 }}
                 onUpdate={
                   updateAvailable && cat
-                    ? () => install.mutate({ catalogId: cat.catalog_id, name: cat.name })
+                    ? () => setInstalling({ catalogId: cat.catalog_id, name: cat.name })
                     : undefined
                 }
                 updateAvailable={!!updateAvailable}
@@ -126,6 +119,17 @@ function Installed() {
           )}
         </tbody>
       </table>
+      {installing && (
+        <InstallLogModal
+          catalogId={installing.catalogId}
+          name={installing.name}
+          onClose={() => {
+            setInstalling(null);
+            qc.invalidateQueries({ queryKey: ["plugins"] });
+            qc.invalidateQueries({ queryKey: ["plugin-catalog-entries"] });
+          }}
+        />
+      )}
     </div>
   );
 }
@@ -320,16 +324,7 @@ function Browse() {
   const qc = useQueryClient();
   const plugins = useQuery({ queryKey: ["plugins"], queryFn: api.plugins.list });
   const browse = useQuery({ queryKey: ["plugin-catalog-entries"], queryFn: api.plugins.browse });
-
-  const install = useMutation({
-    mutationFn: ({ catalogId, name }: { catalogId: number; name: string }) =>
-      api.plugins.install(catalogId, name),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["plugins"] });
-      qc.invalidateQueries({ queryKey: ["plugin-catalog-entries"] });
-    },
-    onError: (e: Error) => alert(`Install failed.\n\n${e.message}`),
-  });
+  const [installing, setInstalling] = useState<{ catalogId: number; name: string } | null>(null);
 
   const installedNames = new Set((plugins.data ?? []).map(p => p.name));
 
@@ -396,7 +391,7 @@ function Browse() {
                   ) : (
                     <button onClick={() => {
                       if (confirm(`Install "${e.name}"? This plugin runs as the transcoderr user.`)) {
-                        install.mutate({ catalogId: e.catalog_id, name: e.name });
+                        setInstalling({ catalogId: e.catalog_id, name: e.name });
                       }
                     }}>Install</button>
                   )}
@@ -413,6 +408,17 @@ function Browse() {
           )}
         </tbody>
       </table>
+      {installing && (
+        <InstallLogModal
+          catalogId={installing.catalogId}
+          name={installing.name}
+          onClose={() => {
+            setInstalling(null);
+            qc.invalidateQueries({ queryKey: ["plugins"] });
+            qc.invalidateQueries({ queryKey: ["plugin-catalog-entries"] });
+          }}
+        />
+      )}
     </div>
   );
 }

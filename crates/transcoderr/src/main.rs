@@ -80,7 +80,7 @@ async fn main() -> anyhow::Result<()> {
             for d in &discovered {
                 if let Some(deps) = &d.manifest.deps {
                     tracing::info!(plugin = %d.manifest.name, "running plugin deps");
-                    if let Err(e) = transcoderr::plugins::deps::run(&d.manifest_dir, deps).await {
+                    if let Err(e) = transcoderr::plugins::deps::run(&d.manifest_dir, deps, |_, _| {}).await {
                         tracing::warn!(
                             plugin = %d.manifest.name,
                             error = %e,

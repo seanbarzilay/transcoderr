@@ -41,6 +41,49 @@ export const api = {
     browse:    () => req<import("../types").CatalogListResponse>("/plugin-catalog-entries"),
     install:   (catalogId: number, name: string) =>
       req<{ installed: string }>(`/plugin-catalog-entries/${catalogId}/${encodeURIComponent(name)}/install`, { method: "POST" }),
+    /**
+     * Open the install endpoint as an SSE stream. Returns an async iterator
+     * over `{event, data}` records the caller can render live. The stream
+     * ends when the server emits a terminal `done` or `error` event (the
+     * server then closes the connection).
+     *
+     * Server emits:
+     *  - status: { message }                — milestone log
+     *  - log:    { stream: stdout|stderr, line }  — raw deps output
+     *  - done:   { installed: <name> }      — terminal success
+     *  - error:  { status, message }        — terminal failure
+     */
+    installStream: async function* (catalogId: number, name: string):
+      AsyncGenerator<{ event: string; data: any }, void, unknown>
+    {
+      const url = `${base}/plugin-catalog-entries/${catalogId}/${encodeURIComponent(name)}/install`;
+      const r = await fetch(url, { method: "POST", credentials: "same-origin" });
+      if (!r.ok || !r.body) throw new Error(`${r.status} ${r.statusText}: ${await r.text()}`);
+      const reader = r.body.getReader();
+      const decoder = new TextDecoder();
+      let buf = "";
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) return;
+        buf += decoder.decode(value, { stream: true });
+        // SSE frames are separated by a blank line ("\n\n").
+        let frameEnd: number;
+        while ((frameEnd = buf.indexOf("\n\n")) !== -1) {
+          const frame = buf.slice(0, frameEnd);
+          buf = buf.slice(frameEnd + 2);
+          let event = "message";
+          const dataLines: string[] = [];
+          for (const line of frame.split("\n")) {
+            if (line.startsWith("event:")) event = line.slice(6).trim();
+            else if (line.startsWith("data:")) dataLines.push(line.slice(5).trim());
+          }
+          if (dataLines.length === 0) continue;
+          let data: any = null;
+          try { data = JSON.parse(dataLines.join("\n")); } catch { data = dataLines.join("\n"); }
+          yield { event, data };
+        }
+      }
+    },
   },
   pluginCatalogs: {
     list:    () => req<import("../types").PluginCatalog[]>("/plugin-catalogs"),

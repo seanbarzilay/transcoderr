@@ -90,11 +90,16 @@ async fn install_size_report_then_run_uses_steps() {
         .send().await.unwrap().json().await.unwrap();
     let cid = resp["id"].as_i64().unwrap();
 
-    // Install.
-    let resp = client
-        .post(format!("{}/api/plugin-catalog-entries/{cid}/size-report/install", app.url))
-        .send().await.unwrap();
-    assert_eq!(resp.status(), 200);
+    // Install. Endpoint streams SSE; drive it to completion before
+    // checking the registry — without this, the registry rebuild may not
+    // have happened yet by the time we resolve below.
+    let installed = common::install_via_sse(
+        &client,
+        &format!("{}/api/plugin-catalog-entries/{cid}/size-report/install", app.url),
+    )
+    .await
+    .expect("install must succeed");
+    assert_eq!(installed, "size-report");
 
     // Run size.report.before / .after by hand against a temp file.
     use std::collections::BTreeMap;
