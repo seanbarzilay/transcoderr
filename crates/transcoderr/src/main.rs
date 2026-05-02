@@ -13,9 +13,14 @@ struct Cli {
 
 #[derive(clap::Subcommand)]
 enum Cmd {
-    /// Run the server.
+    /// Run the server (coordinator).
     Serve {
         #[arg(long, default_value = "config.toml")]
+        config: PathBuf,
+    },
+    /// Run as a remote worker. Connects to a coordinator over WebSocket.
+    Worker {
+        #[arg(long, default_value = "worker.toml")]
         config: PathBuf,
     },
 }
@@ -214,6 +219,10 @@ async fn main() -> anyhow::Result<()> {
             let _ = serve_task.await;
             let _ = worker_task.await;
             Ok(())
+        }
+        Cmd::Worker { config } => {
+            let cfg = transcoderr::worker::config::WorkerConfig::load(&config)?;
+            transcoderr::worker::daemon::run(cfg).await
         }
     }
 }

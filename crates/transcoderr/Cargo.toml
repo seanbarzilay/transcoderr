@@ -26,6 +26,7 @@ async-trait = "0.1"
 cel-interpreter = "0.10"
 reqwest = { workspace = true, features = ["json", "rustls-tls", "cookies", "stream"] }
 tokio-stream = { version = "0.1", features = ["sync"] }
+tokio-tungstenite = { version = "0.24", default-features = false, features = ["rustls-tls-native-roots", "connect"] }
 tokio-util = { version = "0.7", default-features = false }
 futures = "0.3"
 argon2 = "0.5"

@@ -7,6 +7,9 @@
 //! `pool::*` is re-exported so existing `use crate::worker::Worker`
 //! callsites keep resolving without churn.
 
+pub mod config;
+pub mod connection;
+pub mod daemon;
 pub mod pool;
 pub mod protocol;
 
