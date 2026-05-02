@@ -6,7 +6,21 @@ import AddWorkerForm from "../components/forms/add-worker";
 
 const STALE_AFTER_SECS = 90;
 
-function formatSeen(now: number, last: number | null): { label: string; status: string } {
+function formatSeen(
+  now: number,
+  last: number | null,
+  enabled: boolean,
+): { label: string; status: string } {
+  if (!enabled) {
+    // Disabled is a UI-only status — last_seen still updates because
+    // the local heartbeat fires regardless of enable. The label stays
+    // useful as a "yes, the daemon is alive, you just turned it off"
+    // hint.
+    if (last == null) return { label: "off", status: "disabled" };
+    const age = now - last;
+    if (age < 60) return { label: `off (${age}s ago)`, status: "disabled" };
+    return { label: `off (${Math.floor(age / 60)}m ago)`, status: "disabled" };
+  }
   if (last == null) return { label: "never", status: "offline" };
   const age = now - last;
   if (age < STALE_AFTER_SECS) {
@@ -38,6 +52,12 @@ export default function Workers() {
     onSuccess: () => qc.invalidateQueries({ queryKey: ["workers"] }),
   });
 
+  const togg = useMutation({
+    mutationFn: (vars: { id: number; enabled: boolean }) =>
+      api.workers.patch(vars.id, { enabled: vars.enabled }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["workers"] }),
+  });
+
   const now = Math.floor(Date.now() / 1000);
   const coordinatorUrlGuess = window.location.origin
     .replace(/^http:/, "ws:")
@@ -62,12 +82,13 @@ export default function Workers() {
               <th style={{ width: 90 }}>Kind</th>
               <th>Hardware</th>
               <th style={{ width: 130 }}>Last seen</th>
+              <th style={{ width: 90 }}>Enabled</th>
               <th style={{ width: 90 }}></th>
             </tr>
           </thead>
           <tbody>
             {(list.data ?? []).map((w: Worker) => {
-              const seen = formatSeen(now, w.last_seen_at);
+              const seen = formatSeen(now, w.last_seen_at, w.enabled);
               return (
                 <tr key={w.id}>
                   <td>
@@ -77,6 +98,16 @@ export default function Workers() {
                   <td><span className="label">{w.kind}</span></td>
                   <td className="mono dim">{hwCapsSummary(w.hw_caps)}</td>
                   <td className="dim">{seen.label}</td>
+                  <td>
+                    <input
+                      type="checkbox"
+                      checked={w.enabled}
+                      disabled={togg.isPending}
+                      onChange={(e) =>
+                        togg.mutate({ id: w.id, enabled: e.target.checked })
+                      }
+                    />
+                  </td>
                   <td>
                     {w.kind === "remote" && (
                       <button
@@ -93,7 +124,7 @@ export default function Workers() {
               );
             })}
             {(list.data ?? []).length === 0 && !list.isLoading && (
-              <tr><td colSpan={6} className="empty">No workers yet.</td></tr>
+              <tr><td colSpan={7} className="empty">No workers yet.</td></tr>
             )}
           </tbody>
         </table>
