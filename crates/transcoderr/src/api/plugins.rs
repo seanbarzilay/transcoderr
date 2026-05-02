@@ -213,40 +213,72 @@ pub async fn install(
     }
 
     let plugins_dir = state.cfg.data_dir.join("plugins");
-    let installed = installer::install_from_entry(&entry.entry, &plugins_dir)
-        .await
-        .map_err(|e| (StatusCode::UNPROCESSABLE_ENTITY, e.to_string()))?;
+    tracing::info!(plugin = %name, catalog_id, "installing plugin");
 
-    // Run the plugin's `deps` shell command if it declared one (e.g.
-    // `pip install -r requirements.txt`). On failure, roll back the
-    // install -- delete the just-extracted plugin dir -- so the
-    // operator can fix the issue and retry without a half-installed
-    // plugin sitting on disk.
-    if let Some(deps_cmd) = read_manifest(&installed.plugin_dir.to_string_lossy())
-        .and_then(|m| m.deps)
-    {
-        if let Err(e) = crate::plugins::deps::run(&installed.plugin_dir, &deps_cmd).await {
-            let _ = std::fs::remove_dir_all(&installed.plugin_dir);
-            return Err((
-                StatusCode::UNPROCESSABLE_ENTITY,
-                format!("deps install failed: {e}"),
-            ));
-        }
+    // Detach the install work into a spawned task so the install
+    // completes even if the HTTP client disconnects mid-deps.
+    //
+    // Why: heavy plugins (e.g. whisper -> faster-whisper +
+    // nvidia-cuda) take minutes to `pip install`; browser/proxy
+    // timeouts drop the connection before deps finish. If the
+    // request future gets dropped here, the post-deps work
+    // (discover + sync_discovered + registry rebuild) never runs,
+    // leaving the plugin extracted on disk but unknown to the DB.
+    // The next server restart's boot path then "discovers" it and
+    // syncs WITHOUT catalog provenance, which looks to the
+    // operator like the plugin only "installed at restart".
+    //
+    // tokio::spawn'd tasks survive their JoinHandle being dropped,
+    // so the install completes even when the client gives up.
+    let pool = state.pool.clone();
+    let task_name = name.clone();
+    let entry_inner = entry.entry.clone();
+    let task: tokio::task::JoinHandle<Result<String, (StatusCode, String)>> =
+        tokio::spawn(async move {
+            let installed = installer::install_from_entry(&entry_inner, &plugins_dir)
+                .await
+                .map_err(|e| (StatusCode::UNPROCESSABLE_ENTITY, e.to_string()))?;
+
+            // Run the plugin's `deps` shell command if declared. On failure,
+            // roll back the install -- delete the just-extracted plugin dir.
+            if let Some(deps_cmd) = read_manifest(&installed.plugin_dir.to_string_lossy())
+                .and_then(|m| m.deps)
+            {
+                tracing::info!(plugin = %task_name, deps = %deps_cmd, "running plugin deps");
+                if let Err(e) = crate::plugins::deps::run(&installed.plugin_dir, &deps_cmd).await {
+                    tracing::warn!(plugin = %task_name, error = %e, "plugin deps failed; rolling back install");
+                    let _ = std::fs::remove_dir_all(&installed.plugin_dir);
+                    return Err((
+                        StatusCode::UNPROCESSABLE_ENTITY,
+                        format!("deps install failed: {e}"),
+                    ));
+                }
+                tracing::info!(plugin = %task_name, "plugin deps completed");
+            }
+
+            let discovered = crate::plugins::discover(&plugins_dir)
+                .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+            let mut provenance = HashMap::new();
+            provenance.insert(
+                installed.name.clone(),
+                (catalog_id, installed.tarball_sha256),
+            );
+            crate::db::plugins::sync_discovered(&pool, &discovered, &provenance)
+                .await
+                .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+            crate::steps::registry::rebuild_from_discovered(discovered).await;
+            tracing::info!(plugin = %task_name, "plugin install complete");
+            Ok(installed.name)
+        });
+
+    match task.await {
+        Ok(Ok(installed_name)) => Ok(Json(serde_json::json!({"installed": installed_name}))),
+        Ok(Err(e)) => Err(e),
+        Err(join_err) => Err((
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("install task panicked: {join_err}"),
+        )),
     }
-
-    let discovered = crate::plugins::discover(&plugins_dir)
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
-    let mut provenance = HashMap::new();
-    provenance.insert(
-        installed.name.clone(),
-        (catalog_id, installed.tarball_sha256),
-    );
-    crate::db::plugins::sync_discovered(&state.pool, &discovered, &provenance)
-        .await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
-    crate::steps::registry::rebuild_from_discovered(discovered).await;
-
-    Ok(Json(serde_json::json!({"installed": installed.name})))
 }
 
 /// DELETE /api/plugins/:id
