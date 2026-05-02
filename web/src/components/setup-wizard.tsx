@@ -4,6 +4,7 @@ import { api } from "../api/client";
 import SourceStep from "./setup-wizard-steps/source";
 import NotifierStep from "./setup-wizard-steps/notifier";
 import PluginsStep from "./setup-wizard-steps/plugins";
+import FlowStep from "./setup-wizard-steps/flow";
 
 type Step = "welcome" | "source" | "notifier" | "plugins" | "flow" | "done";
 
@@ -96,7 +97,13 @@ export default function SetupWizard() {
             )}
             {step === "plugins" && (
               <PluginsStep
-                onContinue={() => next("done")}
+                onContinue={() => next("flow")}
+                onSkip={() => next("flow")}
+              />
+            )}
+            {step === "flow" && (
+              <FlowStep
+                onCreated={() => next("done")}
                 onSkip={() => next("done")}
               />
             )}

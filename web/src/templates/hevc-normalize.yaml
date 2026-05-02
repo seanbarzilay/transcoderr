@@ -1,0 +1,68 @@
+name: hevc-normalize
+description: |
+  Re-encode anything not already hevc to x265 fast crf=19, ensure an English
+  AC3 6ch audio track exists, and drop cover-art / data streams. Every
+  per-stream decision is built up declaratively (`plan.*` steps) and
+  materialized in a SINGLE ffmpeg pass via `plan.execute` — no chained tmp
+  files, all subtitle tracks preserved.
+enabled: true
+
+triggers:
+  - radarr: [downloaded, upgraded]
+  - sonarr: [downloaded]
+
+# Skip empty / unreadable files.
+match:
+  expr: file.size_gb > 0.001
+
+steps:
+  - id: probe
+    use: probe
+
+  - id: plan-init
+    use: plan.init
+  - id: plan-tolerate
+    use: plan.input.tolerate_errors
+  - id: plan-drop-cover-art
+    use: plan.streams.drop_cover_art
+  - id: plan-drop-data
+    use: plan.streams.drop_data
+  - id: plan-drop-unsupported-subs
+    use: plan.subs.drop_unsupported
+
+  # If the video is NOT already hevc, mark it for re-encode.
+  - id: codec-gate
+    if: probe.streams[0].codec_name == "hevc"
+    then: []
+    else:
+      - id: plan-encode-video
+        use: plan.video.encode
+        with:
+          codec: x265
+          crf: 19
+          preset: fast
+          preserve_10bit: true
+          hw:
+            prefer: [nvenc, qsv, vaapi, videotoolbox]
+            fallback: cpu
+
+  - id: plan-ensure-audio
+    use: plan.audio.ensure
+    with:
+      codec: ac3
+      channels: 6
+      language: eng
+      dedupe: true
+
+  # ONE ffmpeg invocation: re-encode video (or copy), copy every kept stream,
+  # add the new audio track if any, write to mkv.
+  - id: plan-execute
+    use: plan.execute
+
+  - id: verify
+    use: verify.playable
+    with: { min_duration_ratio: 0.99 }
+
+  - id: swap
+    use: output
+    with: { mode: replace }
