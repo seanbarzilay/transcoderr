@@ -116,6 +116,15 @@ export const api = {
       remove: (id: number) => req<void>(`/auth/tokens/${id}`, { method: "DELETE" }),
     },
   },
+  workers: {
+    list:   () => req<import("../types").Worker[]>("/workers"),
+    create: (name: string) =>
+      req<import("../types").WorkerCreateResp>("/workers", {
+        method: "POST",
+        body: JSON.stringify({ name }),
+      }),
+    delete: (id: number) => req<void>(`/workers/${id}`, { method: "DELETE" }),
+  },
   arr: {
     movies: (sourceId: number, params: import("../types-arr").BrowseParams) => {
       const q = new URLSearchParams(

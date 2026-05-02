@@ -13,6 +13,7 @@ const config: [string, string][] = [
   ["/sources", "Sources"],
   ["/notifiers", "Notifiers"],
   ["/plugins", "Plugins"],
+  ["/workers", "Workers"],
   ["/settings", "Settings"],
 ];
 
