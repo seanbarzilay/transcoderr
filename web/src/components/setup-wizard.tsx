@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "../api/client";
+import SourceStep from "./setup-wizard-steps/source";
 
 type Step = "welcome" | "source" | "notifier" | "plugins" | "flow" | "done";
 
@@ -78,7 +79,13 @@ export default function SetupWizard() {
           </ul>
 
           <div className="wizard-pane">
-            {step === "welcome" && <Welcome onStart={() => next("done")} />}
+            {step === "welcome" && <Welcome onStart={() => next("source")} />}
+            {step === "source" && (
+              <SourceStep
+                onCreated={() => next("done")}
+                onSkip={() => next("done")}
+              />
+            )}
             {step === "done" && <Done onFinish={finish} />}
           </div>
         </div>
