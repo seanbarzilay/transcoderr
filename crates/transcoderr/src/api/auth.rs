@@ -101,6 +101,15 @@ pub async fn require_auth(
                     request.extensions_mut().insert(AuthSource::Token);
                     return Ok(next.run(request).await);
                 }
+                // Worker tokens are a second valid Bearer source. They
+                // grant the same surface as API tokens for the
+                // /api/workers* and /api/worker/* paths the worker
+                // daemon uses; for other paths, treat as redacted Token
+                // (same redaction policy applies).
+                if let Ok(Some(_row)) = crate::db::workers::get_by_token(&state.pool, token).await {
+                    request.extensions_mut().insert(AuthSource::Token);
+                    return Ok(next.run(request).await);
+                }
                 if enabled {
                     return Err(StatusCode::UNAUTHORIZED);
                 }
