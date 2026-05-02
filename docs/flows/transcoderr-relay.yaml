@@ -1,0 +1,46 @@
+# Example: at the end of a flow on this instance, fire an inbound
+# webhook on a downstream transcoderr instance so it queues its own
+# flow against the same file path.
+#
+# Setup:
+#   1. On the DOWNSTREAM transcoderr: Settings -> Sources -> Add a
+#      webhook source named "relay". Save the secret_token.
+#   2. Wire one or more flows on the downstream to that source.
+#   3. On THIS (upstream) transcoderr: set RELAY_TOKEN in the
+#      container env to the downstream secret_token.
+#   4. Drop this flow in. Adjust the URL.
+#
+# The downstream's default `path_expr = steps.payload.path` matches
+# the body shape below; no extra config_json needed.
+#
+# See docs/relay.md for the full contract.
+
+name: relay-after-encode
+triggers:
+  - radarr: [downloaded, upgraded]
+
+steps:
+  - use: probe
+  - use: plan.init
+  - use: plan.video.encode
+    with: { codec: x265, crf: 19, preset: fast, hw: { prefer: [nvenc, qsv, vaapi, videotoolbox], fallback: cpu } }
+  - use: plan.execute
+  - use: verify.playable
+  - use: output
+    with: { mode: replace }
+
+  - use: webhook
+    with:
+      url: https://downstream.example/webhook/relay
+      headers:
+        Authorization: "Bearer {{ env.RELAY_TOKEN }}"
+      body: '{"path": "{{ file.path }}"}'
+
+on_failure:
+  - use: webhook
+    with:
+      url: https://downstream.example/webhook/relay
+      headers:
+        Authorization: "Bearer {{ env.RELAY_TOKEN }}"
+      body: '{"path": "{{ file.path }}", "upstream_error": "{{ failed.error }}"}'
+      ignore_errors: true

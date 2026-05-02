@@ -237,6 +237,8 @@ Create the token under **Settings → API tokens** in the web UI. See
   the showcase site (one-page tour with live UI screenshots)
 - [`docs/deploy.md`](docs/deploy.md) — production deploy notes
 - [`docs/mcp.md`](docs/mcp.md) — MCP server reference
+- [`docs/relay.md`](docs/relay.md) — chain two transcoderr instances
+  (one fires a `webhook` step at the other's webhook source)
 - [`docs/flows/`](docs/flows/) — example flow YAMLs
 - [`docs/plugins/`](docs/plugins/) — example subprocess plugins
   (drop into `{data_dir}/plugins/`)
