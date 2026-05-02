@@ -213,6 +213,7 @@ pub async fn install(
     }
 
     let plugins_dir = state.cfg.data_dir.join("plugins");
+    tracing::info!(plugin = %name, catalog_id, "installing plugin");
     let installed = installer::install_from_entry(&entry.entry, &plugins_dir)
         .await
         .map_err(|e| (StatusCode::UNPROCESSABLE_ENTITY, e.to_string()))?;
@@ -225,14 +226,18 @@ pub async fn install(
     if let Some(deps_cmd) = read_manifest(&installed.plugin_dir.to_string_lossy())
         .and_then(|m| m.deps)
     {
+        tracing::info!(plugin = %name, deps = %deps_cmd, "running plugin deps");
         if let Err(e) = crate::plugins::deps::run(&installed.plugin_dir, &deps_cmd).await {
+            tracing::warn!(plugin = %name, error = %e, "plugin deps failed; rolling back install");
             let _ = std::fs::remove_dir_all(&installed.plugin_dir);
             return Err((
                 StatusCode::UNPROCESSABLE_ENTITY,
                 format!("deps install failed: {e}"),
             ));
         }
+        tracing::info!(plugin = %name, "plugin deps completed");
     }
+    tracing::info!(plugin = %name, "plugin install complete");
 
     let discovered = crate::plugins::discover(&plugins_dir)
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
