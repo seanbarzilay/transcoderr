@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "../api/client";
 import SourceStep from "./setup-wizard-steps/source";
@@ -29,20 +29,29 @@ export default function SetupWizard() {
   const settings = useQuery({ queryKey: ["settings"], queryFn: api.settings.get });
 
   const [step, setStep] = useState<Step>("welcome");
-  // Locally suppressed for this session — closing the modal hides it
-  // immediately while the PATCH flies; we don't wait on the server
-  // round trip to dismiss.
+  // `open` is one-way: false → true happens once when the auto-launch
+  // conditions are first met (no sources, no `wizard.completed` flag).
+  // After that we don't re-check the gating — adding a source mid-flow
+  // would otherwise flip `sources.length > 0` and yank the modal out
+  // from under the operator. Only Skip / Finish close it via
+  // `dismissed`.
+  const [open, setOpen] = useState(false);
   const [dismissed, setDismissed] = useState(false);
+
+  useEffect(() => {
+    if (open || dismissed) return;
+    if (sources.isLoading || settings.isLoading) return;
+    if ((sources.data ?? []).length > 0) return;
+    if (settings.data?.["wizard.completed"] === "true") return;
+    setOpen(true);
+  }, [open, dismissed, sources.isLoading, settings.isLoading, sources.data, settings.data]);
 
   const markDone = useMutation({
     mutationFn: () => api.settings.patch({ "wizard.completed": "true" }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["settings"] }),
   });
 
-  if (sources.isLoading || settings.isLoading) return null;
-  if ((sources.data ?? []).length > 0) return null;
-  if (settings.data?.["wizard.completed"] === "true") return null;
-  if (dismissed) return null;
+  if (!open || dismissed) return null;
 
   const finish = () => {
     setDismissed(true);
