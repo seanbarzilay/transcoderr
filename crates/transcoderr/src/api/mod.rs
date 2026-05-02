@@ -9,6 +9,7 @@ pub mod plugins;
 pub mod runs;
 pub mod settings;
 pub mod sources;
+pub mod workers;
 
 use crate::http::AppState;
 use axum::{
@@ -61,6 +62,8 @@ pub fn router(state: AppState) -> Router<AppState> {
         .route("/notifiers/:id/test", post(notifiers::test))
         .route("/settings",           get(settings::get_all).patch(settings::patch))
         .route("/dry-run",            post(dryrun::dry_run))
+        .route("/workers",            get(workers::list).post(workers::create))
+        .route("/workers/:id",        delete(workers::delete))
         .route("/stream",             axum::routing::get(crate::bus::sse::stream))
         .route_layer(from_fn_with_state(state.clone(), auth::require_auth));
 
