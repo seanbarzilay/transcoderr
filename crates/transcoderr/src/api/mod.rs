@@ -24,7 +24,8 @@ pub fn router(state: AppState) -> Router<AppState> {
     let public = Router::new()
         .route("/auth/login",  post(auth::login))
         .route("/auth/logout", post(auth::logout))
-        .route("/auth/me",     get(auth::me));
+        .route("/auth/me",     get(auth::me))
+        .route("/worker/connect", get(workers::connect));
 
     let protected = Router::new()
         .route("/auth/tokens",        get(auth::list_tokens).post(auth::create_token))

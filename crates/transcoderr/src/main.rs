@@ -192,6 +192,8 @@ async fn main() -> anyhow::Result<()> {
 
             transcoderr::arr::reconcile::spawn(state.pool.clone(), state.public_url.clone());
 
+            transcoderr::api::workers::spawn_idle_sweep(state.clone()).await;
+
             let dedup_window_secs: u64 = transcoderr::db::settings::get(&state.pool, "dedup.window_seconds")
                 .await
                 .ok()
