@@ -3,6 +3,7 @@
 //! `notify` uses. Hard-fails on network error / non-2xx by default;
 //! `ignore_errors: true` flips both to warn-and-succeed.
 
+use async_trait::async_trait;
 use serde::Deserialize;
 use serde_json::Value;
 use std::collections::BTreeMap;
@@ -89,6 +90,78 @@ impl WebhookConfig {
             url, method, headers, body, timeout_seconds,
             ignore_errors: self.ignore_errors,
         })
+    }
+}
+
+const ERROR_BODY_TRUNCATE_BYTES: usize = 1024;
+
+pub struct WebhookStep;
+
+#[async_trait]
+impl super::Step for WebhookStep {
+    fn name(&self) -> &'static str { "webhook" }
+
+    async fn execute(
+        &self,
+        with: &BTreeMap<String, Value>,
+        ctx: &mut crate::flow::Context,
+        on_progress: &mut (dyn FnMut(super::StepProgress) + Send),
+    ) -> anyhow::Result<()> {
+        let cfg = WebhookConfig::from_with(with)?;
+        let req = cfg.render(ctx)?;
+
+        on_progress(super::StepProgress::Log(
+            format!("webhook: {} {}", req.method, req.url),
+        ));
+
+        let client = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(req.timeout_seconds))
+            .build()?;
+
+        let mut builder = client.request(
+            reqwest::Method::from_bytes(req.method.as_bytes())
+                .map_err(|e| anyhow::anyhow!("webhook: bad method {}: {e}", req.method))?,
+            &req.url,
+        );
+        for (k, v) in &req.headers {
+            builder = builder.header(k, v);
+        }
+        if let Some(body) = &req.body {
+            builder = builder.body(body.clone());
+        }
+
+        let result = builder.send().await;
+        let resp = match result {
+            Ok(r) => r,
+            Err(e) => {
+                let msg = format!("webhook: {} {}: {e}", req.method, req.url);
+                if req.ignore_errors {
+                    tracing::warn!(error = %e, url = %req.url, "webhook ignored network error");
+                    on_progress(super::StepProgress::Log(format!("{msg} (ignored)")));
+                    return Ok(());
+                }
+                return Err(anyhow::anyhow!(msg));
+            }
+        };
+
+        let status = resp.status();
+        if status.is_success() {
+            on_progress(super::StepProgress::Log(format!("webhook: {status}")));
+            return Ok(());
+        }
+
+        // Non-2xx: capture (and truncate) the body for diagnosis.
+        let body = resp.text().await.unwrap_or_default();
+        let truncated: String = body.chars().take(ERROR_BODY_TRUNCATE_BYTES).collect();
+        let msg = format!("webhook: {} {} -> {status}: {truncated}", req.method, req.url);
+
+        if req.ignore_errors {
+            tracing::warn!(status = %status, url = %req.url, body = %truncated, "webhook ignored non-2xx");
+            on_progress(super::StepProgress::Log(format!("{msg} (ignored)")));
+            return Ok(());
+        }
+
+        Err(anyhow::anyhow!(msg))
     }
 }
 
