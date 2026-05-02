@@ -8,5 +8,6 @@
 //! callsites keep resolving without churn.
 
 pub mod pool;
+pub mod protocol;
 
 pub use pool::*;
