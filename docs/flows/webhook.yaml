@@ -1,0 +1,52 @@
+# Example: fire a custom webhook on completion (and again on failure).
+#
+# Templated values:
+#   {{ file.path }}                 — the input file path
+#   {{ file.size_bytes }}           — input size in bytes (may be null pre-probe)
+#   {{ env.MY_API_TOKEN }}          — process environment variable
+#   {{ failed.id }} / {{ failed.error }}  — only inside on_failure: chains
+
+name: webhook-demo
+triggers:
+  - radarr: [downloaded]
+
+steps:
+  - use: probe
+  - use: plan.init
+  - use: plan.video.encode
+    with: { codec: x265, crf: 19, preset: fast, hw: { prefer: [nvenc, qsv, vaapi, videotoolbox], fallback: cpu } }
+  - use: plan.execute
+  - use: verify.playable
+  - use: output
+    with: { mode: replace }
+
+  # Fire-and-check primary webhook. Hard-fails the run on non-2xx so
+  # downstream systems aren't told about a transcode that "worked"
+  # when the receiver couldn't accept it.
+  - use: webhook
+    with:
+      url: https://hooks.example.com/transcoderr/done
+      method: POST
+      headers:
+        Content-Type: application/json
+        Authorization: "Bearer {{ env.MY_API_TOKEN }}"
+      body: |
+        {"file": "{{ file.path }}", "size_bytes": {{ file.size_bytes }}}
+
+  # Best-effort metric ping. Don't fail the run if the metrics endpoint
+  # is flaky; just log a warning.
+  - use: webhook
+    with:
+      url: https://metrics.example.com/v1/event
+      method: POST
+      body: '{"event": "transcode_done"}'
+      ignore_errors: true
+
+on_failure:
+  - use: webhook
+    with:
+      url: https://hooks.example.com/transcoderr/failed
+      headers:
+        Authorization: "Bearer {{ env.MY_API_TOKEN }}"
+      body: |
+        {"file": "{{ file.path }}", "step": "{{ failed.id }}", "error": "{{ failed.error }}"}
