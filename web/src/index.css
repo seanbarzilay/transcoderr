@@ -1141,4 +1141,69 @@ tbody tr:hover td { background: var(--surface); }
 .install-log-stderr { color: var(--warn); }
 
 .ok  { color: var(--ok); }
+
+/* ---- setup wizard --------------------------------------------------------- */
+
+.wizard-modal {
+  width: min(900px, 100%);
+  max-height: min(85vh, 760px);
+}
+.wizard-body {
+  display: grid;
+  grid-template-columns: 200px 1fr;
+  flex: 1;
+  min-height: 0;
+}
+.wizard-rail {
+  list-style: none;
+  margin: 0;
+  padding: var(--space-4) var(--space-3);
+  border-right: 1px solid var(--border);
+  background: var(--surface-2);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.wizard-rail-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border-radius: var(--r-2);
+  font-size: 13px;
+  color: var(--text-dim);
+}
+.wizard-rail-item.is-active {
+  background: var(--surface-3);
+  color: var(--text);
+}
+.wizard-rail-num {
+  display: inline-flex;
+  width: 22px; height: 22px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  font-size: 11px;
+  font-family: var(--font-mono);
+}
+.wizard-rail-item.is-active .wizard-rail-num {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.wizard-pane {
+  padding: var(--space-5);
+  overflow-y: auto;
+}
+.wizard-step h4 { margin: 0 0 8px; font-size: 16px; }
+.wizard-step p { margin: 0 0 12px; font-size: 13px; }
+.wizard-welcome-list { padding-left: 18px; margin: 8px 0; font-size: 13px; }
+.wizard-welcome-list li { padding: 3px 0; color: var(--text-dim); }
+.wizard-footer { display: flex; justify-content: flex-start; gap: 8px; }
+
+@media (max-width: 640px) {
+  .wizard-body { grid-template-columns: 1fr; }
+  .wizard-rail { display: none; }
+}
 .bad { color: var(--bad); }

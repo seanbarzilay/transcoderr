@@ -17,6 +17,7 @@ import Login from "./pages/login";
 import Radarr from "./pages/radarr";
 import Sonarr from "./pages/sonarr";
 import SonarrSeries from "./pages/sonarr-series";
+import SetupWizard from "./components/setup-wizard";
 
 export default function App() {
   useEffect(() => {
@@ -62,6 +63,7 @@ export default function App() {
           <Route path="/sonarr/series/:seriesId" element={<SonarrSeries />} />
         </Routes>
       </main>
+      <SetupWizard />
     </div>
   );
 }
