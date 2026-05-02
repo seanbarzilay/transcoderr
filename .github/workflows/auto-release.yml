@@ -2,6 +2,21 @@ name: auto-release
 on:
   push:
     branches: [main]
+    # Only bump when a push actually changes code that ends up in a
+    # binary or shipped artifact. Docs, the showcase site, design specs,
+    # and other CI workflows don't earn a version bump on their own.
+    # If a commit touches both code AND ignored paths, the code paths
+    # win and the workflow still runs (GH Actions matches "any change
+    # not in the ignore list").
+    paths-ignore:
+      - 'README.md'
+      - '**/*.md'
+      - 'docs/**'
+      - 'site/**'
+      - '.github/workflows/auto-release.yml'
+      - '.github/workflows/release.yml'
+      - '.github/workflows/tests.yml'
+      - '.github/workflows/pages.yml'
 
 permissions:
   contents: write

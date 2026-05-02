@@ -2,6 +2,19 @@ name: tests
 on:
   pull_request:
     branches: [main]
+    # Skip the test suite for PRs that only change docs / the showcase
+    # site / specs / unrelated CI files — there's nothing to test in
+    # those changes. tests.yml itself is intentionally NOT in the
+    # ignore list: changing the workflow should re-run it to catch
+    # regressions in CI config.
+    paths-ignore:
+      - 'README.md'
+      - '**/*.md'
+      - 'docs/**'
+      - 'site/**'
+      - '.github/workflows/auto-release.yml'
+      - '.github/workflows/release.yml'
+      - '.github/workflows/pages.yml'
   workflow_dispatch:
 
 permissions:
