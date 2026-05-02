@@ -284,6 +284,9 @@ tbody tr:hover td { background: var(--surface); }
 }
 .badge-auto { color: var(--ok); background: var(--ok-soft); border-color: transparent; }
 .badge-manual { color: var(--text-muted); background: var(--neutral-soft); border-color: transparent; }
+.badge-connected { background: var(--ok-soft); color: var(--ok); }
+.badge-stale     { background: var(--warn-soft); color: var(--warn); }
+.badge-offline   { background: var(--neutral-soft); color: var(--text-muted); }
 
 .hint {
   color: var(--text-muted);

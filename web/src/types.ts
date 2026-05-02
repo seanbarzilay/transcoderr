@@ -80,3 +80,20 @@ export type ApiTokenSummary = {
   created_at: number;
   last_used_at: number | null;
 };
+
+export type Worker = {
+  id: number;
+  name: string;
+  kind: "local" | "remote";
+  secret_token: string | null;       // "***" or null after mint
+  hw_caps: any | null;
+  plugin_manifest: any[] | null;
+  enabled: boolean;
+  last_seen_at: number | null;
+  created_at: number;
+};
+
+export type WorkerCreateResp = {
+  id: number;
+  secret_token: string;              // one-time-display
+};

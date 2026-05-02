@@ -59,7 +59,45 @@ The binary serves both webhooks and the UI on the same port. To require login on
 1. Settings → Auth → Enable + set password.
 2. UI traffic now requires a session cookie. Webhooks remain authenticated by their per-source token regardless.
 
-If you put the binary behind nginx/caddy/traefik, terminate TLS at the proxy. WebSocket-style streaming is not used — SSE works through any HTTP/1.1 proxy.
+If you put the binary behind nginx/caddy/traefik, terminate TLS at the proxy. SSE works through any HTTP/1.1 proxy. The `/api/worker/connect` endpoint is a WebSocket upgrade — see the Distributed transcoding section below for proxy notes.
+
+## Distributed transcoding (worker mode)
+
+A second host can connect to a running coordinator as a worker and
+receive ffmpeg / heavy plugin work over a WebSocket. As of v0.31 this
+release ships only the connection layer — the Workers UI shows them as
+connected; jobs still run on the coordinator. Future releases route
+work to remote workers.
+
+Mint a token in the coordinator UI (**Workers → Add worker**) and save
+it as `worker.toml` on the worker host:
+
+```toml
+coordinator_url   = "wss://transcoderr.example/api/worker/connect"
+coordinator_token = "<token-shown-once>"
+name              = "gpu-box-1"
+```
+
+Then on the worker host:
+
+```bash
+docker run --rm \
+  -v $(pwd)/worker.toml:/etc/transcoderr/worker.toml \
+  -v /mnt/movies:/mnt/movies \
+  ghcr.io/seanbarzilay/transcoderr:nvidia-latest \
+  transcoderr worker --config /etc/transcoderr/worker.toml
+```
+
+Mount the media volume at the same path the coordinator uses — the
+worker reads/writes the file directly. Docker images already include
+both `serve` and `worker` subcommands.
+
+### Reverse-proxy notes
+
+Workers connect over WebSocket. If the coordinator is behind
+nginx / caddy / traefik, make sure `Upgrade` and `Connection` headers
+are passed through (most defaults do, but it's worth checking on a
+502).
 
 ## Plugin catalogs and runtimes
 

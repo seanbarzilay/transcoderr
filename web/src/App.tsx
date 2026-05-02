@@ -12,6 +12,7 @@ import RunDetail from "./pages/run-detail";
 import Sources from "./pages/sources";
 import Notifiers from "./pages/notifiers";
 import Plugins from "./pages/plugins";
+import Workers from "./pages/workers";
 import Settings from "./pages/settings";
 import Login from "./pages/login";
 import Radarr from "./pages/radarr";
@@ -57,6 +58,7 @@ export default function App() {
           <Route path="/sources" element={<Sources />} />
           <Route path="/notifiers" element={<Notifiers />} />
           <Route path="/plugins" element={<Plugins />} />
+          <Route path="/workers" element={<Workers />} />
           <Route path="/settings" element={<Settings />} />
           <Route path="/radarr" element={<Radarr />} />
           <Route path="/sonarr" element={<Sonarr />} />
