@@ -3,12 +3,12 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "../api/client";
 import NotifierForm, {
   KINDS,
-  emptyForm,
   fromConfig,
   toConfig,
   validate,
 } from "../components/notifier-form";
 import type { Kind, FormValue } from "../components/notifier-form";
+import AddNotifierForm from "../components/forms/add-notifier";
 
 type Notifier = { id: number; name: string; kind: string; config: any };
 
@@ -16,29 +16,9 @@ export default function Notifiers() {
   const qc = useQueryClient();
   const list = useQuery({ queryKey: ["notifiers"], queryFn: api.notifiers.list });
 
-  // Add form
-  const [kind, setKind] = useState<Kind>("discord");
-  const [name, setName] = useState("");
-  const [addValue, setAddValue] = useState<FormValue>(() => emptyForm("discord"));
-  const [addError, setAddError] = useState<string | null>(null);
-
   // Inline edit state, keyed by id
   const [editing, setEditing] = useState<Record<number, { name: string; value: FormValue }>>({});
   const [rowError, setRowError] = useState<Record<number, string | null>>({});
-
-  const create = useMutation({
-    mutationFn: () => {
-      const config = toConfig(kind, addValue, false);
-      return api.notifiers.create({ name, kind, config });
-    },
-    onSuccess: () => {
-      setName("");
-      setAddValue(emptyForm(kind));
-      setAddError(null);
-      qc.invalidateQueries({ queryKey: ["notifiers"] });
-    },
-    onError: (e: any) => setAddError(e?.message ?? "create failed"),
-  });
 
   const update = useMutation({
     mutationFn: ({ id, body }: { id: number; body: any }) =>
@@ -104,9 +84,6 @@ export default function Notifiers() {
     });
   }
 
-  const addValidationError = validate(kind, addValue, false);
-  const addDisabled = create.isPending || !name.trim() || addValidationError !== null;
-
   return (
     <div className="page">
       <div className="page-header">
@@ -116,50 +93,7 @@ export default function Notifiers() {
         </div>
       </div>
 
-      <div className="surface" style={{ padding: 16, marginBottom: 16 }}>
-        <div className="label" style={{ marginBottom: 8 }}>
-          Add notifier
-        </div>
-        <div className="notifier-add">
-          <div className="notifier-add-head">
-            <select
-              value={kind}
-              onChange={e => {
-                const k = e.target.value as Kind;
-                setKind(k);
-                setAddValue(emptyForm(k));
-              }}
-            >
-              {KINDS.map(k => (
-                <option key={k}>{k}</option>
-              ))}
-            </select>
-            <input
-              placeholder="name (referenced from flow YAML)"
-              value={name}
-              onChange={e => setName(e.target.value)}
-              style={{ flex: 1, minWidth: 220 }}
-            />
-          </div>
-          <NotifierForm
-            kind={kind}
-            value={addValue}
-            onChange={setAddValue}
-            isEdit={false}
-          />
-          <div style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 8 }}>
-            <button onClick={() => create.mutate()} disabled={addDisabled}>
-              Add
-            </button>
-            {!create.isPending && addValidationError && name.trim() && (
-              <span className="notifier-form-hint">{addValidationError}</span>
-            )}
-          </div>
-        </div>
-        {addError && (
-          <div style={{ color: "var(--bad)", marginTop: 8, fontSize: 12 }}>{addError}</div>
-        )}
-      </div>
+      <AddNotifierForm />
 
       <div className="surface">
       <table>
