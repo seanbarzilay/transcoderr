@@ -66,6 +66,7 @@ function Installed() {
       qc.invalidateQueries({ queryKey: ["plugins"] });
       qc.invalidateQueries({ queryKey: ["plugin-catalog-entries"] });
     },
+    onError: (e: Error) => alert(`Install failed.\n\n${e.message}`),
   });
 
   /// Index by name for the "update available?" check.
@@ -327,6 +328,7 @@ function Browse() {
       qc.invalidateQueries({ queryKey: ["plugins"] });
       qc.invalidateQueries({ queryKey: ["plugin-catalog-entries"] });
     },
+    onError: (e: Error) => alert(`Install failed.\n\n${e.message}`),
   });
 
   const installedNames = new Set((plugins.data ?? []).map(p => p.name));
