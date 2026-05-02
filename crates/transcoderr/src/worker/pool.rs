@@ -108,6 +108,18 @@ impl Worker {
         let mut shutdown = shutdown;
         loop {
             if *shutdown.borrow() { return; }
+
+            // Per-worker enable toggle (Piece 2). When the operator
+            // disables the local worker, the in-flight job (if any)
+            // finishes naturally inside `tick()`; subsequent claims
+            // short-circuit here. Defaults to enabled on DB error.
+            if !crate::worker::local::is_enabled(&self.pool).await {
+                tokio::select! {
+                    _ = shutdown.changed() => return,
+                    _ = tokio::time::sleep(Duration::from_millis(500)) => continue,
+                }
+            }
+
             match self.tick().await {
                 Ok(true) => continue,
                 Ok(false) => {
