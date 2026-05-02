@@ -3,6 +3,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "../api/client";
 import SourceStep from "./setup-wizard-steps/source";
 import NotifierStep from "./setup-wizard-steps/notifier";
+import PluginsStep from "./setup-wizard-steps/plugins";
 
 type Step = "welcome" | "source" | "notifier" | "plugins" | "flow" | "done";
 
@@ -89,7 +90,13 @@ export default function SetupWizard() {
             )}
             {step === "notifier" && (
               <NotifierStep
-                onCreated={() => next("done")}
+                onCreated={() => next("plugins")}
+                onSkip={() => next("plugins")}
+              />
+            )}
+            {step === "plugins" && (
+              <PluginsStep
+                onContinue={() => next("done")}
                 onSkip={() => next("done")}
               />
             )}
