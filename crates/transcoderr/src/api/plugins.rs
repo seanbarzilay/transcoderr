@@ -3,11 +3,19 @@ use crate::plugins::catalog::ListAllResult;
 use crate::plugins::installer;
 use crate::plugins::manifest::Manifest;
 use crate::plugins::uninstaller;
-use axum::{extract::{Path, State}, http::StatusCode, Json};
+use axum::{
+    extract::{Path, State},
+    http::StatusCode,
+    response::sse::{Event, KeepAlive, Sse},
+    Json,
+};
 use serde::Serialize;
 use sqlx::Row;
 use std::collections::HashMap;
+use std::convert::Infallible;
 use std::path::PathBuf;
+use tokio_stream::wrappers::UnboundedReceiverStream;
+use tokio_stream::{Stream, StreamExt};
 
 /// Summary row in the list view. Includes `provides_steps` so the page
 /// can show the operator-facing step names without an extra round-trip,
@@ -175,110 +183,180 @@ pub async fn browse(
 
 /// POST /api/plugin-catalog-entries/:catalog_id/:name/install
 ///
-/// Resolves the catalog entry, downloads & verifies the tarball via the
-/// installer, then re-discovers, syncs the DB with the catalog provenance
-/// for this plugin, and rebuilds the in-memory step registry so the new
-/// step set is live before the response returns.
+/// Returns an SSE stream:
+/// - `event: status`  data `{"message": "..."}`            — milestone log (extracting, sha verified, deps starting, etc.)
+/// - `event: log`     data `{"stream": "stdout"|"stderr", "line": "..."}` — raw deps output, line at a time
+/// - `event: done`    data `{"installed": "<name>"}`       — terminal success
+/// - `event: error`   data `{"status": <http_status>, "message": "..."}` — terminal failure
+///
+/// Always responds 200 with `text/event-stream`; the actual outcome is in
+/// the terminal event. The install task is `tokio::spawn`'d so it survives
+/// client disconnect — pip keeps running, the DB sync still happens, the
+/// step registry still rebuilds. The SSE stream just goes silent.
 pub async fn install(
     State(state): State<AppState>,
     Path((catalog_id, name)): Path<(i64, String)>,
-) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    state.catalog_client.invalidate(catalog_id).await;
-    let res = state
-        .catalog_client
-        .list_all(&state.pool)
-        .await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
-    let entry = res
-        .entries
-        .into_iter()
-        .find(|e| e.catalog_id == catalog_id && e.entry.name == name)
-        .ok_or((
-            StatusCode::NOT_FOUND,
-            format!("entry {name} not in catalog {catalog_id}"),
-        ))?;
+) -> Sse<impl Stream<Item = Result<Event, Infallible>>> {
+    let (tx, rx) = tokio::sync::mpsc::unbounded_channel::<Event>();
 
-    // Refuse install if any declared runtime isn't on $PATH. The check
-    // runs *before* download/extraction so a misconfigured host doesn't
-    // leak a half-installed plugin.
-    let missing = state.runtime_checker.missing(&entry.entry.runtimes).await;
-    if !missing.is_empty() {
-        return Err((
-            StatusCode::UNPROCESSABLE_ENTITY,
-            format!(
-                "missing runtime(s) on PATH: {} -- install them on the host first",
-                missing.join(", ")
-            ),
-        ));
-    }
-
-    let plugins_dir = state.cfg.data_dir.join("plugins");
-    tracing::info!(plugin = %name, catalog_id, "installing plugin");
-
-    // Detach the install work into a spawned task so the install
-    // completes even if the HTTP client disconnects mid-deps.
-    //
-    // Why: heavy plugins (e.g. whisper -> faster-whisper +
-    // nvidia-cuda) take minutes to `pip install`; browser/proxy
-    // timeouts drop the connection before deps finish. If the
-    // request future gets dropped here, the post-deps work
-    // (discover + sync_discovered + registry rebuild) never runs,
-    // leaving the plugin extracted on disk but unknown to the DB.
-    // The next server restart's boot path then "discovers" it and
-    // syncs WITHOUT catalog provenance, which looks to the
-    // operator like the plugin only "installed at restart".
-    //
-    // tokio::spawn'd tasks survive their JoinHandle being dropped,
-    // so the install completes even when the client gives up.
     let pool = state.pool.clone();
+    let plugins_dir = state.cfg.data_dir.join("plugins");
+    let catalog_client = state.catalog_client.clone();
+    let runtime_checker = state.runtime_checker.clone();
     let task_name = name.clone();
-    let entry_inner = entry.entry.clone();
-    let task: tokio::task::JoinHandle<Result<String, (StatusCode, String)>> =
-        tokio::spawn(async move {
-            let installed = installer::install_from_entry(&entry_inner, &plugins_dir)
-                .await
-                .map_err(|e| (StatusCode::UNPROCESSABLE_ENTITY, e.to_string()))?;
 
-            // Run the plugin's `deps` shell command if declared. On failure,
-            // roll back the install -- delete the just-extracted plugin dir.
-            if let Some(deps_cmd) = read_manifest(&installed.plugin_dir.to_string_lossy())
-                .and_then(|m| m.deps)
-            {
-                tracing::info!(plugin = %task_name, deps = %deps_cmd, "running plugin deps");
-                if let Err(e) = crate::plugins::deps::run(&installed.plugin_dir, &deps_cmd).await {
-                    tracing::warn!(plugin = %task_name, error = %e, "plugin deps failed; rolling back install");
-                    let _ = std::fs::remove_dir_all(&installed.plugin_dir);
-                    return Err((
-                        StatusCode::UNPROCESSABLE_ENTITY,
-                        format!("deps install failed: {e}"),
-                    ));
-                }
-                tracing::info!(plugin = %task_name, "plugin deps completed");
-            }
-
-            let discovered = crate::plugins::discover(&plugins_dir)
-                .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
-            let mut provenance = HashMap::new();
-            provenance.insert(
-                installed.name.clone(),
-                (catalog_id, installed.tarball_sha256),
+    tokio::spawn(async move {
+        // Helpers (closures): each emits one SSE Event. send returns Err
+        // if the receiver was dropped (client disconnected); we ignore
+        // that since the spawned task should still complete.
+        let send = |ev: Event| {
+            let _ = tx.send(ev);
+        };
+        let status = |msg: &str| {
+            send(
+                Event::default()
+                    .event("status")
+                    .data(serde_json::json!({"message": msg}).to_string()),
             );
-            crate::db::plugins::sync_discovered(&pool, &discovered, &provenance)
-                .await
-                .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
-            crate::steps::registry::rebuild_from_discovered(discovered).await;
-            tracing::info!(plugin = %task_name, "plugin install complete");
-            Ok(installed.name)
-        });
+        };
+        let error = |code: StatusCode, msg: &str| {
+            send(
+                Event::default()
+                    .event("error")
+                    .data(
+                        serde_json::json!({
+                            "status": code.as_u16(),
+                            "message": msg,
+                        })
+                        .to_string(),
+                    ),
+            );
+        };
 
-    match task.await {
-        Ok(Ok(installed_name)) => Ok(Json(serde_json::json!({"installed": installed_name}))),
-        Ok(Err(e)) => Err(e),
-        Err(join_err) => Err((
-            StatusCode::INTERNAL_SERVER_ERROR,
-            format!("install task panicked: {join_err}"),
-        )),
-    }
+        tracing::info!(plugin = %task_name, catalog_id, "installing plugin");
+        status(&format!("Looking up {task_name} in catalog {catalog_id}"));
+
+        catalog_client.invalidate(catalog_id).await;
+        let res = match catalog_client.list_all(&pool).await {
+            Ok(r) => r,
+            Err(e) => {
+                error(StatusCode::INTERNAL_SERVER_ERROR, &e.to_string());
+                return;
+            }
+        };
+        let entry = match res
+            .entries
+            .into_iter()
+            .find(|e| e.catalog_id == catalog_id && e.entry.name == task_name)
+        {
+            Some(e) => e,
+            None => {
+                error(
+                    StatusCode::NOT_FOUND,
+                    &format!("entry {task_name} not in catalog {catalog_id}"),
+                );
+                return;
+            }
+        };
+
+        let missing = runtime_checker.missing(&entry.entry.runtimes).await;
+        if !missing.is_empty() {
+            error(
+                StatusCode::UNPROCESSABLE_ENTITY,
+                &format!(
+                    "missing runtime(s) on PATH: {} -- install them on the host first",
+                    missing.join(", ")
+                ),
+            );
+            return;
+        }
+
+        status("Downloading + verifying tarball");
+        let installed = match installer::install_from_entry(&entry.entry, &plugins_dir).await {
+            Ok(i) => i,
+            Err(e) => {
+                error(StatusCode::UNPROCESSABLE_ENTITY, &e.to_string());
+                return;
+            }
+        };
+
+        if let Some(deps_cmd) = read_manifest(&installed.plugin_dir.to_string_lossy())
+            .and_then(|m| m.deps)
+        {
+            tracing::info!(plugin = %task_name, deps = %deps_cmd, "running plugin deps");
+            status(&format!("Running deps: {deps_cmd}"));
+
+            // Forward each line of pip stdout/stderr to the SSE stream as
+            // a `log` event. The closure is called synchronously per
+            // line by deps::run, so this is just a non-blocking send.
+            let log_tx = tx.clone();
+            let res = crate::plugins::deps::run(
+                &installed.plugin_dir,
+                &deps_cmd,
+                |stream, line| {
+                    let _ = log_tx.send(
+                        Event::default()
+                            .event("log")
+                            .data(
+                                serde_json::json!({
+                                    "stream": match stream {
+                                        crate::plugins::deps::Stream::Stdout => "stdout",
+                                        crate::plugins::deps::Stream::Stderr => "stderr",
+                                    },
+                                    "line": line,
+                                })
+                                .to_string(),
+                            ),
+                    );
+                },
+            )
+            .await;
+            drop(log_tx);
+
+            if let Err(e) = res {
+                tracing::warn!(plugin = %task_name, error = %e, "plugin deps failed; rolling back install");
+                let _ = std::fs::remove_dir_all(&installed.plugin_dir);
+                error(
+                    StatusCode::UNPROCESSABLE_ENTITY,
+                    &format!("deps install failed: {e}"),
+                );
+                return;
+            }
+            status("Deps complete");
+        }
+
+        status("Registering plugin");
+        let discovered = match crate::plugins::discover(&plugins_dir) {
+            Ok(d) => d,
+            Err(e) => {
+                error(StatusCode::INTERNAL_SERVER_ERROR, &e.to_string());
+                return;
+            }
+        };
+        let mut provenance = HashMap::new();
+        provenance.insert(
+            installed.name.clone(),
+            (catalog_id, installed.tarball_sha256),
+        );
+        if let Err(e) = crate::db::plugins::sync_discovered(&pool, &discovered, &provenance).await
+        {
+            error(StatusCode::INTERNAL_SERVER_ERROR, &e.to_string());
+            return;
+        }
+        crate::steps::registry::rebuild_from_discovered(discovered).await;
+
+        tracing::info!(plugin = %task_name, "plugin install complete");
+        send(
+            Event::default()
+                .event("done")
+                .data(serde_json::json!({"installed": installed.name}).to_string()),
+        );
+        // tx drops here; receiver sees end-of-stream and the SSE response
+        // closes naturally.
+    });
+
+    Sse::new(UnboundedReceiverStream::new(rx).map(Ok))
+        .keep_alive(KeepAlive::default())
 }
 
 /// DELETE /api/plugins/:id

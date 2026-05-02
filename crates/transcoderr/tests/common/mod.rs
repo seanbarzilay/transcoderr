@@ -102,3 +102,52 @@ pub async fn boot() -> TestApp {
         _shutdown_tx: tx,
     }
 }
+
+/// Drive a plugin install endpoint to its terminal SSE event. Returns
+/// `Ok(installed_name)` if the stream emits `event: done` and `Err((status, message))`
+/// if it emits `event: error`. Used by integration tests in place of the
+/// pre-SSE pattern of asserting `resp.status() == 422` on the POST itself --
+/// the install endpoint always returns 200 now; the actual outcome is in
+/// the event stream.
+#[allow(dead_code)]
+pub async fn install_via_sse(
+    client: &reqwest::Client,
+    url: &str,
+) -> Result<String, (u16, String)> {
+    use futures::StreamExt;
+    let resp = client.post(url).send().await.unwrap();
+    assert_eq!(resp.status(), 200, "install endpoint must return 200 SSE; got {}", resp.status());
+    let mut stream = resp.bytes_stream();
+    let mut buf = String::new();
+    while let Some(chunk) = stream.next().await {
+        let bytes = chunk.unwrap();
+        buf.push_str(std::str::from_utf8(&bytes).unwrap());
+        // Each SSE frame is "event: <name>\ndata: <json>\n\n"; parse them as
+        // they arrive so we can return on the first terminal frame.
+        while let Some(end) = buf.find("\n\n") {
+            let frame = buf[..end].to_string();
+            buf.drain(..end + 2);
+            let mut event = "message".to_string();
+            let mut data_lines: Vec<&str> = Vec::new();
+            for line in frame.lines() {
+                if let Some(v) = line.strip_prefix("event:") { event = v.trim().to_string(); }
+                else if let Some(v) = line.strip_prefix("data:") { data_lines.push(v.trim()); }
+            }
+            if data_lines.is_empty() { continue; }
+            let data: serde_json::Value = serde_json::from_str(&data_lines.join("\n"))
+                .unwrap_or(serde_json::Value::Null);
+            match event.as_str() {
+                "done" => {
+                    return Ok(data["installed"].as_str().unwrap_or("").to_string());
+                }
+                "error" => {
+                    let status = data["status"].as_u64().unwrap_or(500) as u16;
+                    let msg = data["message"].as_str().unwrap_or("").to_string();
+                    return Err((status, msg));
+                }
+                _ => continue,
+            }
+        }
+    }
+    panic!("install SSE stream ended without a terminal `done` or `error` event");
+}

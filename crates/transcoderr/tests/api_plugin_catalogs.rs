@@ -165,11 +165,15 @@ async fn install_then_uninstall_round_trip() {
         .send().await.unwrap().json().await.unwrap();
     let cid = create["id"].as_i64().unwrap();
 
-    // Install via the API.
-    let resp = client
-        .post(format!("{}/api/plugin-catalog-entries/{cid}/demo/install", app.url))
-        .send().await.unwrap();
-    assert_eq!(resp.status(), 200);
+    // Install via the API. Endpoint returns SSE; drive it to the terminal
+    // `done` event and assert the installed name comes back.
+    let installed = common::install_via_sse(
+        &client,
+        &format!("{}/api/plugin-catalog-entries/{cid}/demo/install", app.url),
+    )
+    .await
+    .expect("install must succeed");
+    assert_eq!(installed, "demo");
 
     // /api/plugins now lists demo with provides_steps from the manifest
     // AND with catalog_id + tarball_sha256 set from the install path.
@@ -257,15 +261,18 @@ async fn install_refuses_when_declared_runtime_is_missing() {
     assert_eq!(missing.len(), 1);
     assert_eq!(missing[0], "definitely-not-a-real-binary-12345abcxyz");
 
-    // Install refuses with 422.
-    let resp = client
-        .post(format!("{}/api/plugin-catalog-entries/{cid}/needs-fake/install", app.url))
-        .send().await.unwrap();
-    assert_eq!(resp.status(), 422);
-    let body = resp.text().await.unwrap();
+    // Install refuses with a 422 error event in the SSE stream.
+    let err = common::install_via_sse(
+        &client,
+        &format!("{}/api/plugin-catalog-entries/{cid}/needs-fake/install", app.url),
+    )
+    .await
+    .expect_err("install must fail when a declared runtime is missing");
+    assert_eq!(err.0, 422);
     assert!(
-        body.contains("definitely-not-a-real-binary-12345abcxyz"),
-        "missing-runtime error must name the runtime, got: {body}"
+        err.1.contains("definitely-not-a-real-binary-12345abcxyz"),
+        "missing-runtime error must name the runtime, got: {}",
+        err.1
     );
 
     // No plugin row landed.
@@ -355,15 +362,18 @@ async fn install_refuses_when_deps_command_exits_non_zero() {
         .send().await.unwrap().json().await.unwrap();
     let cid = create["id"].as_i64().unwrap();
 
-    // Install refuses with 422.
-    let resp = client
-        .post(format!("{}/api/plugin-catalog-entries/{cid}/broken-deps/install", app.url))
-        .send().await.unwrap();
-    assert_eq!(resp.status(), 422);
-    let body = resp.text().await.unwrap();
+    // Install refuses with a 422 error event in the SSE stream.
+    let err = common::install_via_sse(
+        &client,
+        &format!("{}/api/plugin-catalog-entries/{cid}/broken-deps/install", app.url),
+    )
+    .await
+    .expect_err("install must fail when deps exit non-zero");
+    assert_eq!(err.0, 422);
     assert!(
-        body.contains("deps install failed"),
-        "deps failure error must be surfaced, got: {body}"
+        err.1.contains("deps install failed"),
+        "deps failure error must be surfaced, got: {}",
+        err.1
     );
 
     // Plugin dir was rolled back -- nothing on disk.

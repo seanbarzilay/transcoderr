@@ -1079,3 +1079,66 @@ tbody tr:hover td { background: var(--surface); }
   font-size: 12px;
 }
 .catalog-fetch-banner ul { margin: 4px 0 0; padding-left: 20px; }
+
+/* ---- install log modal --------------------------------------------------- */
+
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.65);
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-5);
+}
+.modal {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-3);
+  width: min(800px, 100%);
+  max-height: min(80vh, 700px);
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+}
+.modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-4) var(--space-5);
+  border-bottom: 1px solid var(--border);
+}
+.modal-header h3 { margin: 0; font-size: 14px; font-weight: 600; }
+.modal-footer {
+  padding: var(--space-3) var(--space-5);
+  border-top: 1px solid var(--border);
+  font-size: 12px;
+}
+.modal .btn-text {
+  background: none;
+  border: none;
+  color: var(--text-dim);
+  cursor: pointer;
+  font-size: 16px;
+  line-height: 1;
+  padding: 4px 8px;
+}
+.modal .btn-text:disabled { opacity: 0.4; cursor: not-allowed; }
+.modal .btn-text:hover:not(:disabled) { color: var(--text); }
+
+.install-log-modal { width: min(960px, 100%); }
+.install-log-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: var(--space-3) var(--space-5);
+  font-size: 12px;
+  font-family: var(--font-mono);
+}
+.install-log-line { padding: 1px 0; word-break: break-all; }
+.install-log-status { color: var(--text); padding: 4px 0; }
+.install-log-stdout { color: var(--text-dim); }
+.install-log-stderr { color: var(--warn); }
+
+.ok  { color: var(--ok); }
+.bad { color: var(--bad); }
