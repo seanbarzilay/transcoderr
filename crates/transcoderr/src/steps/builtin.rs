@@ -20,6 +20,7 @@ use crate::steps::{
     strip_tracks::StripTracksStep,
     transcode::TranscodeStep,
     verify_playable::VerifyPlayableStep,
+    webhook::WebhookStep,
     Step,
 };
 use sqlx::SqlitePool;
@@ -68,4 +69,5 @@ pub fn register_all(
     map.insert("delete".into(), Arc::new(DeleteStep));
     map.insert("shell".into(), Arc::new(ShellStep));
     map.insert("notify".into(), Arc::new(NotifyStep { pool: pool.clone() }));
+    map.insert("webhook".into(), Arc::new(WebhookStep));
 }

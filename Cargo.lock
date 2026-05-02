@@ -3317,6 +3317,7 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "transcoderr-api-types",
+ "url",
  "uuid",
  "wiremock",
 ]

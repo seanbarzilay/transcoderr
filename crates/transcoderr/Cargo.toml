@@ -43,6 +43,7 @@ hostname = { workspace = true }
 tar = "0.4"
 flate2 = "1"
 sha2 = "0.10"
+url = "2"
 
 [dev-dependencies]
 tempfile = "3"

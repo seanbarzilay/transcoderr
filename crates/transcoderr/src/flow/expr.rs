@@ -50,6 +50,13 @@ fn bind_context(cel: &mut CelCtx, ctx: &Context) {
             cel.add_variable(k, vv).ok();
         }
     }
+    // Bind process environment as `env.<NAME>` so templates like
+    // `{{ env.MY_TOKEN }}` resolve. Cheap to build per evaluation; the
+    // template engine is already not on a hot path (one call per step).
+    let env_map: serde_json::Map<String, Value> = std::env::vars()
+        .map(|(k, v)| (k, Value::String(v)))
+        .collect();
+    cel.add_variable("env", Value::Object(env_map)).ok();
 }
 
 fn format_cel(v: &CelValue) -> String {
@@ -122,5 +129,16 @@ mod tests {
             err.to_string().contains("UndeclaredReference"),
             "expected UndeclaredReference, got: {err}"
         );
+    }
+
+    #[test]
+    fn env_var_resolves_in_template() {
+        // SAFETY: writes the key for the duration of the test.
+        // SAFETY: not parallel-unsafe with the rest of the suite because the
+        // key is unique to this test — no other test reads or writes it.
+        unsafe { std::env::set_var("TCR_TEST_TEMPLATE_KEY", "hello") };
+        let ctx = Context::for_file("/m/Dune.mkv");
+        let s = eval_string_template("v={{ env.TCR_TEST_TEMPLATE_KEY }}", &ctx).unwrap();
+        assert_eq!(s, "v=hello");
     }
 }

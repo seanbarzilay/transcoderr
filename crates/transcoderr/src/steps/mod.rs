@@ -21,6 +21,7 @@ pub mod shell;
 pub mod strip_tracks;
 pub mod transcode;
 pub mod verify_playable;
+pub mod webhook;
 
 #[derive(Debug, Clone)]
 pub enum StepProgress {
