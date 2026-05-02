@@ -16,7 +16,7 @@ const BACKOFF_MAX: Duration = Duration::from_secs(30);
 
 /// Run the worker connection loop. Never returns. On every disconnect
 /// (clean or error), waits for the current backoff and retries. On a
-/// successful register handshake, the backoff resets.
+/// clean close (`Ok(())` from `connect_once`), the backoff resets.
 pub async fn run<F>(url: String, token: String, build_register: F) -> !
 where
     F: Fn() -> Envelope + Send + Sync,
