@@ -122,6 +122,17 @@ pub async fn record_heartbeat(pool: &SqlitePool, id: i64) -> anyhow::Result<()> 
     Ok(())
 }
 
+/// Toggle `enabled` for a worker. Returns the number of rows affected
+/// (0 if id doesn't exist; 1 on success).
+pub async fn set_enabled(pool: &SqlitePool, id: i64, enabled: bool) -> anyhow::Result<u64> {
+    let res = sqlx::query("UPDATE workers SET enabled = ? WHERE id = ?")
+        .bind(if enabled { 1_i64 } else { 0_i64 })
+        .bind(id)
+        .execute(pool)
+        .await?;
+    Ok(res.rows_affected())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -183,5 +194,27 @@ mod tests {
         assert_eq!(row.hw_caps_json.as_deref(), Some(r#"{"encoders":[]}"#));
         assert_eq!(row.plugin_manifest_json.as_deref(), Some(r#"[]"#));
         assert!(row.last_seen_at.is_some());
+    }
+
+    #[tokio::test]
+    async fn set_enabled_round_trips() {
+        let (pool, _dir) = pool().await;
+        // Seeded local row starts enabled=1.
+        let row = get_by_id(&pool, 1).await.unwrap().unwrap();
+        assert_eq!(row.enabled, 1);
+
+        let n = set_enabled(&pool, 1, false).await.unwrap();
+        assert_eq!(n, 1);
+        let row = get_by_id(&pool, 1).await.unwrap().unwrap();
+        assert_eq!(row.enabled, 0);
+
+        let n = set_enabled(&pool, 1, true).await.unwrap();
+        assert_eq!(n, 1);
+        let row = get_by_id(&pool, 1).await.unwrap().unwrap();
+        assert_eq!(row.enabled, 1);
+
+        // Missing id returns 0.
+        let n = set_enabled(&pool, 9999, true).await.unwrap();
+        assert_eq!(n, 0);
     }
 }
