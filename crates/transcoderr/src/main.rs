@@ -20,7 +20,12 @@ enum Cmd {
     },
     /// Run as a remote worker. Connects to a coordinator over WebSocket.
     Worker {
-        #[arg(long, default_value = "worker.toml")]
+        /// Path to worker.toml. Default is the Docker-friendly
+        /// /var/lib/transcoderr/worker.toml; override with `--config`
+        /// for non-container or non-default deployments. If the file
+        /// is missing on first boot, the worker auto-discovers a
+        /// coordinator via mDNS and writes the file at this path.
+        #[arg(long, default_value = "/var/lib/transcoderr/worker.toml")]
         config: PathBuf,
     },
 }
@@ -232,8 +237,7 @@ async fn main() -> anyhow::Result<()> {
             Ok(())
         }
         Cmd::Worker { config } => {
-            let cfg = transcoderr::worker::config::WorkerConfig::load(&config)?;
-            transcoderr::worker::daemon::run(cfg).await
+            transcoderr::worker::daemon::run(config).await
         }
     }
 }

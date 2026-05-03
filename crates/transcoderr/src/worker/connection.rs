@@ -334,6 +334,49 @@ async fn connect_once(
     }
 }
 
+/// Outcome of a single WS-upgrade probe used at boot to detect
+/// cached-token rejection before entering the long-lived reconnect
+/// loop. The probe dials, classifies the response, and closes
+/// immediately — no Register frame is exchanged.
+#[derive(Debug)]
+pub enum ProbeOutcome {
+    Ok,
+    Unauthorized,
+    Other(anyhow::Error),
+}
+
+/// Single WS-upgrade attempt against `url` with `token` as the Bearer.
+/// Used by `daemon::run` to detect a stale cached token (HTTP 401)
+/// before falling into the infinite reconnect loop. On `Other`, we
+/// can still enter the reconnect loop because the failure is likely
+/// transient (DNS, TCP, TLS, etc.).
+pub async fn probe_token(url: &str, token: &str) -> ProbeOutcome {
+    let mut req = match url.into_client_request() {
+        Ok(r) => r,
+        Err(e) => return ProbeOutcome::Other(anyhow::anyhow!("build request: {e}")),
+    };
+    let bearer = match format!("Bearer {token}").parse() {
+        Ok(b) => b,
+        Err(e) => return ProbeOutcome::Other(anyhow::anyhow!("build bearer header: {e}")),
+    };
+    req.headers_mut().insert(AUTHORIZATION, bearer);
+
+    match tokio_tungstenite::connect_async(req).await {
+        Ok((ws, _)) => {
+            let (mut sink, _) = ws.split();
+            let _ = sink.send(WsMessage::Close(None)).await;
+            ProbeOutcome::Ok
+        }
+        Err(tokio_tungstenite::tungstenite::Error::Http(resp))
+            if resp.status()
+                == tokio_tungstenite::tungstenite::http::StatusCode::UNAUTHORIZED =>
+        {
+            ProbeOutcome::Unauthorized
+        }
+        Err(e) => ProbeOutcome::Other(anyhow::anyhow!("probe: {e}")),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
