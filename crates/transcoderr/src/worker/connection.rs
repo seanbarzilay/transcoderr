@@ -14,17 +14,30 @@ const HEARTBEAT_INTERVAL: Duration = Duration::from_secs(30);
 const BACKOFF_INITIAL: Duration = Duration::from_secs(1);
 const BACKOFF_MAX: Duration = Duration::from_secs(30);
 
+/// Context the worker connection needs for plugin sync. Threaded
+/// from `daemon::run` → `connection::run` → `connect_once`.
+#[derive(Clone)]
+pub struct ConnectionContext {
+    pub plugins_dir: std::path::PathBuf,
+    pub coordinator_token: String,
+}
+
 /// Run the worker connection loop. Never returns. On every disconnect
 /// (clean or error), waits for the current backoff and retries. On a
 /// clean close (`Ok(())` from `connect_once`), the backoff resets.
-pub async fn run<F>(url: String, token: String, build_register: F) -> !
+pub async fn run<F>(
+    url: String,
+    token: String,
+    build_register: F,
+    ctx: ConnectionContext,
+) -> !
 where
     F: Fn() -> Envelope + Send + Sync,
 {
     let mut backoff = BACKOFF_INITIAL;
 
     loop {
-        match connect_once(&url, &token, &build_register).await {
+        match connect_once(&url, &token, &build_register, &ctx).await {
             Ok(()) => {
                 tracing::info!("worker connection closed cleanly; reconnecting");
                 backoff = BACKOFF_INITIAL;
@@ -44,6 +57,7 @@ async fn connect_once<F>(
     url: &str,
     token: &str,
     build_register: &F,
+    ctx: &ConnectionContext,
 ) -> anyhow::Result<()>
 where
     F: Fn() -> Envelope,
@@ -78,31 +92,89 @@ where
         }
     });
 
+    // Plugin-sync queue: single-slot. Latest manifest wins.
+    let sync_slot: std::sync::Arc<
+        tokio::sync::Mutex<Option<Vec<crate::worker::protocol::PluginInstall>>>,
+    > = std::sync::Arc::new(tokio::sync::Mutex::new(None));
+    let sync_notify = std::sync::Arc::new(tokio::sync::Notify::new());
+
+    // Sync worker: drain the slot whenever notified, run plugin_sync::sync,
+    // repeat. Lives for the connection's lifetime; aborted on disconnect.
+    let sync_task = {
+        let plugins_dir = ctx.plugins_dir.clone();
+        let token = ctx.coordinator_token.clone();
+        let slot = sync_slot.clone();
+        let notify = sync_notify.clone();
+        tokio::spawn(async move {
+            loop {
+                notify.notified().await;
+                let manifest = {
+                    let mut g = slot.lock().await;
+                    g.take()
+                };
+                if let Some(m) = manifest {
+                    crate::worker::plugin_sync::sync(&plugins_dir, m, &token).await;
+                }
+            }
+        })
+    };
+
     let register = build_register();
     if outbound_tx.send(register).await.is_err() {
         sender_task.abort();
+        sync_task.abort();
         anyhow::bail!("failed to enqueue register frame");
     }
 
-    let ack_raw = ws_stream.next().await
-        .ok_or_else(|| anyhow::anyhow!("stream closed before register_ack"))??;
+    let ack_raw = match ws_stream.next().await {
+        Some(Ok(frame)) => frame,
+        Some(Err(e)) => {
+            sender_task.abort();
+            sync_task.abort();
+            return Err(e.into());
+        }
+        None => {
+            sender_task.abort();
+            sync_task.abort();
+            anyhow::bail!("stream closed before register_ack");
+        }
+    };
     let ack: Envelope = match ack_raw {
-        WsMessage::Text(s) => serde_json::from_str(&s)?,
+        WsMessage::Text(s) => match serde_json::from_str(&s) {
+            Ok(env) => env,
+            Err(e) => {
+                sender_task.abort();
+                sync_task.abort();
+                return Err(e.into());
+            }
+        },
         WsMessage::Close(_) => {
             sender_task.abort();
+            sync_task.abort();
             anyhow::bail!("server closed before register_ack");
         }
         other => {
             sender_task.abort();
+            sync_task.abort();
             anyhow::bail!("unexpected non-text frame from server: {other:?}");
         }
     };
     match ack.message {
-        Message::RegisterAck(_) => {
+        Message::RegisterAck(ack_payload) => {
             tracing::info!("worker register acknowledged");
+            // Trigger initial sync unconditionally — even with an
+            // empty manifest, full-mirror semantics require we
+            // uninstall any stale local plugins (a worker reconnecting
+            // after the operator deleted everything would otherwise
+            // keep the stale set forever).
+            let mut g = sync_slot.lock().await;
+            *g = Some(ack_payload.plugin_install);
+            drop(g);
+            sync_notify.notify_one();
         }
         other => {
             sender_task.abort();
+            sync_task.abort();
             anyhow::bail!("expected register_ack, got {other:?}");
         }
     }
@@ -119,6 +191,7 @@ where
                 };
                 if outbound_tx.send(hb).await.is_err() {
                     sender_task.abort();
+                    sync_task.abort();
                     return Ok(());
                 }
             }
@@ -126,6 +199,7 @@ where
                 match frame {
                     Some(Ok(WsMessage::Close(_))) => {
                         sender_task.abort();
+                        sync_task.abort();
                         return Ok(());
                     }
                     Some(Ok(WsMessage::Text(s))) => {
@@ -144,6 +218,12 @@ where
                                             .await;
                                         });
                                     }
+                                    Message::PluginSync(p) => {
+                                        let mut g = sync_slot.lock().await;
+                                        *g = Some(p.plugins);
+                                        drop(g);
+                                        sync_notify.notify_one();
+                                    }
                                     other => {
                                         tracing::warn!(?other, "worker received unexpected frame; ignoring");
                                     }
@@ -157,10 +237,12 @@ where
                     Some(Ok(_)) => continue,
                     Some(Err(e)) => {
                         sender_task.abort();
+                        sync_task.abort();
                         return Err(e.into());
                     }
                     None => {
                         sender_task.abort();
+                        sync_task.abort();
                         return Ok(());
                     }
                 }

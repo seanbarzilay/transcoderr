@@ -251,11 +251,35 @@ async fn handle_connection(state: AppState, socket: WebSocket, worker_id: i64) {
 
     // 5. Send the register_ack with the same correlation id, via the
     //    new outbound path.
+    // Build the worker's intended plugin manifest from db::plugins.
+    let manifest: Vec<crate::worker::protocol::PluginInstall> =
+        match db::plugins::list_enabled(&state.pool).await {
+            Ok(plugins) => plugins
+                .into_iter()
+                .filter_map(|p| {
+                    let sha = p.tarball_sha256?;
+                    Some(crate::worker::protocol::PluginInstall {
+                        tarball_url: format!(
+                            "{}/api/worker/plugins/{}/tarball",
+                            state.public_url, p.name
+                        ),
+                        name: p.name,
+                        version: p.version,
+                        sha256: sha,
+                    })
+                })
+                .collect(),
+            Err(e) => {
+                tracing::warn!(error = ?e, "list_enabled failed; sending empty manifest");
+                Vec::new()
+            }
+        };
+
     let ack = Envelope {
         id: correlation_id,
         message: Message::RegisterAck(RegisterAck {
             worker_id,
-            plugin_install: vec![], // Piece 4 fills this in
+            plugin_install: manifest,
         }),
     };
     if out_tx.send(ack).await.is_err() {

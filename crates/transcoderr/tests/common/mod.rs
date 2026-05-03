@@ -22,6 +22,7 @@ pub struct TestApp {
     pub url: String,
     pub pool: sqlx::SqlitePool,
     pub data_dir: PathBuf,
+    pub state: transcoderr::http::AppState,
     _temp: TempDir,
     _server: JoinHandle<()>,
     _worker: JoinHandle<()>,
@@ -104,7 +105,7 @@ pub async fn boot() -> TestApp {
     let (tx, rx) = tokio::sync::watch::channel(false);
     let w = tokio::spawn(async move { worker.run_loop(rx).await });
 
-    let app = http::router(state, std::time::Duration::from_secs(300));
+    let app = http::router(state.clone(), std::time::Duration::from_secs(300));
     let s = tokio::spawn(async move {
         axum::serve(listener, app).await.unwrap();
     });
@@ -113,6 +114,7 @@ pub async fn boot() -> TestApp {
         url: format!("http://{addr}"),
         pool,
         data_dir,
+        state,
         _temp: temp,
         _server: s,
         _worker: w,

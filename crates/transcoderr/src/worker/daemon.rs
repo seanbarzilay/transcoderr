@@ -76,10 +76,16 @@ pub async fn run(config: WorkerConfig) -> ! {
         }
     };
 
+    let ctx = crate::worker::connection::ConnectionContext {
+        plugins_dir: std::path::PathBuf::from("./plugins"),
+        coordinator_token: config.coordinator_token.clone(),
+    };
+
     crate::worker::connection::run(
         config.coordinator_url,
         config.coordinator_token,
         build_register,
+        ctx,
     )
     .await
 }

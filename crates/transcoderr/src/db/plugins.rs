@@ -72,6 +72,32 @@ pub async fn sync_discovered(
     Ok(())
 }
 
+/// Subset of the `plugins` row needed by the worker manifest and
+/// tarball serve endpoint. Fetched together so the wire envelope can
+/// be built in one query.
+#[derive(Debug, Clone, sqlx::FromRow)]
+pub struct PluginRow {
+    pub name: String,
+    pub version: String,
+    pub tarball_sha256: Option<String>,
+}
+
+/// Enabled plugins, ordered by name. The result drives both
+/// `register_ack.plugin_install` and the `PluginSync` broadcast
+/// payload. Plugins missing a `tarball_sha256` (e.g. dev-loaded from
+/// a path outside the catalog) are excluded — workers can't fetch
+/// what isn't there.
+pub async fn list_enabled(pool: &SqlitePool) -> anyhow::Result<Vec<PluginRow>> {
+    Ok(sqlx::query_as(
+        "SELECT name, version, tarball_sha256
+           FROM plugins
+          WHERE enabled = 1 AND tarball_sha256 IS NOT NULL
+          ORDER BY name",
+    )
+    .fetch_all(pool)
+    .await?)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -169,5 +195,26 @@ mod tests {
         let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM plugins")
             .fetch_one(&pool).await.unwrap();
         assert_eq!(count, 0);
+    }
+
+    #[tokio::test]
+    async fn list_enabled_returns_enabled_only() {
+        let (pool, _dir) = open_pool().await;
+
+        // Seed three plugins via direct INSERT (avoid sync_discovered's
+        // file-side dependencies). Only 'a' should qualify.
+        sqlx::query(
+            "INSERT INTO plugins (name, version, kind, path, schema_json, enabled, tarball_sha256)
+             VALUES ('a', '1.0', 'subprocess', '/x/a', '{}', 1, 'aaaa'),
+                    ('b', '1.0', 'subprocess', '/x/b', '{}', 0, 'bbbb'),
+                    ('c', '1.0', 'subprocess', '/x/c', '{}', 1, NULL)",
+        )
+        .execute(&pool).await.unwrap();
+
+        let rows = list_enabled(&pool).await.unwrap();
+        // Only 'a' qualifies: enabled=1 AND tarball_sha256 IS NOT NULL.
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].name, "a");
+        assert_eq!(rows[0].tarball_sha256.as_deref(), Some("aaaa"));
     }
 }

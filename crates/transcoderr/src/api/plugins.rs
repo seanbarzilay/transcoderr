@@ -204,6 +204,9 @@ pub async fn install(
     let catalog_client = state.catalog_client.clone();
     let runtime_checker = state.runtime_checker.clone();
     let task_name = name.clone();
+    // Cloned for the post-install `broadcast_manifest` call so the
+    // spawned task owns its own handle on connections + public_url.
+    let state_for_broadcast = state.clone();
 
     tokio::spawn(async move {
         // Helpers (closures): each emits one SSE Event. send returns Err
@@ -271,8 +274,26 @@ pub async fn install(
             return;
         }
 
+        // Capture the previously-installed sha (if any) so we can clean
+        // up the old cache file after a successful version bump.
+        let old_sha: Option<String> = sqlx::query_scalar(
+            "SELECT tarball_sha256 FROM plugins WHERE name = ?",
+        )
+        .bind(&entry.entry.name)
+        .fetch_optional(&pool)
+        .await
+        .ok()
+        .flatten();
+
+        let cache_path = state
+            .cfg
+            .data_dir
+            .join("plugins")
+            .join(".tarball-cache")
+            .join(format!("{}-{}.tar.gz", entry.entry.name, entry.entry.tarball_sha256));
+
         status("Downloading + verifying tarball");
-        let installed = match installer::install_from_entry(&entry.entry, &plugins_dir).await {
+        let installed = match installer::install_from_entry(&entry.entry, &plugins_dir, Some(&cache_path), None).await {
             Ok(i) => i,
             Err(e) => {
                 error(StatusCode::UNPROCESSABLE_ENTITY, &e.to_string());
@@ -333,6 +354,7 @@ pub async fn install(
                 return;
             }
         };
+        let new_sha = installed.tarball_sha256.clone();
         let mut provenance = HashMap::new();
         provenance.insert(
             installed.name.clone(),
@@ -344,6 +366,22 @@ pub async fn install(
             return;
         }
         crate::steps::registry::rebuild_from_discovered(discovered).await;
+
+        // Stale-cache cleanup: if we just upgraded a plugin's version,
+        // the old <name>-<old_sha>.tar.gz is left behind. Remove it.
+        if let Some(old) = old_sha {
+            if old != new_sha {
+                let old_path = state
+                    .cfg
+                    .data_dir
+                    .join("plugins")
+                    .join(".tarball-cache")
+                    .join(format!("{}-{}.tar.gz", entry.entry.name, old));
+                let _ = std::fs::remove_file(&old_path);
+            }
+        }
+
+        broadcast_manifest(&state_for_broadcast).await;
 
         tracing::info!(plugin = %task_name, "plugin install complete");
         send(
@@ -384,6 +422,8 @@ pub async fn uninstall(
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
     crate::steps::registry::rebuild_from_discovered(discovered).await;
 
+    broadcast_manifest(&state).await;
+
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -412,4 +452,44 @@ fn read_readme(dir: &str) -> Option<String> {
         return None;
     }
     std::fs::read_to_string(&p).ok()
+}
+
+/// Build the current plugin manifest and push a `PluginSync` to all
+/// connected workers. Best-effort: errors are logged.
+///
+/// TODO(piece-5): when an explicit enable/disable toggle handler lands
+/// in this file, wire `broadcast_manifest` into it as well so workers
+/// pick up toggle changes without an install/uninstall round-trip.
+async fn broadcast_manifest(state: &AppState) {
+    let plugins = match crate::db::plugins::list_enabled(&state.pool).await {
+        Ok(p) => p,
+        Err(e) => {
+            tracing::warn!(error = ?e, "broadcast_manifest: list_enabled failed");
+            return;
+        }
+    };
+    let manifest: Vec<crate::worker::protocol::PluginInstall> = plugins
+        .into_iter()
+        .filter_map(|p| {
+            let sha = p.tarball_sha256?;
+            Some(crate::worker::protocol::PluginInstall {
+                tarball_url: format!(
+                    "{}/api/worker/plugins/{}/tarball",
+                    state.public_url, p.name
+                ),
+                name: p.name,
+                version: p.version,
+                sha256: sha,
+            })
+        })
+        .collect();
+    state.connections.broadcast_plugin_sync(manifest).await;
+}
+
+/// Test-only re-export of `broadcast_manifest` so integration tests
+/// can trigger the broadcast without going through the full install
+/// handler (which needs a live catalog server).
+#[doc(hidden)]
+pub async fn broadcast_manifest_for_test(state: &crate::http::AppState) {
+    broadcast_manifest(state).await;
 }

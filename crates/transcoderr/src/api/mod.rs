@@ -9,6 +9,7 @@ pub mod plugins;
 pub mod runs;
 pub mod settings;
 pub mod sources;
+pub mod worker_plugins;
 pub mod workers;
 
 use crate::http::AppState;
@@ -25,7 +26,8 @@ pub fn router(state: AppState) -> Router<AppState> {
         .route("/auth/login",  post(auth::login))
         .route("/auth/logout", post(auth::logout))
         .route("/auth/me",     get(auth::me))
-        .route("/worker/connect", get(workers::connect));
+        .route("/worker/connect", get(workers::connect))
+        .route("/worker/plugins/:name/tarball", get(worker_plugins::tarball));
 
     let protected = Router::new()
         .route("/auth/tokens",        get(auth::list_tokens).post(auth::create_token))
