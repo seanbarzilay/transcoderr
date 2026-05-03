@@ -17,6 +17,17 @@ pub async fn open(data_dir: &Path) -> anyhow::Result<SqlitePool> {
     Ok(pool)
 }
 
+/// Open an in-memory SQLite pool with all migrations applied. Used
+/// by the worker daemon process — the worker's steps may consult
+/// settings or scratch tables, but the worker doesn't share state
+/// with the coordinator's DB. Each worker process gets its own
+/// in-memory schema-only pool.
+pub async fn open_in_memory() -> anyhow::Result<SqlitePool> {
+    let pool = SqlitePool::connect("sqlite::memory:").await?;
+    sqlx::migrate!("./migrations").run(&pool).await?;
+    Ok(pool)
+}
+
 pub async fn check_migrations_compatible(pool: &SqlitePool) -> anyhow::Result<()> {
     let migrator = sqlx::migrate!("./migrations");
     let known: std::collections::HashSet<i64> = migrator.iter().map(|m| m.version).collect();

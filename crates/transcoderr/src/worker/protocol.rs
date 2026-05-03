@@ -22,6 +22,9 @@ pub enum Message {
     Register(Register),
     RegisterAck(RegisterAck),
     Heartbeat(Heartbeat),
+    StepDispatch(StepDispatch),
+    StepProgress(StepProgressMsg),
+    StepComplete(StepComplete),
 }
 
 /// Wire frame: the message variant plus its correlation id.
@@ -70,6 +73,40 @@ pub struct PluginInstall {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Heartbeat {}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct StepDispatch {
+    pub job_id: i64,
+    pub step_id: String,
+    /// Step kind ("transcode", "remux", ...). Renamed in JSON to
+    /// `use` to match the YAML field operators already know.
+    #[serde(rename = "use")]
+    pub use_: String,
+    pub with: serde_json::Value,
+    pub ctx_snapshot: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct StepProgressMsg {
+    pub job_id: i64,
+    pub step_id: String,
+    /// "progress" | "log" | marker.kind.
+    pub kind: String,
+    pub payload: serde_json::Value,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct StepComplete {
+    pub job_id: i64,
+    pub step_id: String,
+    /// "ok" | "failed".
+    pub status: String,
+    /// Set when status == "failed".
+    pub error: Option<String>,
+    /// Set when status == "ok" — the updated context to thread back
+    /// into the engine for subsequent steps.
+    pub ctx_snapshot: Option<String>,
+}
 
 #[cfg(test)]
 mod tests {
@@ -135,5 +172,65 @@ mod tests {
         };
         let s = serde_json::to_string(&env).unwrap();
         assert!(s.contains(r#""type":"register_ack""#), "got: {s}");
+    }
+
+    #[test]
+    fn step_dispatch_round_trips() {
+        let env = Envelope {
+            id: "d1".into(),
+            message: Message::StepDispatch(StepDispatch {
+                job_id: 17,
+                step_id: "transcode_0".into(),
+                use_: "transcode".into(),
+                with: json!({"vcodec": "h265"}),
+                ctx_snapshot: r#"{"file":"/tmp/m.mkv"}"#.into(),
+            }),
+        };
+        assert_eq!(round_trip(&env), env);
+        let s = serde_json::to_string(&env).unwrap();
+        assert!(s.contains(r#""type":"step_dispatch""#), "snake_case tag: {s}");
+        // The "use_" field must serialize as "use".
+        assert!(s.contains(r#""use":"transcode""#), "use rename: {s}");
+    }
+
+    #[test]
+    fn step_progress_round_trips() {
+        let env = Envelope {
+            id: "d1".into(),
+            message: Message::StepProgress(StepProgressMsg {
+                job_id: 17,
+                step_id: "transcode_0".into(),
+                kind: "progress".into(),
+                payload: json!({"pct": 42.5}),
+            }),
+        };
+        assert_eq!(round_trip(&env), env);
+    }
+
+    #[test]
+    fn step_complete_round_trips() {
+        let ok = Envelope {
+            id: "d1".into(),
+            message: Message::StepComplete(StepComplete {
+                job_id: 17,
+                step_id: "transcode_0".into(),
+                status: "ok".into(),
+                error: None,
+                ctx_snapshot: Some("{}".into()),
+            }),
+        };
+        assert_eq!(round_trip(&ok), ok);
+
+        let fail = Envelope {
+            id: "d1".into(),
+            message: Message::StepComplete(StepComplete {
+                job_id: 17,
+                step_id: "transcode_0".into(),
+                status: "failed".into(),
+                error: Some("timeout".into()),
+                ctx_snapshot: None,
+            }),
+        };
+        assert_eq!(round_trip(&fail), fail);
     }
 }

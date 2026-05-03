@@ -288,6 +288,7 @@ tbody tr:hover td { background: var(--surface); }
 .badge-stale     { background: var(--warn-soft); color: var(--warn); }
 .badge-offline   { background: var(--neutral-soft); color: var(--text-muted); }
 .badge-disabled  { background: var(--neutral-soft); color: var(--text-muted); }
+.badge-worker   { background: var(--neutral-soft); color: var(--text-muted); border-color: transparent; }
 
 .hint {
   color: var(--text-muted);

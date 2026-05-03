@@ -13,6 +13,8 @@ pub struct ExtractSubsStep;
 impl Step for ExtractSubsStep {
     fn name(&self) -> &'static str { "extract.subs" }
 
+    fn executor(&self) -> crate::steps::Executor { crate::steps::Executor::Any }
+
     async fn execute(
         &self,
         with: &BTreeMap<String, Value>,

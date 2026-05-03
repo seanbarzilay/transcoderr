@@ -61,6 +61,8 @@ pub struct RunEvent {
     pub step_id: Option<String>,
     pub kind: String,
     pub payload: Option<serde_json::Value>,
+    pub worker_id: Option<i64>,
+    pub worker_name: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]

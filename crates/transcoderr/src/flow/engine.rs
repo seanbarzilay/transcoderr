@@ -1,6 +1,7 @@
 use crate::bus::Bus;
 use crate::db;
 use crate::flow::{expr, Context, Flow, Node};
+use crate::http::AppState;
 use crate::steps::{registry::resolve, StepProgress};
 use serde_json::json;
 use sqlx::SqlitePool;
@@ -10,6 +11,15 @@ pub struct Engine {
     pool: SqlitePool,
     pub bus: Bus,
     data_dir: PathBuf,
+    /// Optional dispatcher state. When `Some`, per-step routing
+    /// (`dispatch::route`) is consulted: a step may be sent to a
+    /// remote worker via `RemoteRunner::run`. When `None` (used by
+    /// integration tests that don't spin up an `AppState`), every
+    /// step runs locally as before. This keeps the legacy
+    /// `Engine::new(pool, bus, data_dir)` constructor source-compatible
+    /// with the existing test suite while letting production wire the
+    /// dispatcher through `Engine::with_state`.
+    state: Option<AppState>,
 }
 
 #[derive(Debug)]
@@ -19,7 +29,25 @@ pub struct Outcome {
 }
 
 impl Engine {
-    pub fn new(pool: SqlitePool, bus: Bus, data_dir: PathBuf) -> Self { Self { pool, bus, data_dir } }
+    /// Local-only engine. Routes every step through the in-process
+    /// step registry. Used by integration tests and by callers that
+    /// don't have an `AppState` to thread (e.g. tests that don't
+    /// register a local worker row).
+    pub fn new(pool: SqlitePool, bus: Bus, data_dir: PathBuf) -> Self {
+        Self { pool, bus, data_dir, state: None }
+    }
+
+    /// Production engine with a full `AppState`. Per-step
+    /// `dispatch::route` is consulted; remote-eligible steps may be
+    /// dispatched to a remote worker via `RemoteRunner::run`.
+    pub fn with_state(state: AppState) -> Self {
+        Self {
+            pool: state.pool.clone(),
+            bus: state.bus.clone(),
+            data_dir: state.cfg.data_dir.clone(),
+            state: Some(state),
+        }
+    }
 
     pub async fn run(&self, flow: &Flow, job_id: i64, mut ctx: Context) -> anyhow::Result<Outcome> {
         // Resume.
@@ -36,7 +64,7 @@ impl Engine {
             Ok(NodeOutcome::Continue) => Outcome { status: "completed".into(), label: None },
             Ok(NodeOutcome::Return(label)) => Outcome { status: "skipped".into(), label: Some(label) },
             Err(e) => {
-                db::run_events::append_with_bus_and_spill(&self.pool, &self.bus, &self.data_dir, job_id, None, "failed",
+                db::run_events::append_with_bus_and_spill(&self.pool, &self.bus, &self.data_dir, job_id, None, None, "failed",
                     Some(&json!({ "error": e.to_string() }))).await?;
                 if let Some(of) = &flow.on_failure {
                     // Run failure handler with a small ctx extension.
@@ -69,31 +97,53 @@ impl Engine {
                     if my_index < skip_below { continue; }
                 }
                 match n {
-                    Node::Step { id, use_, with, retry } => {
+                    Node::Step { id, use_, with, retry, run_on } => {
                         let step_id = id.clone().unwrap_or_else(|| format!("{use_}_{my_index}"));
+                        // Decide where this step runs. Without an
+                        // AppState (test-only path) we always run
+                        // locally — `dispatch::route` lives behind the
+                        // dispatcher and isn't reachable.
+                        let route = match &self.state {
+                            Some(state) => crate::dispatch::route(use_, *run_on, state).await,
+                            None => crate::dispatch::Route::Local,
+                        };
+                        let chosen_worker_id: Option<i64> = match route {
+                            crate::dispatch::Route::Local => Some(crate::worker::local::LOCAL_WORKER_ID),
+                            crate::dispatch::Route::Remote(wid) => Some(wid),
+                        };
+
+                        // Stamp jobs.worker_id on the first dispatch
+                        // decision so the run row reflects its primary
+                        // executor. Best-effort: tests without a
+                        // workers row simply trip the FK and we ignore
+                        // it.
+                        if let Some(wid) = chosen_worker_id {
+                            let _ = db::jobs::set_worker_id(&self.pool, job_id, wid).await;
+                        }
+
                         let max_attempts = retry.as_ref().map(|r| r.max + 1).unwrap_or(1);
                         let mut last_err: Option<anyhow::Error> = None;
                         for attempt in 1..=max_attempts {
-                            db::run_events::append_with_bus_and_spill(&self.pool, &self.bus, &self.data_dir, job_id, Some(&step_id), "started",
+                            db::run_events::append_with_bus_and_spill(&self.pool, &self.bus, &self.data_dir, job_id, Some(&step_id), chosen_worker_id, "started",
                                 Some(&json!({ "use": use_, "attempt": attempt }))).await?;
-                            let runner = resolve(use_).await
-                                .ok_or_else(|| anyhow::anyhow!("unknown step `use:` {}", use_))?;
                             let pool = self.pool.clone();
                             let bus = self.bus.clone();
                             let data_dir = self.data_dir.clone();
                             let step_id_for_cb = step_id.clone();
+                            let cb_worker_id = chosen_worker_id;
                             let mut cb = move |ev: StepProgress| {
                                 let pool = pool.clone();
                                 let bus = bus.clone();
                                 let data_dir = data_dir.clone();
                                 let step_id = step_id_for_cb.clone();
+                                let worker_id = cb_worker_id;
                                 tokio::spawn(async move {
                                     let (kind, payload) = match ev {
                                         StepProgress::Pct(p) => ("progress".to_string(), json!({ "pct": p })),
                                         StepProgress::Log(l) => ("log".to_string(), json!({ "msg": l })),
                                         StepProgress::Marker { kind, payload } => (kind, payload),
                                     };
-                                    let _ = db::run_events::append_with_bus_and_spill(&pool, &bus, &data_dir, job_id, Some(&step_id), &kind, Some(&payload)).await;
+                                    let _ = db::run_events::append_with_bus_and_spill(&pool, &bus, &data_dir, job_id, Some(&step_id), worker_id, &kind, Some(&payload)).await;
                                 });
                             };
                             let timeout_secs = with.get("timeout")
@@ -112,19 +162,41 @@ impl Engine {
                                     _ => 600,
                                 });
                             let step_start = std::time::Instant::now();
-                            let exec_fut = runner.execute(with, ctx, &mut cb);
-                            let result = tokio::time::timeout(std::time::Duration::from_secs(timeout_secs), exec_fut).await;
+                            // Local vs remote branch. Both wrapped in
+                            // the same timeout so the engine's
+                            // step-deadline contract is identical.
+                            let result = match route {
+                                crate::dispatch::Route::Local => {
+                                    let runner = resolve(use_).await
+                                        .ok_or_else(|| anyhow::anyhow!("unknown step `use:` {}", use_))?;
+                                    let exec_fut = runner.execute(with, ctx, &mut cb);
+                                    tokio::time::timeout(std::time::Duration::from_secs(timeout_secs), exec_fut).await
+                                }
+                                crate::dispatch::Route::Remote(wid) => {
+                                    // RemoteRunner needs a real
+                                    // AppState; we only enter this
+                                    // arm when state is Some (route
+                                    // wouldn't have returned Remote
+                                    // otherwise, since the None branch
+                                    // above forces Local).
+                                    let state = self.state.as_ref().expect("Route::Remote requires AppState");
+                                    let exec_fut = crate::dispatch::remote::RemoteRunner::run(
+                                        state, wid, job_id, &step_id, use_, with, ctx, &mut cb,
+                                    );
+                                    tokio::time::timeout(std::time::Duration::from_secs(timeout_secs), exec_fut).await
+                                }
+                            };
                             match result {
                                 Ok(Ok(())) => {
                                     crate::metrics::record_step_finished(use_, "ok", step_start.elapsed().as_secs_f64());
-                                    db::run_events::append_with_bus_and_spill(&self.pool, &self.bus, &self.data_dir, job_id, Some(&step_id), "completed", None).await?;
+                                    db::run_events::append_with_bus_and_spill(&self.pool, &self.bus, &self.data_dir, job_id, Some(&step_id), chosen_worker_id, "completed", None).await?;
                                     db::checkpoints::upsert(&self.pool, job_id, my_index as i64, &ctx.to_snapshot()).await?;
                                     last_err = None;
                                     break;
                                 }
                                 Ok(Err(e)) => {
                                     crate::metrics::record_step_finished(use_, "err", step_start.elapsed().as_secs_f64());
-                                    db::run_events::append_with_bus_and_spill(&self.pool, &self.bus, &self.data_dir, job_id, Some(&step_id), "failed",
+                                    db::run_events::append_with_bus_and_spill(&self.pool, &self.bus, &self.data_dir, job_id, Some(&step_id), chosen_worker_id, "failed",
                                         Some(&json!({ "error": e.to_string(), "attempt": attempt }))).await?;
                                     let should_retry = retry.as_ref().and_then(|r| r.on.as_deref())
                                         .map(|on_expr| expr::eval_bool(on_expr, ctx).unwrap_or(true))
@@ -137,7 +209,7 @@ impl Engine {
                                 }
                                 Err(_) => {
                                     crate::metrics::record_step_finished(use_, "err", step_start.elapsed().as_secs_f64());
-                                    db::run_events::append_with_bus_and_spill(&self.pool, &self.bus, &self.data_dir, job_id, Some(&step_id), "failed",
+                                    db::run_events::append_with_bus_and_spill(&self.pool, &self.bus, &self.data_dir, job_id, Some(&step_id), chosen_worker_id, "failed",
                                         Some(&json!({ "error": "timeout", "after_seconds": timeout_secs, "attempt": attempt }))).await?;
                                     last_err = Some(anyhow::anyhow!("timeout after {timeout_secs}s"));
                                     break;
@@ -158,14 +230,14 @@ impl Engine {
                     Node::Conditional { id, if_, then_, else_ } => {
                         let step_id = id.clone().unwrap_or_else(|| format!("if_{my_index}"));
                         let v = expr::eval_bool(if_, ctx)?;
-                        db::run_events::append_with_bus_and_spill(&self.pool, &self.bus, &self.data_dir, job_id, Some(&step_id), "condition_evaluated",
+                        db::run_events::append_with_bus_and_spill(&self.pool, &self.bus, &self.data_dir, job_id, Some(&step_id), None, "condition_evaluated",
                             Some(&json!({ "expr": if_, "result": v }))).await?;
                         let branch = if v { then_.as_slice() } else { else_.as_deref().unwrap_or(&[]) };
                         let outcome = self.run_nodes(branch, job_id, ctx, counter, resume_at).await?;
                         if let NodeOutcome::Return(_) = &outcome { return Ok(outcome); }
                     }
                     Node::Return { return_ } => {
-                        db::run_events::append_with_bus_and_spill(&self.pool, &self.bus, &self.data_dir, job_id, None, "returned",
+                        db::run_events::append_with_bus_and_spill(&self.pool, &self.bus, &self.data_dir, job_id, None, None, "returned",
                             Some(&json!({ "label": return_ }))).await?;
                         return Ok(NodeOutcome::Return(return_.clone()));
                     }

@@ -106,3 +106,19 @@ pub async fn reset_running_to_pending(pool: &SqlitePool) -> anyhow::Result<u64> 
         .execute(pool).await?;
     Ok(r.rows_affected())
 }
+
+/// Stamp the job's `worker_id`. Called by `Engine::run_nodes` at the
+/// first dispatch decision (local or remote) so the run row reflects
+/// its primary executor for backwards-compatible UI.
+pub async fn set_worker_id(
+    pool: &SqlitePool,
+    job_id: i64,
+    worker_id: i64,
+) -> anyhow::Result<()> {
+    sqlx::query("UPDATE jobs SET worker_id = ? WHERE id = ?")
+        .bind(worker_id)
+        .bind(job_id)
+        .execute(pool)
+        .await?;
+    Ok(())
+}

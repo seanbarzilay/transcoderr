@@ -30,6 +30,29 @@ pub async fn run(config: WorkerConfig) -> ! {
         }
     };
 
+    // Piece 3: initialise the step registry on the worker side so
+    // executor::handle_step_dispatch can resolve step kinds. Open a
+    // process-local in-memory sqlite for any built-in that consults
+    // settings or scratch tables.
+    let pool = match crate::db::open_in_memory().await {
+        Ok(p) => p,
+        Err(e) => {
+            tracing::error!(error = ?e, "worker: failed to open in-memory sqlite for registry; aborting");
+            // Sleep forever to make systemd retry visibly.
+            loop {
+                tokio::time::sleep(std::time::Duration::from_secs(60)).await;
+            }
+        }
+    };
+
+    crate::steps::registry::init(
+        pool.clone(),
+        crate::hw::semaphores::DeviceRegistry::from_caps(&crate::hw::HwCaps::default()),
+        std::sync::Arc::new(caps.clone()),
+        Vec::new(), // no plugins on the worker side until Piece 4 ships push
+    )
+    .await;
+
     let available_steps = vec![
         "plan.execute".into(),
         "transcode".into(),

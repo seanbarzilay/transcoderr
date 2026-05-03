@@ -99,6 +99,16 @@ pub async fn resolve(name: &str) -> Option<Arc<dyn Step>> {
     map.remove(name)
 }
 
+/// Sync, non-blocking lookup. Returns `None` if the registry isn't
+/// initialised yet (early tests / boot races) so callers can fall
+/// through to "treat as unknown" without blocking. Used by the YAML
+/// parser to validate `run_on:` against the step's `executor()`.
+pub fn try_resolve(name: &str) -> Option<Arc<dyn Step>> {
+    let rw = REGISTRY.get()?;
+    let guard = rw.try_read().ok()?;
+    guard.by_name.get(name).cloned()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

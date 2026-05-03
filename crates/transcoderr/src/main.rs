@@ -122,12 +122,48 @@ async fn main() -> anyhow::Result<()> {
             let bus = transcoderr::bus::Bus::default();
             let cancellations = transcoderr::cancellation::JobCancellations::new();
             transcoderr::worker::local::spawn_local_heartbeat(pool.clone());
-            let worker = transcoderr::worker::Worker::new(
-                pool.clone(),
-                bus.clone(),
-                cfg.data_dir.clone(),
-                cancellations.clone(),
+
+            // Bind the HTTP listener early so we can resolve the
+            // public URL and assemble `AppState` *before* spawning the
+            // worker pool. The pool's worker uses the dispatcher in
+            // `AppState` (Piece 3) to route remote-eligible steps, so
+            // it has to be passed an already-built `AppState`.
+            let listener =
+                tokio::net::TcpListener::bind(&cfg.bind).await?;
+            let addr = listener.local_addr()?;
+            let public_url = transcoderr::public_url::resolve(addr);
+            tracing::info!(
+                public_url = %public_url.url,
+                source = ?public_url.source,
+                addr = %addr,
+                "transcoderr serving",
             );
+            let public_url_arc = std::sync::Arc::new(public_url.url);
+
+            let arr_cache = std::sync::Arc::new(transcoderr::arr::cache::ArrCache::new(
+                std::time::Duration::from_secs(300),
+            ));
+
+            let ready = transcoderr::ready::Readiness::new();
+
+            let state = transcoderr::http::AppState {
+                pool: pool.clone(),
+                cfg: cfg.clone(),
+                hw_caps,
+                hw_devices: registry,
+                ffmpeg_caps: ffmpeg_caps.clone(),
+                bus: bus.clone(),
+                ready: ready.clone(),
+                metrics,
+                cancellations: cancellations.clone(),
+                public_url: public_url_arc,
+                arr_cache,
+                catalog_client: std::sync::Arc::new(transcoderr::plugins::catalog::CatalogClient::default()),
+                runtime_checker: runtime_checker.clone(),
+                connections: transcoderr::worker::connections::Connections::new(),
+            };
+
+            let worker = transcoderr::worker::Worker::with_state(state.clone());
             let reset = worker.recover_on_boot().await?;
             if reset > 0 {
                 tracing::warn!(reset, "recovered stale running jobs");
@@ -168,39 +204,6 @@ async fn main() -> anyhow::Result<()> {
             let retention_rx = tx.subscribe();
             tokio::spawn(transcoderr::retention::run_periodic(pool.clone(), retention_rx));
 
-            let ready = transcoderr::ready::Readiness::new();
-
-            let listener =
-                tokio::net::TcpListener::bind(&cfg.bind).await?;
-            let addr = listener.local_addr()?;
-            let public_url = transcoderr::public_url::resolve(addr);
-            tracing::info!(
-                public_url = %public_url.url,
-                source = ?public_url.source,
-                addr = %addr,
-                "transcoderr serving",
-            );
-            let public_url_arc = std::sync::Arc::new(public_url.url);
-
-            let arr_cache = std::sync::Arc::new(transcoderr::arr::cache::ArrCache::new(
-                std::time::Duration::from_secs(300),
-            ));
-
-            let state = transcoderr::http::AppState {
-                pool,
-                cfg: cfg.clone(),
-                hw_caps,
-                hw_devices: registry,
-                ffmpeg_caps: ffmpeg_caps.clone(),
-                bus,
-                ready: ready.clone(),
-                metrics,
-                cancellations,
-                public_url: public_url_arc,
-                arr_cache,
-                catalog_client: std::sync::Arc::new(transcoderr::plugins::catalog::CatalogClient::default()),
-                runtime_checker: runtime_checker.clone(),
-            };
             ready.mark_ready().await;
 
             transcoderr::arr::reconcile::spawn(state.pool.clone(), state.public_url.clone());

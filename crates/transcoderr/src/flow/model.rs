@@ -32,6 +32,17 @@ impl Flow {
     }
 }
 
+/// Per-step routing override. `None` (absent) means "use the step's
+/// default executor". `Some(Any)` forces remote-eligible dispatch
+/// (parser rejects this for CoordinatorOnly steps). `Some(Coordinator)`
+/// forces local execution.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RunOn {
+    Any,
+    Coordinator,
+}
+
 /// A trigger source.  In YAML it looks like `radarr: [downloaded, upgraded]`
 /// which serde_yaml parses as a single-key map.
 #[derive(Debug, Clone, PartialEq)]
@@ -99,6 +110,8 @@ pub enum Node {
         with: BTreeMap<String, Value>,
         #[serde(default)]
         retry: Option<Retry>,
+        #[serde(default)]
+        run_on: Option<RunOn>,
     },
 }
 

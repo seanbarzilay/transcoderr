@@ -4,6 +4,7 @@ pub mod bus;
 pub mod cancellation;
 pub mod config;
 pub mod db;
+pub mod dispatch;
 pub mod error;
 pub mod ffmpeg;
 pub mod ffmpeg_caps;

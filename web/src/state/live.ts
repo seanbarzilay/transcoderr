@@ -7,6 +7,8 @@ export type LiveRunEvent = {
   step_id?: string;
   kind: string;
   payload?: any;
+  worker_id?: number;
+  worker_name?: string;
 };
 
 type Live = {
@@ -50,6 +52,8 @@ export function startSSE() {
         step_id: e.data.step_id,
         kind: e.data.kind,
         payload: e.data.payload,
+        worker_id: (e.data as any).worker_id,
+        worker_name: (e.data as any).worker_name,
       };
       appendEvent(e.data.job_id, ev);
 

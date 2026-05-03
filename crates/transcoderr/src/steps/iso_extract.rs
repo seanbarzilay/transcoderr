@@ -20,6 +20,8 @@ pub struct IsoExtractStep;
 impl Step for IsoExtractStep {
     fn name(&self) -> &'static str { "iso.extract" }
 
+    fn executor(&self) -> crate::steps::Executor { crate::steps::Executor::Any }
+
     async fn execute(
         &self,
         _with: &BTreeMap<String, Value>,

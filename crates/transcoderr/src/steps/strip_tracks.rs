@@ -30,6 +30,8 @@ impl Step for StripTracksStep {
         "strip.tracks"
     }
 
+    fn executor(&self) -> crate::steps::Executor { crate::steps::Executor::Any }
+
     async fn execute(
         &self,
         with: &BTreeMap<String, Value>,

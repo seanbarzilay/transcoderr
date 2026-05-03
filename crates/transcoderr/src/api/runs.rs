@@ -84,7 +84,10 @@ pub async fn get(
     };
 
     let event_rows = sqlx::query(
-        "SELECT id, job_id, ts, step_id, kind, payload_json FROM run_events WHERE job_id = ? ORDER BY ts DESC LIMIT 200"
+        "SELECT r.id, r.job_id, r.ts, r.step_id, r.kind, r.payload_json, r.worker_id, w.name
+         FROM run_events r
+         LEFT JOIN workers w ON w.id = r.worker_id
+         WHERE r.job_id = ? ORDER BY r.ts DESC LIMIT 200"
     )
     .bind(job_id).fetch_all(&state.pool).await
     .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
@@ -98,6 +101,8 @@ pub async fn get(
             step_id: r.get(3),
             kind: r.get(4),
             payload: payload_str.and_then(|s| serde_json::from_str(&s).ok()),
+            worker_id: r.get(6),
+            worker_name: r.get(7),
         }
     }).collect();
 
@@ -121,7 +126,10 @@ pub async fn events(
     }
 
     let rows = sqlx::query(
-        "SELECT id, job_id, ts, step_id, kind, payload_json FROM run_events WHERE job_id = ? ORDER BY ts ASC LIMIT ? OFFSET ?"
+        "SELECT r.id, r.job_id, r.ts, r.step_id, r.kind, r.payload_json, r.worker_id, w.name
+         FROM run_events r
+         LEFT JOIN workers w ON w.id = r.worker_id
+         WHERE r.job_id = ? ORDER BY r.ts ASC LIMIT ? OFFSET ?"
     )
     .bind(job_id).bind(limit).bind(offset)
     .fetch_all(&state.pool).await
@@ -136,6 +144,8 @@ pub async fn events(
             step_id: r.get(3),
             kind: r.get(4),
             payload: payload_str.and_then(|s| serde_json::from_str(&s).ok()),
+            worker_id: r.get(6),
+            worker_name: r.get(7),
         }
     }).collect();
     Ok(Json(out))

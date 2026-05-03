@@ -189,13 +189,21 @@ pub async fn connect(
     Ok(ws.on_upgrade(move |socket| handle_connection(state, socket, row.id)))
 }
 
-async fn handle_connection(state: AppState, mut socket: WebSocket, worker_id: i64) {
-    // 1. Wait up to REGISTER_TIMEOUT for the `register` frame.
-    let register = match tokio::time::timeout(REGISTER_TIMEOUT, recv_message(&mut socket)).await {
+async fn handle_connection(state: AppState, socket: WebSocket, worker_id: i64) {
+    use futures::{SinkExt, StreamExt};
+    let (mut ws_sink, mut ws_stream) = socket.split();
+
+    // Outbound mpsc: anyone (including the dispatch::remote runner)
+    // can push an Envelope here and the sender task forwards it to
+    // the wire.
+    let (out_tx, mut out_rx) = tokio::sync::mpsc::channel::<Envelope>(32);
+
+    // 1. Wait for the register frame inline (read via the stream half).
+    let register = match tokio::time::timeout(REGISTER_TIMEOUT, recv_message(&mut ws_stream)).await {
         Ok(Ok(Envelope { id, message: Message::Register(r) })) => (id, r),
         _ => {
             tracing::warn!(worker_id, "no valid register within {REGISTER_TIMEOUT:?}; closing");
-            let _ = socket.close().await;
+            let _ = ws_sink.close().await;
             return;
         }
     };
@@ -214,11 +222,35 @@ async fn handle_connection(state: AppState, mut socket: WebSocket, worker_id: i6
     .await
     {
         tracing::error!(worker_id, error = ?e, "failed to record register");
-        let _ = socket.close().await;
+        let _ = ws_sink.close().await;
         return;
     }
 
-    // 3. Send the register_ack with the same correlation id.
+    // 3. Register the outbound channel in `Connections` (RAII cleanup
+    //    on drop). We register BEFORE sending register_ack so the
+    //    worker's first frames-after-ack already see a live entry.
+    let _sender_guard = state.connections.register_sender(worker_id, out_tx.clone()).await;
+
+    // 4. Spawn the sender task: drains `out_rx` -> ws_sink.
+    let sender_task = tokio::spawn(async move {
+        while let Some(env) = out_rx.recv().await {
+            match serde_json::to_string(&env) {
+                Ok(s) => {
+                    if ws_sink.send(WsMessage::Text(s)).await.is_err() {
+                        break;
+                    }
+                }
+                Err(e) => {
+                    tracing::error!(error = ?e, "failed to serialise outbound envelope");
+                    break;
+                }
+            }
+        }
+        let _ = ws_sink.close().await;
+    });
+
+    // 5. Send the register_ack with the same correlation id, via the
+    //    new outbound path.
     let ack = Envelope {
         id: correlation_id,
         message: Message::RegisterAck(RegisterAck {
@@ -226,20 +258,42 @@ async fn handle_connection(state: AppState, mut socket: WebSocket, worker_id: i6
             plugin_install: vec![], // Piece 4 fills this in
         }),
     };
-    if !send_message(&mut socket, &ack).await {
+    if out_tx.send(ack).await.is_err() {
+        tracing::warn!(worker_id, "sender task closed before register_ack");
+        sender_task.abort();
         return;
     }
 
     tracing::info!(worker_id, name = %register_payload.name, "worker registered");
 
-    // 4. Receive loop. Piece 1 only handles heartbeats; Pieces 3+ add
-    //    step_progress / step_complete.
-    while let Ok(env) = recv_message(&mut socket).await {
+    // 6. Inbound receive loop. Heartbeat / step_progress /
+    //    step_complete are the variants we handle; everything else
+    //    logs a warn.
+    while let Ok(env) = recv_message(&mut ws_stream).await {
+        let correlation_id = env.id.clone();
         match env.message {
             Message::Heartbeat(_) => {
                 if let Err(e) = db::workers::record_heartbeat(&state.pool, worker_id).await {
                     tracing::warn!(worker_id, error = ?e, "failed to record heartbeat");
                 }
+            }
+            Message::StepProgress(p) => {
+                state
+                    .connections
+                    .forward_inbound(
+                        &correlation_id,
+                        crate::worker::connections::InboundStepEvent::Progress(p),
+                    )
+                    .await;
+            }
+            Message::StepComplete(c) => {
+                state
+                    .connections
+                    .forward_inbound(
+                        &correlation_id,
+                        crate::worker::connections::InboundStepEvent::Complete(c),
+                    )
+                    .await;
             }
             other => {
                 tracing::warn!(worker_id, ?other, "unexpected message; ignoring");
@@ -247,10 +301,16 @@ async fn handle_connection(state: AppState, mut socket: WebSocket, worker_id: i6
         }
     }
     tracing::info!(worker_id, "worker disconnected");
+    sender_task.abort();
+    // _sender_guard drops here -> Connections::senders entry removed.
 }
 
-async fn recv_message(socket: &mut WebSocket) -> anyhow::Result<Envelope> {
-    while let Some(msg) = socket.recv().await {
+async fn recv_message<S>(stream: &mut S) -> anyhow::Result<Envelope>
+where
+    S: futures::Stream<Item = Result<WsMessage, axum::Error>> + Unpin,
+{
+    use futures::StreamExt;
+    while let Some(msg) = stream.next().await {
         match msg? {
             WsMessage::Text(t) => return Ok(serde_json::from_str(&t)?),
             WsMessage::Close(_) => anyhow::bail!("connection closed"),
@@ -258,16 +318,6 @@ async fn recv_message(socket: &mut WebSocket) -> anyhow::Result<Envelope> {
         }
     }
     anyhow::bail!("stream ended");
-}
-
-async fn send_message(socket: &mut WebSocket, env: &Envelope) -> bool {
-    match serde_json::to_string(env) {
-        Ok(s) => socket.send(WsMessage::Text(s)).await.is_ok(),
-        Err(e) => {
-            tracing::error!(error = ?e, "failed to serialise outbound envelope");
-            false
-        }
-    }
 }
 
 /// Background task: every 60s, log when any remote worker has gone
