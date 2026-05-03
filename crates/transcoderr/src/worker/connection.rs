@@ -287,6 +287,26 @@ async fn connect_once(
                                         drop(g);
                                         sync_notify.notify_one();
                                     }
+                                    Message::StepCancel(p) => {
+                                        let map = step_cancellations.read().await;
+                                        if let Some(token) = map.get(&correlation) {
+                                            token.cancel();
+                                            tracing::info!(
+                                                job_id = p.job_id,
+                                                step_id = %p.step_id,
+                                                correlation_id = %correlation,
+                                                "step cancel received"
+                                            );
+                                        } else {
+                                            // Race: cancel arrived after step_complete already
+                                            // fired (handle_step_dispatch removed the entry).
+                                            // No-op; debug log only.
+                                            tracing::debug!(
+                                                correlation_id = %correlation,
+                                                "step cancel for unknown correlation; dropped"
+                                            );
+                                        }
+                                    }
                                     other => {
                                         tracing::warn!(?other, "worker received unexpected frame; ignoring");
                                     }
