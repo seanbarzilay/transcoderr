@@ -134,6 +134,16 @@ async fn connect_once(
     > = std::sync::Arc::new(tokio::sync::Mutex::new(None));
     let sync_notify = std::sync::Arc::new(tokio::sync::Notify::new());
 
+    // Per-connection cancel registry. Keyed by correlation_id (the
+    // step_dispatch envelope.id). `handle_step_dispatch` registers a
+    // fresh token at dispatch start; the receive loop's StepCancel
+    // arm fires it. Lives for the connection's lifetime.
+    let step_cancellations: std::sync::Arc<
+        tokio::sync::RwLock<
+            std::collections::HashMap<String, tokio_util::sync::CancellationToken>,
+        >,
+    > = std::sync::Arc::new(tokio::sync::RwLock::new(std::collections::HashMap::new()));
+
     // Sync worker: drain the slot whenever notified, run plugin_sync::sync,
     // then re-register so the coordinator's `connections.available_steps`
     // sees the new step kinds. Lives for the connection's lifetime;
@@ -260,11 +270,13 @@ async fn connect_once(
                                 match env.message {
                                     Message::StepDispatch(dispatch) => {
                                         let tx_for_step = outbound_tx.clone();
+                                        let cancellations = step_cancellations.clone();
                                         tokio::spawn(async move {
                                             crate::worker::executor::handle_step_dispatch(
                                                 tx_for_step,
                                                 correlation,
                                                 dispatch,
+                                                cancellations,
                                             )
                                             .await;
                                         });
@@ -274,6 +286,26 @@ async fn connect_once(
                                         *g = Some(p.plugins);
                                         drop(g);
                                         sync_notify.notify_one();
+                                    }
+                                    Message::StepCancel(p) => {
+                                        let map = step_cancellations.read().await;
+                                        if let Some(token) = map.get(&correlation) {
+                                            token.cancel();
+                                            tracing::info!(
+                                                job_id = p.job_id,
+                                                step_id = %p.step_id,
+                                                correlation_id = %correlation,
+                                                "step cancel received"
+                                            );
+                                        } else {
+                                            // Race: cancel arrived after step_complete already
+                                            // fired (handle_step_dispatch removed the entry).
+                                            // No-op; debug log only.
+                                            tracing::debug!(
+                                                correlation_id = %correlation,
+                                                "step cancel for unknown correlation; dropped"
+                                            );
+                                        }
                                     }
                                     other => {
                                         tracing::warn!(?other, "worker received unexpected frame; ignoring");

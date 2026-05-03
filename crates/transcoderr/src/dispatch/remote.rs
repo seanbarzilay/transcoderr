@@ -7,7 +7,7 @@ use crate::flow::Context;
 use crate::http::AppState;
 use crate::steps::StepProgress;
 use crate::worker::connections::InboundStepEvent;
-use crate::worker::protocol::{Envelope, Message, StepDispatch};
+use crate::worker::protocol::{Envelope, Message, StepCancelMsg, StepDispatch};
 use std::collections::BTreeMap;
 use std::time::Duration;
 
@@ -21,8 +21,10 @@ pub struct RemoteRunner;
 
 impl RemoteRunner {
     /// Run a single step on a remote worker. Blocks until the worker
-    /// either reports `step_complete` (success or failure) or the
-    /// frame timeout fires.
+    /// reports `step_complete` (success or failure), the frame timeout
+    /// fires, or `ctx.cancel` is signalled by the operator (in which
+    /// case we send `StepCancel` to the worker fire-and-forget and
+    /// bail with `"step cancelled by operator"`).
     ///
     /// On Ok: `ctx` has been replaced with the worker's returned
     /// context snapshot.
@@ -62,13 +64,50 @@ impl RemoteRunner {
             .await
             .map_err(|e| anyhow::anyhow!("dispatch send failed: {e}"))?;
 
-        // 3. Pump inbound frames until completion or timeout.
+        // 3. Pump inbound frames until completion, timeout, or cancel.
+        let cancel = ctx.cancel.clone(); // Option<CancellationToken>
         loop {
-            let frame = match tokio::time::timeout(STEP_FRAME_TIMEOUT, rx.recv()).await {
-                Ok(Some(f)) => f,
-                Ok(None) => anyhow::bail!("worker inbox channel closed"),
-                Err(_) => anyhow::bail!("worker step timed out"),
+            let frame = tokio::select! {
+                f = tokio::time::timeout(STEP_FRAME_TIMEOUT, rx.recv()) => match f {
+                    Ok(Some(f)) => f,
+                    Ok(None) => anyhow::bail!("worker inbox channel closed"),
+                    Err(_) => anyhow::bail!("worker step timed out"),
+                },
+                _ = async {
+                    // If ctx.cancel is None (test fixtures, edge cases),
+                    // this branch never resolves — the loop behaves
+                    // exactly as today.
+                    match &cancel {
+                        Some(c) => c.cancelled().await,
+                        None => std::future::pending::<()>().await,
+                    }
+                } => {
+                    // Operator cancelled the job. Send StepCancel to the
+                    // worker (fire-and-forget — Piece 6 spec Q1-A) and
+                    // bail. Engine records the run as cancelled via the
+                    // existing cancel-token-aware error path.
+                    tracing::info!(
+                        job_id,
+                        step_id,
+                        worker_id,
+                        correlation_id = %correlation_id,
+                        "cancelling in-flight remote step; sending StepCancel to worker"
+                    );
+                    let cancel_env = Envelope {
+                        id: correlation_id.clone(),
+                        message: Message::StepCancel(StepCancelMsg {
+                            job_id,
+                            step_id: step_id.into(),
+                        }),
+                    };
+                    let _ = state
+                        .connections
+                        .send_to_worker(worker_id, cancel_env)
+                        .await;
+                    anyhow::bail!("step cancelled by operator");
+                }
             };
+
             match frame {
                 InboundStepEvent::Progress(p) => {
                     let progress = match p.kind.as_str() {
