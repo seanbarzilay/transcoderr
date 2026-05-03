@@ -200,6 +200,7 @@ async fn main() -> anyhow::Result<()> {
                 arr_cache,
                 catalog_client: std::sync::Arc::new(transcoderr::plugins::catalog::CatalogClient::default()),
                 runtime_checker: runtime_checker.clone(),
+                connections: transcoderr::worker::connections::Connections::new(),
             };
             ready.mark_ready().await;
 
