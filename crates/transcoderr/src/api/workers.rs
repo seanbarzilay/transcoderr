@@ -28,9 +28,15 @@ pub struct WorkerSummary {
     pub enabled: bool,
     pub last_seen_at: Option<i64>,
     pub created_at: i64,
+    /// Per-worker path-mapping rules. `None` = no mapping (identity).
+    pub path_mappings: Option<Vec<crate::path_mapping::PathMapping>>,
 }
 
 fn row_to_summary(row: db::workers::WorkerRow, redact: bool) -> WorkerSummary {
+    let path_mappings: Option<Vec<crate::path_mapping::PathMapping>> = row
+        .path_mappings_json
+        .as_deref()
+        .and_then(|s| serde_json::from_str(s).ok());
     WorkerSummary {
         id: row.id,
         name: row.name,
@@ -47,6 +53,7 @@ fn row_to_summary(row: db::workers::WorkerRow, redact: bool) -> WorkerSummary {
         enabled: row.enabled != 0,
         last_seen_at: row.last_seen_at,
         created_at: row.created_at,
+        path_mappings,
     }
 }
 
