@@ -38,6 +38,30 @@ pub struct Manifest {
     /// to debug).
     #[serde(default)]
     pub deps: Option<String>,
+    /// Per-step routing overrides. Each key is a step kind from
+    /// `provides_steps`. Steps with no entry default to
+    /// `coordinator-only`. See spec/distributed-piece-5.
+    #[serde(default)]
+    pub steps: std::collections::BTreeMap<String, StepManifest>,
+}
+
+/// Per-step manifest entry. Lives in the `[steps."<step_kind>"]`
+/// table inside `manifest.toml`. The only field today is `executor`,
+/// which defaults to coordinator-only when omitted.
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct StepManifest {
+    #[serde(default)]
+    pub executor: Option<ManifestExecutor>,
+}
+
+/// Wire / TOML form of `crate::steps::Executor`. Kebab-case for TOML
+/// readability (`any-worker` matches the spec's prose better than
+/// `any_worker`).
+#[derive(Debug, Clone, Copy, PartialEq, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum ManifestExecutor {
+    AnyWorker,
+    CoordinatorOnly,
 }
 
 #[derive(Debug, Clone)]
@@ -58,4 +82,46 @@ pub fn load_from_dir(dir: &Path) -> anyhow::Result<DiscoveredPlugin> {
         serde_json::json!({})
     };
     Ok(DiscoveredPlugin { manifest, manifest_dir: dir.to_path_buf(), schema })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn deserialise_with_steps_block() {
+        let toml_src = r#"
+name = "whisper"
+version = "1.0"
+kind = "subprocess"
+entrypoint = "bin/run"
+provides_steps = ["whisper.transcribe", "whisper.detect_language"]
+
+[steps."whisper.transcribe"]
+executor = "any-worker"
+"#;
+        let m: Manifest = toml::from_str(toml_src).unwrap();
+        assert_eq!(m.steps.len(), 1);
+        let entry = m.steps.get("whisper.transcribe").unwrap();
+        assert_eq!(entry.executor, Some(ManifestExecutor::AnyWorker));
+        // The other declared step has no [steps.X] entry, so it's absent
+        // from the map — the registry build path defaults to
+        // CoordinatorOnly when looking up a missing key.
+        assert!(!m.steps.contains_key("whisper.detect_language"));
+    }
+
+    #[test]
+    fn deserialise_without_steps_block() {
+        // Existing manifest shape (size-report) still parses cleanly;
+        // `steps` defaults to an empty map.
+        let toml_src = r#"
+name = "size-report"
+version = "0.1.2"
+kind = "subprocess"
+entrypoint = "bin/run"
+provides_steps = ["size.report"]
+"#;
+        let m: Manifest = toml::from_str(toml_src).unwrap();
+        assert!(m.steps.is_empty(), "missing [steps] block → empty map");
+    }
 }
