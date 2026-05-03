@@ -40,9 +40,20 @@ impl Drop for StagingGuard {
 /// Download, verify, extract, atomic-swap. Returns details of the
 /// installed plugin on success. The caller is responsible for the
 /// post-install bookkeeping (sync_discovered, registry rebuild).
+///
+/// Optional parameters:
+/// - `archive_to`: when `Some`, the verified tarball is moved to that
+///   path **before** staging cleanup. Coordinator passes the cache
+///   path; worker passes `None`.
+/// - `auth_token`: when `Some`, the GET request includes
+///   `Authorization: Bearer <token>`. Worker passes its
+///   `coordinator_token`; coordinator passes `None` (its catalog
+///   fetches don't authenticate to itself).
 pub async fn install_from_entry(
     entry: &IndexEntry,
     plugins_dir: &Path,
+    archive_to: Option<&Path>,
+    auth_token: Option<&str>,
 ) -> Result<InstalledPlugin, InstallError> {
     std::fs::create_dir_all(plugins_dir)?;
     let suffix: String = (0..8)
@@ -53,18 +64,17 @@ pub async fn install_from_entry(
     std::fs::create_dir_all(&staging)?;
     let mut guard = StagingGuard(Some(staging.clone()));
 
-    // Buffer the full tarball, sha256 it, then write to disk. Acceptable
-    // for the KB-scale plugins we ship in the official catalog. A real
-    // streaming implementation (resp.bytes_stream() feeding both the
-    // hasher and the file writer) is a follow-up if a plugin grows past
-    // a few MB.
     let tmp_tar = staging.join("plugin.tar.gz");
     let client = reqwest::Client::builder()
         .connect_timeout(std::time::Duration::from_secs(10))
         .timeout(std::time::Duration::from_secs(60))
         .build()
         .expect("reqwest client builds");
-    let resp = client.get(&entry.tarball_url).send().await?;
+    let mut req = client.get(&entry.tarball_url);
+    if let Some(token) = auth_token {
+        req = req.bearer_auth(token);
+    }
+    let resp = req.send().await?;
     if !resp.status().is_success() {
         return Err(InstallError::Layout(format!("HTTP {}", resp.status())));
     }
@@ -130,14 +140,25 @@ pub async fn install_from_entry(
         false
     };
     if let Err(e) = std::fs::rename(&top_dir, &target) {
-        // step B failed — try to restore the original so the operator
-        // doesn't lose the previously-installed plugin.
         if backed_up {
             let _ = std::fs::rename(&backup, &target);
         }
         return Err(InstallError::Io(e));
     }
     let _ = std::fs::remove_dir_all(&backup);
+
+    // Archive the verified tarball if requested. Done after atomic swap
+    // so a failed install leaves no partial cache entry.
+    if let Some(dest) = archive_to {
+        if let Some(parent) = dest.parent() {
+            let _ = std::fs::create_dir_all(parent);
+        }
+        // Try rename (same volume); fall back to copy.
+        if std::fs::rename(&tmp_tar, dest).is_err() {
+            let _ = std::fs::copy(&tmp_tar, dest);
+        }
+    }
+
     guard.disarm();
     let _ = std::fs::remove_dir_all(&staging);
 
@@ -243,7 +264,7 @@ provides_steps = ["{name}.do"]
             runtimes: vec![],
             deps: None,
         };
-        let installed = install_from_entry(&entry, plugins_dir.path()).await.unwrap();
+        let installed = install_from_entry(&entry, plugins_dir.path(), None, None).await.unwrap();
         assert_eq!(installed.name, "hello");
         assert_eq!(installed.tarball_sha256, sha);
         assert!(installed.plugin_dir.exists());
@@ -279,7 +300,7 @@ provides_steps = ["{name}.do"]
             runtimes: vec![],
             deps: None,
         };
-        let err = install_from_entry(&entry, plugins_dir.path()).await.unwrap_err();
+        let err = install_from_entry(&entry, plugins_dir.path(), None, None).await.unwrap_err();
         assert!(matches!(err, InstallError::ShaMismatch { .. }));
         // Plugin dir was not created and staging was cleaned.
         assert!(!plugins_dir.path().join("hello").exists());
@@ -311,7 +332,7 @@ provides_steps = ["{name}.do"]
             runtimes: vec![],
             deps: None,
         };
-        let err = install_from_entry(&entry, plugins_dir.path()).await.unwrap_err();
+        let err = install_from_entry(&entry, plugins_dir.path(), None, None).await.unwrap_err();
         match err {
             InstallError::Layout(msg) => assert!(msg.contains("wrong"), "msg: {msg}"),
             other => panic!("expected Layout, got {other:?}"),
@@ -360,7 +381,7 @@ provides_steps = ["{name}.do"]
             homepage: None, min_transcoderr_version: None,
             kind: "subprocess".into(), provides_steps: vec![], runtimes: vec![], deps: None,
         };
-        let err = install_from_entry(&entry, plugins_dir.path()).await.unwrap_err();
+        let err = install_from_entry(&entry, plugins_dir.path(), None, None).await.unwrap_err();
         match err {
             InstallError::Manifest(msg) => assert!(msg.contains("other")),
             other => panic!("expected Manifest, got {other:?}"),
@@ -391,7 +412,7 @@ provides_steps = ["{name}.do"]
             homepage: None, min_transcoderr_version: None,
             kind: "subprocess".into(), provides_steps: vec![], runtimes: vec![], deps: None,
         };
-        install_from_entry(&entry, plugins_dir.path()).await.unwrap();
+        install_from_entry(&entry, plugins_dir.path(), None, None).await.unwrap();
 
         assert!(target.join("manifest.toml").exists());
         assert!(target.join("bin/run").exists());

@@ -272,7 +272,7 @@ pub async fn install(
         }
 
         status("Downloading + verifying tarball");
-        let installed = match installer::install_from_entry(&entry.entry, &plugins_dir).await {
+        let installed = match installer::install_from_entry(&entry.entry, &plugins_dir, None, None).await {
             Ok(i) => i,
             Err(e) => {
                 error(StatusCode::UNPROCESSABLE_ENTITY, &e.to_string());
