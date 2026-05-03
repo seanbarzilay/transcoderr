@@ -9,6 +9,7 @@ pub mod plugins;
 pub mod runs;
 pub mod settings;
 pub mod sources;
+pub mod worker_enroll;
 pub mod worker_plugins;
 pub mod workers;
 
@@ -27,6 +28,7 @@ pub fn router(state: AppState) -> Router<AppState> {
         .route("/auth/logout", post(auth::logout))
         .route("/auth/me",     get(auth::me))
         .route("/worker/connect", get(workers::connect))
+        .route("/worker/enroll", post(worker_enroll::enroll))
         .route("/worker/plugins/:name/tarball", get(worker_plugins::tarball));
 
     let protected = Router::new()
