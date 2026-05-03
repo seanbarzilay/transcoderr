@@ -84,7 +84,10 @@ async fn post_enroll(
 }
 
 /// Write a `worker.toml` at `path` with the given fields. Creates the
-/// parent directory if missing.
+/// parent directory if missing. Uses `toml::to_string` so values
+/// containing TOML-special characters (`"`, `\`, newlines — possible
+/// in exotic hostnames) are correctly escaped instead of producing a
+/// corrupt file that fails to reload.
 pub fn write_config(
     path: &Path,
     coordinator_url: &str,
@@ -95,11 +98,18 @@ pub fn write_config(
         std::fs::create_dir_all(parent)
             .with_context(|| format!("create parent dir for {}", path.display()))?;
     }
-    let body = format!(
-        "coordinator_url   = \"{coordinator_url}\"\n\
-         coordinator_token = \"{coordinator_token}\"\n\
-         name              = \"{name}\"\n"
-    );
+    #[derive(serde::Serialize)]
+    struct WorkerConfigFile<'a> {
+        coordinator_url: &'a str,
+        coordinator_token: &'a str,
+        name: &'a str,
+    }
+    let body = toml::to_string(&WorkerConfigFile {
+        coordinator_url,
+        coordinator_token,
+        name,
+    })
+    .context("serialize worker.toml")?;
     std::fs::write(path, body)
         .with_context(|| format!("write {}", path.display()))?;
     Ok(())

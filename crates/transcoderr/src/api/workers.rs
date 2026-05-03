@@ -199,10 +199,16 @@ async fn handle_connection(state: AppState, socket: WebSocket, worker_id: i64) {
     let (out_tx, mut out_rx) = tokio::sync::mpsc::channel::<Envelope>(32);
 
     // 1. Wait for the register frame inline (read via the stream half).
+    // Two failure modes are common and benign: the timeout fires
+    // (slow / broken worker), or the stream closes cleanly before
+    // sending Register (`worker::connection::probe_token` does this on
+    // every successful boot to validate the cached token without
+    // triggering a full registration). Both log at debug to avoid
+    // operator-facing log spam on healthy boots.
     let register = match tokio::time::timeout(REGISTER_TIMEOUT, recv_message(&mut ws_stream)).await {
         Ok(Ok(Envelope { id, message: Message::Register(r) })) => (id, r),
         _ => {
-            tracing::warn!(worker_id, "no valid register within {REGISTER_TIMEOUT:?}; closing");
+            tracing::debug!(worker_id, "no register frame within {REGISTER_TIMEOUT:?} (likely a probe); closing");
             let _ = ws_sink.close().await;
             return;
         }
