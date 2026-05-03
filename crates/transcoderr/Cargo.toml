@@ -39,6 +39,7 @@ include_dir = "0.7"
 mime_guess = "2"
 metrics = "0.23"
 metrics-exporter-prometheus = "0.15"
+mdns-sd = "0.13"
 transcoderr-api-types = { path = "../transcoderr-api-types" }
 hostname = { workspace = true }
 tar = "0.4"

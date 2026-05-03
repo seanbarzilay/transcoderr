@@ -20,7 +20,12 @@ enum Cmd {
     },
     /// Run as a remote worker. Connects to a coordinator over WebSocket.
     Worker {
-        #[arg(long, default_value = "worker.toml")]
+        /// Path to worker.toml. Default is the Docker-friendly
+        /// /var/lib/transcoderr/worker.toml; override with `--config`
+        /// for non-container or non-default deployments. If the file
+        /// is missing on first boot, the worker auto-discovers a
+        /// coordinator via mDNS and writes the file at this path.
+        #[arg(long, default_value = "/var/lib/transcoderr/worker.toml")]
         config: PathBuf,
     },
 }
@@ -138,6 +143,29 @@ async fn main() -> anyhow::Result<()> {
                 addr = %addr,
                 "transcoderr serving",
             );
+            // mDNS auto-discovery responder. Binds to the actual port
+            // (covers `bind = "0.0.0.0:0"` ephemeral case). Disable via
+            // `TRANSCODERR_DISCOVERY=disabled`. Held for the process
+            // lifetime; drops on shutdown.
+            let _mdns = if std::env::var("TRANSCODERR_DISCOVERY").as_deref() == Ok("disabled") {
+                tracing::info!("TRANSCODERR_DISCOVERY=disabled; mDNS responder skipped");
+                None
+            } else {
+                let instance = hostname::get()
+                    .ok()
+                    .and_then(|h| h.into_string().ok())
+                    .unwrap_or_else(|| format!("transcoderr-{}", uuid::Uuid::new_v4()));
+                match transcoderr::discovery::start_responder(addr.port(), &instance) {
+                    Ok(d) => Some(d),
+                    Err(e) => {
+                        tracing::warn!(
+                            error = %e,
+                            "failed to start mDNS responder; coordinator will run without LAN auto-discovery"
+                        );
+                        None
+                    }
+                }
+            };
             let public_url_arc = std::sync::Arc::new(public_url.url);
 
             let arr_cache = std::sync::Arc::new(transcoderr::arr::cache::ArrCache::new(
@@ -232,8 +260,7 @@ async fn main() -> anyhow::Result<()> {
             Ok(())
         }
         Cmd::Worker { config } => {
-            let cfg = transcoderr::worker::config::WorkerConfig::load(&config)?;
-            transcoderr::worker::daemon::run(cfg).await
+            transcoderr::worker::daemon::run(config).await
         }
     }
 }
