@@ -13,6 +13,7 @@ pub mod connections;
 pub mod daemon;
 pub mod executor;
 pub mod local;
+pub mod plugin_sync;
 pub mod pool;
 pub mod protocol;
 
