@@ -129,6 +129,11 @@ export const api = {
         body: JSON.stringify(body),
       }),
     delete: (id: number) => req<void>(`/workers/${id}`, { method: "DELETE" }),
+    updatePathMappings: (id: number, rules: Array<{ from: string; to: string }>) =>
+      req<{ id: number; rules: Array<{ from: string; to: string }> }>(`/workers/${id}/path-mappings`, {
+        method: "PUT",
+        body: JSON.stringify({ rules }),
+      }),
   },
   arr: {
     movies: (sourceId: number, params: import("../types-arr").BrowseParams) => {

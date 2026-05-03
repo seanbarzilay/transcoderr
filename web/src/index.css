@@ -1115,6 +1115,11 @@ tbody tr:hover td { background: var(--surface); }
   border-bottom: 1px solid var(--border);
 }
 .modal-header h3 { margin: 0; font-size: 14px; font-weight: 600; }
+.modal-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: var(--space-4) var(--space-5);
+}
 .modal-footer {
   padding: var(--space-3) var(--space-5);
   border-top: 1px solid var(--border);

@@ -3,6 +3,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "../api/client";
 import type { Worker } from "../types";
 import AddWorkerForm from "../components/forms/add-worker";
+import { PathMappingsModal } from "../components/path-mappings-modal";
 
 const STALE_AFTER_SECS = 90;
 
@@ -46,6 +47,7 @@ export default function Workers() {
   const qc = useQueryClient();
   const list = useQuery({ queryKey: ["workers"], queryFn: api.workers.list });
   const [addOpen, setAddOpen] = useState(false);
+  const [mappingFor, setMappingFor] = useState<{ id: number; name: string; rules: Array<{from: string; to: string}> } | null>(null);
 
   const del = useMutation({
     mutationFn: (id: number) => api.workers.delete(id),
@@ -110,14 +112,27 @@ export default function Workers() {
                   </td>
                   <td>
                     {w.kind === "remote" && (
-                      <button
-                        className="btn-danger"
-                        onClick={() => {
-                          if (confirm(`Delete worker "${w.name}"?`)) del.mutate(w.id);
-                        }}
-                      >
-                        Delete
-                      </button>
+                      <>
+                        <button
+                          onClick={() => setMappingFor({
+                            id: w.id,
+                            name: w.name,
+                            rules: w.path_mappings ?? [],
+                          })}
+                          title="Edit path mappings"
+                        >
+                          Edit mappings
+                        </button>
+                        {" "}
+                        <button
+                          className="btn-danger"
+                          onClick={() => {
+                            if (confirm(`Delete worker "${w.name}"?`)) del.mutate(w.id);
+                          }}
+                        >
+                          Delete
+                        </button>
+                      </>
                     )}
                   </td>
                 </tr>
@@ -134,6 +149,18 @@ export default function Workers() {
         <AddWorkerForm
           coordinatorUrlGuess={coordinatorUrlGuess}
           onClose={() => setAddOpen(false)}
+        />
+      )}
+
+      {mappingFor && (
+        <PathMappingsModal
+          workerId={mappingFor.id}
+          workerName={mappingFor.name}
+          initialRules={mappingFor.rules}
+          onClose={() => setMappingFor(null)}
+          onSaved={() => {
+            qc.invalidateQueries({ queryKey: ["workers"] });
+          }}
         />
       )}
     </div>

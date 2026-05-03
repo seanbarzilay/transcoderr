@@ -91,6 +91,7 @@ export type Worker = {
   enabled: boolean;
   last_seen_at: number | null;
   created_at: number;
+  path_mappings: Array<{ from: string; to: string }> | null;
 };
 
 export type WorkerCreateResp = {

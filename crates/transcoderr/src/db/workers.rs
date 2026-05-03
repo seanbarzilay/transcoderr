@@ -23,6 +23,10 @@ pub struct WorkerRow {
     #[sqlx(default)]
     pub last_seen_at: Option<i64>,
     pub created_at: i64,
+    /// JSON array of `{from, to}` rules; NULL = identity (no mapping).
+    /// kind='local' rows always keep this NULL.
+    #[sqlx(default)]
+    pub path_mappings_json: Option<String>,
 }
 
 /// Insert a new remote worker. Returns its id.
@@ -46,7 +50,7 @@ pub async fn insert_remote(
 pub async fn list_all(pool: &SqlitePool) -> anyhow::Result<Vec<WorkerRow>> {
     Ok(sqlx::query_as(
         "SELECT id, name, kind, secret_token, hw_caps_json, plugin_manifest_json,
-                enabled, last_seen_at, created_at
+                enabled, last_seen_at, created_at, path_mappings_json
            FROM workers
           ORDER BY id",
     )
@@ -57,7 +61,7 @@ pub async fn list_all(pool: &SqlitePool) -> anyhow::Result<Vec<WorkerRow>> {
 pub async fn get_by_id(pool: &SqlitePool, id: i64) -> anyhow::Result<Option<WorkerRow>> {
     Ok(sqlx::query_as(
         "SELECT id, name, kind, secret_token, hw_caps_json, plugin_manifest_json,
-                enabled, last_seen_at, created_at
+                enabled, last_seen_at, created_at, path_mappings_json
            FROM workers WHERE id = ?",
     )
     .bind(id)
@@ -73,7 +77,7 @@ pub async fn get_by_token(
 ) -> anyhow::Result<Option<WorkerRow>> {
     Ok(sqlx::query_as(
         "SELECT id, name, kind, secret_token, hw_caps_json, plugin_manifest_json,
-                enabled, last_seen_at, created_at
+                enabled, last_seen_at, created_at, path_mappings_json
            FROM workers WHERE secret_token = ?",
     )
     .bind(token)
@@ -130,6 +134,27 @@ pub async fn set_enabled(pool: &SqlitePool, id: i64, enabled: bool) -> anyhow::R
         .bind(id)
         .execute(pool)
         .await?;
+    Ok(res.rows_affected())
+}
+
+/// Update the per-worker path-mapping rules. Pass `None` (or
+/// `Some("[]")` from the API layer turned into None) to clear the
+/// column. Refuses `kind='local'` rows — returns `Ok(0)`. The API
+/// layer turns 0 into a 400.
+pub async fn update_path_mappings(
+    pool: &SqlitePool,
+    id: i64,
+    json: Option<&str>,
+) -> anyhow::Result<u64> {
+    let res = sqlx::query(
+        "UPDATE workers
+            SET path_mappings_json = ?
+          WHERE id = ? AND kind = 'remote'",
+    )
+    .bind(json)
+    .bind(id)
+    .execute(pool)
+    .await?;
     Ok(res.rows_affected())
 }
 
@@ -216,5 +241,53 @@ mod tests {
         // Missing id returns 0.
         let n = set_enabled(&pool, 9999, true).await.unwrap();
         assert_eq!(n, 0);
+    }
+
+    #[tokio::test]
+    async fn update_path_mappings_round_trips() {
+        let (pool, _dir) = pool().await;
+        let id = insert_remote(&pool, "gpu-1", "wkr_xxx").await.unwrap();
+        let n = update_path_mappings(
+            &pool,
+            id,
+            Some(r#"[{"from":"/mnt","to":"/data"}]"#),
+        )
+        .await
+        .unwrap();
+        assert_eq!(n, 1);
+        let row = get_by_id(&pool, id).await.unwrap().unwrap();
+        assert_eq!(
+            row.path_mappings_json.as_deref(),
+            Some(r#"[{"from":"/mnt","to":"/data"}]"#)
+        );
+    }
+
+    #[tokio::test]
+    async fn update_path_mappings_clears_to_null() {
+        let (pool, _dir) = pool().await;
+        let id = insert_remote(&pool, "gpu-1", "wkr_xxx").await.unwrap();
+        update_path_mappings(&pool, id, Some(r#"[{"from":"/a","to":"/b"}]"#))
+            .await
+            .unwrap();
+        let n = update_path_mappings(&pool, id, None).await.unwrap();
+        assert_eq!(n, 1);
+        let row = get_by_id(&pool, id).await.unwrap().unwrap();
+        assert!(row.path_mappings_json.is_none());
+    }
+
+    #[tokio::test]
+    async fn update_path_mappings_refuses_local_row() {
+        let (pool, _dir) = pool().await;
+        // id=1 is the seeded local row.
+        let n = update_path_mappings(
+            &pool,
+            1,
+            Some(r#"[{"from":"/a","to":"/b"}]"#),
+        )
+        .await
+        .unwrap();
+        assert_eq!(n, 0, "kind='local' must reject path mapping updates");
+        let row = get_by_id(&pool, 1).await.unwrap().unwrap();
+        assert!(row.path_mappings_json.is_none());
     }
 }
