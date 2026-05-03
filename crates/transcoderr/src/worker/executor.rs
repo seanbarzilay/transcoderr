@@ -49,18 +49,6 @@ pub async fn handle_step_dispatch(
         }
     };
 
-    // NEW (Piece 6): register a fresh cancel token for this dispatch
-    // and attach it to ctx.cancel. Existing transcode + subprocess
-    // steps read ctx.cancel.cancelled() to abort their work; the
-    // worker-side StepCancel envelope handler (in connection.rs)
-    // fires this token by correlation_id.
-    let cancel_token = tokio_util::sync::CancellationToken::new();
-    step_cancellations
-        .write()
-        .await
-        .insert(correlation_id.clone(), cancel_token.clone());
-    ctx.cancel = Some(cancel_token);
-
     // 2. Resolve the step from the registry.
     let step = match registry::resolve(&use_).await {
         Some(s) => s,
@@ -132,6 +120,18 @@ pub async fn handle_step_dispatch(
             let _ = tx.send(env).await;
         });
     };
+
+    // NEW (Piece 6): register a fresh cancel token for this dispatch
+    // and attach it to ctx.cancel. Existing transcode + subprocess
+    // steps read ctx.cancel.cancelled() to abort their work; the
+    // worker-side StepCancel envelope handler (in connection.rs)
+    // fires this token by correlation_id.
+    let cancel_token = tokio_util::sync::CancellationToken::new();
+    step_cancellations
+        .write()
+        .await
+        .insert(correlation_id.clone(), cancel_token.clone());
+    ctx.cancel = Some(cancel_token);
 
     // 5. Execute. Errors become `step_complete{failed}`.
     let result = step.execute(&with_map, &mut ctx, &mut cb).await;
