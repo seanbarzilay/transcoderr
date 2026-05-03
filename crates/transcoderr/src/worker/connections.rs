@@ -29,6 +29,11 @@ pub enum InboundStepEvent {
 pub struct Connections {
     senders: Arc<RwLock<HashMap<i64, mpsc::Sender<Envelope>>>>,
     inbox: Arc<RwLock<HashMap<String, mpsc::Sender<InboundStepEvent>>>>,
+    /// Per-worker advertised step kinds. Populated on initial register
+    /// AND on every re-register. Cleared by `SenderGuard::drop` when
+    /// the worker disconnects. Used by `dispatch::eligible_remotes`
+    /// to filter workers that can't run a given step kind.
+    available_steps: Arc<RwLock<HashMap<i64, Vec<String>>>>,
 }
 
 impl Connections {
@@ -46,8 +51,32 @@ impl Connections {
         self.senders.write().await.insert(worker_id, tx);
         SenderGuard {
             map: self.senders.clone(),
+            available_steps: self.available_steps.clone(),
             worker_id,
         }
+    }
+
+    /// Record the worker's current `available_steps` snapshot.
+    /// Overwrites any existing entry for this worker_id. Called on
+    /// initial register and on every re-register frame.
+    pub async fn record_available_steps(
+        &self,
+        worker_id: i64,
+        steps: Vec<String>,
+    ) {
+        self.available_steps.write().await.insert(worker_id, steps);
+    }
+
+    /// True if the worker advertised this step kind in its last
+    /// Register frame. Returns false for unknown workers (not
+    /// connected, never registered, etc.).
+    pub async fn worker_has_step(&self, worker_id: i64, step_kind: &str) -> bool {
+        self.available_steps
+            .read()
+            .await
+            .get(&worker_id)
+            .map(|v| v.iter().any(|s| s == step_kind))
+            .unwrap_or(false)
     }
 
     /// Send an envelope to the worker. Returns Err if the worker
@@ -126,16 +155,19 @@ impl Connections {
 
 pub struct SenderGuard {
     map: Arc<RwLock<HashMap<i64, mpsc::Sender<Envelope>>>>,
+    available_steps: Arc<RwLock<HashMap<i64, Vec<String>>>>,
     worker_id: i64,
 }
 
 impl Drop for SenderGuard {
     fn drop(&mut self) {
-        // Drop is sync; spawn a small task to remove from the async map.
+        // Drop is sync; spawn a small task to remove from the async maps.
         let map = self.map.clone();
+        let available_steps = self.available_steps.clone();
         let worker_id = self.worker_id;
         tokio::spawn(async move {
             map.write().await.remove(&worker_id);
+            available_steps.write().await.remove(&worker_id);
         });
     }
 }
@@ -224,6 +256,50 @@ mod tests {
                 }),
             )
             .await;
+    }
+
+    #[tokio::test]
+    async fn record_and_query_available_steps() {
+        let conns = Connections::new();
+        conns
+            .record_available_steps(7, vec!["transcode".into(), "remux".into()])
+            .await;
+
+        assert!(conns.worker_has_step(7, "transcode").await);
+        assert!(conns.worker_has_step(7, "remux").await);
+        assert!(!conns.worker_has_step(7, "whisper.transcribe").await);
+        // Unknown worker → false (no panic).
+        assert!(!conns.worker_has_step(999, "transcode").await);
+    }
+
+    #[tokio::test]
+    async fn record_available_steps_overwrites() {
+        let conns = Connections::new();
+        conns.record_available_steps(7, vec!["transcode".into()]).await;
+        conns
+            .record_available_steps(
+                7,
+                vec!["transcode".into(), "whisper.transcribe".into()],
+            )
+            .await;
+
+        assert!(conns.worker_has_step(7, "whisper.transcribe").await);
+    }
+
+    #[tokio::test]
+    async fn sender_guard_drop_clears_available_steps_too() {
+        let conns = Connections::new();
+        let (tx, _rx) = mpsc::channel(4);
+        {
+            let _guard = conns.register_sender(11, tx).await;
+            conns.record_available_steps(11, vec!["transcode".into()]).await;
+            assert!(conns.worker_has_step(11, "transcode").await);
+        }
+        // Drop spawns an async cleanup; give it a moment.
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        assert!(!conns.is_connected(11).await);
+        assert!(!conns.worker_has_step(11, "transcode").await,
+            "available_steps entry should be cleared on disconnect");
     }
 
     #[tokio::test]
