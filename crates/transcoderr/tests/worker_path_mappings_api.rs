@@ -93,6 +93,24 @@ async fn put_path_mappings_rejects_empty_from_or_to() {
 }
 
 #[tokio::test]
+async fn put_path_mappings_returns_404_for_unknown_id() {
+    let app = boot().await;
+    let client = reqwest::Client::new();
+    // 9999 is well outside the seeded ids — no worker has this id.
+    let resp = client
+        .put(format!("{}/api/workers/9999/path-mappings", app.url))
+        .json(&json!({"rules": [{"from": "/a", "to": "/b"}]}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(
+        resp.status(),
+        404,
+        "missing worker id must return 404, distinct from kind='local' 400"
+    );
+}
+
+#[tokio::test]
 async fn put_round_trips_via_get() {
     let app = boot().await;
     let client = reqwest::Client::new();
