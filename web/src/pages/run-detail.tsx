@@ -49,6 +49,8 @@ export default function RunDetail() {
         step_id: e.step_id,
         kind: e.kind,
         payload: e.payload,
+        worker_id: e.worker_id,
+        worker_name: e.worker_name,
       }));
     return [...fromPoll, ...liveOnly].sort((a, b) => b.ts - a.ts);
   }, [q.data?.events, liveEvents]);

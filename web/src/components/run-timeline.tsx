@@ -11,7 +11,14 @@ export default function RunTimeline({ events }: { events: RunEvent[] }) {
           <li key={e.id} className="timeline-row">
             <div className="ts">{time}</div>
             <div className={`kind kind-${e.kind}`}>{e.kind.replace(/_/g, " ")}</div>
-            <div className="step mono">{e.step_id ?? ""}</div>
+            <div className="step mono">
+              {e.step_id ?? ""}
+              {e.worker_name && (
+                <span className="badge badge-worker" title={`Executor: ${e.worker_name}`}>
+                  {e.worker_name}
+                </span>
+              )}
+            </div>
             <div className="payload">{payload}</div>
           </li>
         );
