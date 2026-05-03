@@ -120,6 +120,7 @@ mod tests {
                 min_transcoderr_version: None,
                 runtimes: vec![],
                 deps: None,
+                steps: std::collections::BTreeMap::new(),
             },
             manifest_dir: PathBuf::from(format!("/data/plugins/{name}")),
             schema: serde_json::json!({"type": "object"}),

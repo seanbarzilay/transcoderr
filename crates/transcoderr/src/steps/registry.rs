@@ -147,6 +147,7 @@ mod tests {
                 min_transcoderr_version: None,
                 runtimes: vec![],
                 deps: None,
+                steps: std::collections::BTreeMap::new(),
             },
             manifest_dir: plugin_dir,
             schema: serde_json::Value::Null,
