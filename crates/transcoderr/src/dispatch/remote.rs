@@ -21,8 +21,10 @@ pub struct RemoteRunner;
 
 impl RemoteRunner {
     /// Run a single step on a remote worker. Blocks until the worker
-    /// either reports `step_complete` (success or failure) or the
-    /// frame timeout fires.
+    /// reports `step_complete` (success or failure), the frame timeout
+    /// fires, or `ctx.cancel` is signalled by the operator (in which
+    /// case we send `StepCancel` to the worker fire-and-forget and
+    /// bail with `"step cancelled by operator"`).
     ///
     /// On Ok: `ctx` has been replaced with the worker's returned
     /// context snapshot.
@@ -84,6 +86,13 @@ impl RemoteRunner {
                     // worker (fire-and-forget — Piece 6 spec Q1-A) and
                     // bail. Engine records the run as cancelled via the
                     // existing cancel-token-aware error path.
+                    tracing::info!(
+                        job_id,
+                        step_id,
+                        worker_id,
+                        correlation_id = %correlation_id,
+                        "cancelling in-flight remote step; sending StepCancel to worker"
+                    );
                     let cancel_env = Envelope {
                         id: correlation_id.clone(),
                         message: Message::StepCancel(StepCancelMsg {
