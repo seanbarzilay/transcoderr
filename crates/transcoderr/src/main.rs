@@ -51,6 +51,10 @@ async fn main() -> anyhow::Result<()> {
             let caps = transcoderr::hw::probe::probe().await;
             let _ = transcoderr::db::snapshot_hw_caps(&pool, &caps).await;
             let registry = transcoderr::hw::semaphores::DeviceRegistry::from_caps(&caps);
+            // Hold a clone for the local-worker register call below; the
+            // original moves into the shared RwLock that hw_reprobe and
+            // the API endpoint share.
+            let local_hw_caps = caps.clone();
             let hw_caps = std::sync::Arc::new(tokio::sync::RwLock::new(caps));
 
             // Discover plugins and initialize the step registry.
@@ -109,7 +113,7 @@ async fn main() -> anyhow::Result<()> {
 
             transcoderr::worker::local::register_local_worker(
                 &pool,
-                &ffmpeg_caps,
+                &local_hw_caps,
                 &discovered,
             )
             .await?;

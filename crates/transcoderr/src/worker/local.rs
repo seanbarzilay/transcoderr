@@ -9,7 +9,7 @@
 //! claim short-circuits).
 
 use crate::db;
-use crate::ffmpeg_caps::FfmpegCaps;
+use crate::hw::HwCaps;
 use crate::plugins::manifest::DiscoveredPlugin;
 use crate::worker::protocol::PluginManifestEntry;
 use sqlx::SqlitePool;
@@ -29,15 +29,17 @@ const HEARTBEAT_INTERVAL: Duration = Duration::from_secs(30);
 /// and plugin manifest. Failure logs a warning and returns `Ok(())` —
 /// boot must not block on this. The pool keeps working; only the
 /// Workers UI shows stale data until next register.
+///
+/// The full `HwCaps` (devices + encoders + ffmpeg version) is
+/// serialised, not the simpler `FfmpegCaps`, so the Workers UI's
+/// hardware column shows the actual GPU lineup instead of a generic
+/// "software only" placeholder.
 pub async fn register_local_worker(
     pool: &SqlitePool,
-    ffmpeg_caps: &FfmpegCaps,
+    hw_caps: &HwCaps,
     plugins: &[DiscoveredPlugin],
 ) -> anyhow::Result<()> {
-    let hw_caps = serde_json::json!({
-        "has_libplacebo": ffmpeg_caps.has_libplacebo,
-    });
-    let hw_caps_json = serde_json::to_string(&hw_caps).unwrap_or_else(|_| "null".into());
+    let hw_caps_json = serde_json::to_string(hw_caps).unwrap_or_else(|_| "null".into());
 
     let manifest: Vec<PluginManifestEntry> = plugins
         .iter()
