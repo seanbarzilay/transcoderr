@@ -47,9 +47,28 @@ fn build(
         let entry = d.manifest.entrypoint.clone().unwrap_or_default();
         let abs = d.manifest_dir.join(&entry);
         for step_name in &d.manifest.provides_steps {
+            // Per-step executor: defaults to CoordinatorOnly when the
+            // manifest has no `[steps."<name>"]` entry. See spec
+            // distributed-piece-5 for the schema.
+            let executor = d
+                .manifest
+                .steps
+                .get(step_name)
+                .and_then(|s| s.executor)
+                .map(|e| match e {
+                    crate::plugins::manifest::ManifestExecutor::AnyWorker => {
+                        crate::steps::Executor::Any
+                    }
+                    crate::plugins::manifest::ManifestExecutor::CoordinatorOnly => {
+                        crate::steps::Executor::CoordinatorOnly
+                    }
+                })
+                .unwrap_or(crate::steps::Executor::CoordinatorOnly);
+
             let step = SubprocessStep {
                 step_name: step_name.clone(),
                 entrypoint_abs: abs.clone(),
+                executor,
             };
             reg.by_name.insert(step_name.clone(), Arc::new(step));
         }

@@ -1,7 +1,7 @@
 use std::collections::BTreeMap;
 use transcoderr::flow::Context;
 use transcoderr::plugins::{discover, subprocess::SubprocessStep};
-use transcoderr::steps::{Step, StepProgress};
+use transcoderr::steps::{Executor, Step, StepProgress};
 
 #[tokio::test]
 async fn subprocess_plugin_round_trip() {
@@ -9,7 +9,7 @@ async fn subprocess_plugin_round_trip() {
     let p = plugins.iter().find(|p| p.manifest.name == "hello").unwrap();
     let entrypoint = p.manifest.entrypoint.clone().unwrap();
     let abs = p.manifest_dir.join(&entrypoint);
-    let step = SubprocessStep { step_name: "hello".into(), entrypoint_abs: abs };
+    let step = SubprocessStep { step_name: "hello".into(), entrypoint_abs: abs, executor: Executor::CoordinatorOnly };
 
     let mut ctx = Context::for_file("/tmp/x");
     let mut events = vec![];

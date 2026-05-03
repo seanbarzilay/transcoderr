@@ -12,6 +12,7 @@ use tokio::process::Command;
 pub struct SubprocessStep {
     pub step_name: String,
     pub entrypoint_abs: PathBuf,
+    pub executor: crate::steps::Executor,
 }
 
 #[async_trait]
@@ -20,6 +21,10 @@ impl Step for SubprocessStep {
         // Hack: we leak a static — but step names are stable strings the host
         // controls, so the leak is bounded.
         Box::leak(self.step_name.clone().into_boxed_str())
+    }
+
+    fn executor(&self) -> crate::steps::Executor {
+        self.executor
     }
 
     async fn execute(
@@ -74,5 +79,28 @@ impl Step for SubprocessStep {
         } else {
             anyhow::bail!("plugin {} failed: {}", self.step_name, res["error"]["msg"])
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::steps::{Executor, Step};
+
+    #[test]
+    fn executor_returns_field_value() {
+        let s_any = SubprocessStep {
+            step_name: "x".into(),
+            entrypoint_abs: std::path::PathBuf::from("/tmp/x"),
+            executor: Executor::Any,
+        };
+        assert_eq!(s_any.executor(), Executor::Any);
+
+        let s_co = SubprocessStep {
+            step_name: "x".into(),
+            entrypoint_abs: std::path::PathBuf::from("/tmp/x"),
+            executor: Executor::CoordinatorOnly,
+        };
+        assert_eq!(s_co.executor(), Executor::CoordinatorOnly);
     }
 }

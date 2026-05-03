@@ -8,7 +8,7 @@ use std::collections::BTreeMap;
 use std::io::Write;
 use transcoderr::flow::Context;
 use transcoderr::plugins::{discover, subprocess::SubprocessStep};
-use transcoderr::steps::{Step, StepProgress};
+use transcoderr::steps::{Executor, Step, StepProgress};
 
 fn plugin_dir() -> std::path::PathBuf {
     // tests run from crates/transcoderr/, so repo root is two up.
@@ -27,6 +27,7 @@ fn make_step(step_name: &str) -> SubprocessStep {
     SubprocessStep {
         step_name: step_name.into(),
         entrypoint_abs: abs,
+        executor: Executor::CoordinatorOnly,
     }
 }
 
