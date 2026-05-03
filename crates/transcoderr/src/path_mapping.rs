@@ -11,8 +11,9 @@
 //!   construction; the first match in that order is applied.
 //! - **Trailing slash normalisation**: `from = "/mnt/movies/"` and
 //!   `from = "/mnt/movies"` produce identical match behavior. We
-//!   normalise on construction (strip a single trailing `/`) so display
-//!   stays consistent. Same for `to`.
+//!   normalise on construction (strip any trailing `/` characters) so
+//!   display stays consistent. Same for `to`. A bare `/` (root) is
+//!   left intact.
 //! - **Reverse direction** swaps `from` ↔ `to` at apply time; no
 //!   separate sorted vector is needed.
 //! - Object **keys** are not rewritten — paths live in values.
