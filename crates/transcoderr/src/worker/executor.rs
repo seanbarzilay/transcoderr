@@ -23,7 +23,7 @@ pub async fn handle_step_dispatch(
     tx: mpsc::Sender<Envelope>,
     correlation_id: String,
     dispatch: StepDispatch,
-    _step_cancellations: std::sync::Arc<
+    step_cancellations: std::sync::Arc<
         tokio::sync::RwLock<
             std::collections::HashMap<String, tokio_util::sync::CancellationToken>,
         >,
@@ -48,6 +48,18 @@ pub async fn handle_step_dispatch(
             return;
         }
     };
+
+    // NEW (Piece 6): register a fresh cancel token for this dispatch
+    // and attach it to ctx.cancel. Existing transcode + subprocess
+    // steps read ctx.cancel.cancelled() to abort their work; the
+    // worker-side StepCancel envelope handler (in connection.rs)
+    // fires this token by correlation_id.
+    let cancel_token = tokio_util::sync::CancellationToken::new();
+    step_cancellations
+        .write()
+        .await
+        .insert(correlation_id.clone(), cancel_token.clone());
+    ctx.cancel = Some(cancel_token);
 
     // 2. Resolve the step from the registry.
     let step = match registry::resolve(&use_).await {
@@ -151,6 +163,12 @@ pub async fn handle_step_dispatch(
             .await;
         }
     }
+
+    // NEW (Piece 6): unregister the cancel token. Done after
+    // send_complete so a late StepCancel arriving between step.execute
+    // returning and unregister still fires the token (a no-op since
+    // the step is already done). Idempotent cleanup.
+    step_cancellations.write().await.remove(&correlation_id);
 }
 
 async fn send_complete(
