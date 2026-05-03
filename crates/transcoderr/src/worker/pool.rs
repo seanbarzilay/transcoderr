@@ -2,6 +2,7 @@ use crate::bus::Bus;
 use crate::cancellation::JobCancellations;
 use crate::db;
 use crate::flow::{Context, Engine, Flow};
+use crate::http::AppState;
 use sqlx::SqlitePool;
 use std::path::PathBuf;
 use std::time::Duration;
@@ -12,16 +13,36 @@ pub struct Worker {
     bus: Bus,
     data_dir: PathBuf,
     cancellations: JobCancellations,
+    /// Optional `AppState`. When `Some`, the engine is built via
+    /// `Engine::with_state` and the per-step dispatcher is consulted
+    /// (steps may be sent to a remote worker). When `None`, we run a
+    /// pool-only worker (used by integration tests that don't spin up
+    /// the full HTTP/AppState surface).
+    state: Option<AppState>,
 }
 
 impl Worker {
+    /// Local-only worker. Used by integration tests that don't
+    /// construct an `AppState`. The engine runs every step locally.
     pub fn new(
         pool: SqlitePool,
         bus: Bus,
         data_dir: PathBuf,
         cancellations: JobCancellations,
     ) -> Self {
-        Self { pool, bus, data_dir, cancellations }
+        Self { pool, bus, data_dir, cancellations, state: None }
+    }
+
+    /// Production worker wired with `AppState` so the engine's
+    /// dispatcher can route steps to remote workers.
+    pub fn with_state(state: AppState) -> Self {
+        Self {
+            pool: state.pool.clone(),
+            bus: state.bus.clone(),
+            data_dir: state.cfg.data_dir.clone(),
+            cancellations: state.cancellations.clone(),
+            state: Some(state),
+        }
     }
 
     /// On startup: reset stale 'running' rows back to 'pending'.
@@ -53,9 +74,11 @@ impl Worker {
         ctx.cancel = Some(cancel_token.clone());
 
         let job_start = std::time::Instant::now();
-        let outcome = Engine::new(self.pool.clone(), self.bus.clone(), self.data_dir.clone())
-            .run(&flow, job.id, ctx)
-            .await?;
+        let engine = match &self.state {
+            Some(state) => Engine::with_state(state.clone()),
+            None => Engine::new(self.pool.clone(), self.bus.clone(), self.data_dir.clone()),
+        };
+        let outcome = engine.run(&flow, job.id, ctx).await?;
         let elapsed_secs = job_start.elapsed().as_secs_f64();
 
         // If the user cancelled mid-step the engine returns a 'failed' outcome

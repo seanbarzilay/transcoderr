@@ -70,10 +70,6 @@ pub async fn boot() -> TestApp {
     .unwrap();
     transcoderr::worker::local::spawn_local_heartbeat(pool.clone());
 
-    let worker = Worker::new(pool.clone(), bus.clone(), data_dir.clone(), cancellations.clone());
-    let (tx, rx) = tokio::sync::watch::channel(false);
-    let w = tokio::spawn(async move { worker.run_loop(rx).await });
-
     let ready = Readiness::new();
     ready.mark_ready().await;
 
@@ -81,27 +77,34 @@ pub async fn boot() -> TestApp {
 
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
-    let app = http::router(
-        http::AppState {
-            pool: pool.clone(),
-            cfg,
-            hw_caps,
-            hw_devices,
-            ffmpeg_caps,
-            bus,
-            ready,
-            metrics,
-            cancellations,
-            public_url: std::sync::Arc::new("http://test:8099".to_string()),
-            arr_cache: std::sync::Arc::new(transcoderr::arr::cache::ArrCache::new(
-                std::time::Duration::from_secs(300),
-            )),
-            catalog_client: std::sync::Arc::new(transcoderr::plugins::catalog::CatalogClient::default()),
-            runtime_checker: std::sync::Arc::new(transcoderr::plugins::runtime::RuntimeChecker::default()),
-            connections: transcoderr::worker::connections::Connections::new(),
-        },
-        std::time::Duration::from_secs(300),
-    );
+
+    // Build AppState first so the worker can be wired with the
+    // dispatcher (Piece 3). Order matters: the worker's engine
+    // consults `state.connections` to decide local-vs-remote routing.
+    let state = http::AppState {
+        pool: pool.clone(),
+        cfg,
+        hw_caps,
+        hw_devices,
+        ffmpeg_caps,
+        bus,
+        ready,
+        metrics,
+        cancellations,
+        public_url: std::sync::Arc::new("http://test:8099".to_string()),
+        arr_cache: std::sync::Arc::new(transcoderr::arr::cache::ArrCache::new(
+            std::time::Duration::from_secs(300),
+        )),
+        catalog_client: std::sync::Arc::new(transcoderr::plugins::catalog::CatalogClient::default()),
+        runtime_checker: std::sync::Arc::new(transcoderr::plugins::runtime::RuntimeChecker::default()),
+        connections: transcoderr::worker::connections::Connections::new(),
+    };
+
+    let worker = Worker::with_state(state.clone());
+    let (tx, rx) = tokio::sync::watch::channel(false);
+    let w = tokio::spawn(async move { worker.run_loop(rx).await });
+
+    let app = http::router(state, std::time::Duration::from_secs(300));
     let s = tokio::spawn(async move {
         axum::serve(listener, app).await.unwrap();
     });
