@@ -11,6 +11,7 @@ pub mod config;
 pub mod connection;
 pub mod connections;
 pub mod daemon;
+pub mod discovery;
 pub mod executor;
 pub mod local;
 pub mod plugin_sync;
