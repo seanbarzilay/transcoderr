@@ -162,12 +162,15 @@ where
     match ack.message {
         Message::RegisterAck(ack_payload) => {
             tracing::info!("worker register acknowledged");
-            if !ack_payload.plugin_install.is_empty() {
-                let mut g = sync_slot.lock().await;
-                *g = Some(ack_payload.plugin_install);
-                drop(g);
-                sync_notify.notify_one();
-            }
+            // Trigger initial sync unconditionally — even with an
+            // empty manifest, full-mirror semantics require we
+            // uninstall any stale local plugins (a worker reconnecting
+            // after the operator deleted everything would otherwise
+            // keep the stale set forever).
+            let mut g = sync_slot.lock().await;
+            *g = Some(ack_payload.plugin_install);
+            drop(g);
+            sync_notify.notify_one();
         }
         other => {
             sender_task.abort();
