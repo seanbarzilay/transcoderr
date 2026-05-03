@@ -76,12 +76,9 @@ pub async fn route(
 const STALE_AFTER_SECS: i64 = 90;
 
 /// Workers that are enabled, fresh, NOT the local row, AND have an
-/// active sender connection. Piece 3 doesn't filter on
-/// `available_steps` — for the 7 remote-eligible built-ins, any
-/// fresh+enabled remote is assumed capable. Piece 5 will refine
-/// when plugin push lands.
+/// active sender connection, AND advertise the requested step_kind.
 async fn eligible_remotes(
-    _step_kind: &str,
+    step_kind: &str,
     state: &AppState,
 ) -> anyhow::Result<Vec<i64>> {
     let cutoff = chrono::Utc::now().timestamp() - STALE_AFTER_SECS;
@@ -102,6 +99,12 @@ async fn eligible_remotes(
         // Verify the worker has an active outbound channel registered
         // — i.e., the WS handler currently holds a SenderGuard for it.
         if !state.connections.is_connected(r.id).await {
+            continue;
+        }
+        // NEW (Piece 5): filter workers that don't advertise this step
+        // kind. Plugin step kinds are only present on workers that
+        // successfully installed the plugin.
+        if !state.connections.worker_has_step(r.id, step_kind).await {
             continue;
         }
         out.push(r.id);
@@ -196,6 +199,15 @@ mod tests {
         std::mem::forget(guard); // keep registered for the test's lifetime
         // Also leak the receiver so the channel doesn't close.
         std::mem::forget(_rx);
+        // NEW (Piece 5): default to advertising the same step kinds the
+        // existing dispatch tests assume — built-in "transcode" suffices
+        // for the round-robin / one-eligible / disabled tests. New
+        // tests that need different step kinds should call
+        // record_available_steps after this helper.
+        state
+            .connections
+            .record_available_steps(id, vec!["transcode".into()])
+            .await;
         id
     }
 
@@ -302,5 +314,55 @@ mod tests {
         crate::db::workers::set_enabled(&state.pool, id, false).await.unwrap();
         let r = route("transcode", None, &state).await;
         assert_eq!(r, Route::Local);
+    }
+
+    #[tokio::test]
+    async fn worker_without_step_kind_is_skipped() {
+        let (pool, _dir) = pool().await;
+        let state = shell_state(pool).await;
+        crate::steps::registry::init(
+            state.pool.clone(),
+            state.hw_devices.clone(),
+            state.ffmpeg_caps.clone(),
+            vec![],
+        )
+        .await;
+
+        // Add a fake remote that advertises only "transcode"
+        // (default from add_fake_remote). Routing a step the worker
+        // doesn't advertise → falls back to local.
+        let _id = add_fake_remote(&state, "transcode-only").await;
+        let r = route("whisper.transcribe", None, &state).await;
+        assert_eq!(r, Route::Local);
+    }
+
+    #[tokio::test]
+    async fn worker_advertising_step_kind_is_picked() {
+        let (pool, _dir) = pool().await;
+        let state = shell_state(pool).await;
+        crate::steps::registry::init(
+            state.pool.clone(),
+            state.hw_devices.clone(),
+            state.ffmpeg_caps.clone(),
+            vec![],
+        )
+        .await;
+
+        let id = add_fake_remote(&state, "has-whisper").await;
+        // Override default to advertise both transcode and whisper.transcribe.
+        state
+            .connections
+            .record_available_steps(
+                id,
+                vec!["transcode".into(), "whisper.transcribe".into()],
+            )
+            .await;
+
+        // route() consults registry::try_resolve to determine the
+        // executor. The unit test environment has no plugin SubprocessStep
+        // registered, so we route "transcode" instead — same dispatch
+        // path, exercises the available_steps filter.
+        let r = route("transcode", None, &state).await;
+        assert_eq!(r, Route::Remote(id));
     }
 }
