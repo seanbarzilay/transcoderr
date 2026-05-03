@@ -95,7 +95,14 @@ impl RemoteRunner {
                 InboundStepEvent::Complete(c) => {
                     if c.status == "ok" {
                         if let Some(snap) = c.ctx_snapshot {
+                            // Preserve cancel-token across the snapshot
+                            // restore. Context::cancel is #[serde(skip)],
+                            // so deserialising a snapshot loses it. Without
+                            // this, any local follow-on step in the same
+                            // flow would lose cancellation propagation.
+                            let cancel = ctx.cancel.clone();
                             *ctx = Context::from_snapshot(&snap)?;
+                            ctx.cancel = cancel;
                         }
                         return Ok(());
                     }
