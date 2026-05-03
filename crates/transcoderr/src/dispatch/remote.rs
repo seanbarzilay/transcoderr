@@ -89,11 +89,18 @@ impl RemoteRunner {
                     Err(_) => anyhow::bail!("worker step timed out"),
                 },
                 _ = async {
+                    // If ctx.cancel is None (test fixtures, edge cases),
+                    // this branch never resolves — the loop behaves
+                    // exactly as today.
                     match &cancel {
                         Some(c) => c.cancelled().await,
                         None => std::future::pending::<()>().await,
                     }
                 } => {
+                    // Operator cancelled the job. Send StepCancel to the
+                    // worker (fire-and-forget — Piece 6 spec Q1-A) and
+                    // bail. Engine records the run as cancelled via the
+                    // existing cancel-token-aware error path.
                     tracing::info!(
                         job_id,
                         step_id,

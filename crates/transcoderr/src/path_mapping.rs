@@ -46,6 +46,21 @@ pub enum Direction {
 
 impl PathMappings {
     /// Construct from already-validated rules. Empty vec → identity.
+    ///
+    /// Rules are sorted by `from.len()` desc so the forward direction
+    /// (CoordToWorker) gets longest-prefix-match for free. **The reverse
+    /// direction reuses the same sort order**, which means longest-`from`
+    /// wins, NOT longest-`to`. This is correct for the realistic case
+    /// where `from` and `to` are paired media-root prefixes; it produces
+    /// surprising results only if an operator configures overlapping `to`
+    /// values that don't overlap on the `from` side (e.g. `to="/data"` AND
+    /// `to="/data/4k"` paired with non-overlapping `from`s). That
+    /// configuration is pathological — operators define one mapping per
+    /// volume, not multiple `to` aliases for the same root — and a
+    /// real fix would require a second sorted vector keyed by `to.len()`.
+    /// YAGNI for now; the round-trip test in `reverse_round_trip` covers
+    /// the realistic case and `path_component_boundary_respected` rules
+    /// out the most likely false positives.
     pub fn from_rules(rules: Vec<PathMapping>) -> Self {
         let mut rules: Vec<PathMapping> = rules
             .into_iter()
