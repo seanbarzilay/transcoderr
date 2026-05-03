@@ -23,6 +23,11 @@ pub async fn handle_step_dispatch(
     tx: mpsc::Sender<Envelope>,
     correlation_id: String,
     dispatch: StepDispatch,
+    _step_cancellations: std::sync::Arc<
+        tokio::sync::RwLock<
+            std::collections::HashMap<String, tokio_util::sync::CancellationToken>,
+        >,
+    >,
 ) {
     let StepDispatch { job_id, step_id, use_, with, ctx_snapshot } = dispatch;
 
