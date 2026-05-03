@@ -36,7 +36,7 @@ impl Engine {
             Ok(NodeOutcome::Continue) => Outcome { status: "completed".into(), label: None },
             Ok(NodeOutcome::Return(label)) => Outcome { status: "skipped".into(), label: Some(label) },
             Err(e) => {
-                db::run_events::append_with_bus_and_spill(&self.pool, &self.bus, &self.data_dir, job_id, None, "failed",
+                db::run_events::append_with_bus_and_spill(&self.pool, &self.bus, &self.data_dir, job_id, None, None, "failed",
                     Some(&json!({ "error": e.to_string() }))).await?;
                 if let Some(of) = &flow.on_failure {
                     // Run failure handler with a small ctx extension.
@@ -74,7 +74,7 @@ impl Engine {
                         let max_attempts = retry.as_ref().map(|r| r.max + 1).unwrap_or(1);
                         let mut last_err: Option<anyhow::Error> = None;
                         for attempt in 1..=max_attempts {
-                            db::run_events::append_with_bus_and_spill(&self.pool, &self.bus, &self.data_dir, job_id, Some(&step_id), "started",
+                            db::run_events::append_with_bus_and_spill(&self.pool, &self.bus, &self.data_dir, job_id, Some(&step_id), None, "started",
                                 Some(&json!({ "use": use_, "attempt": attempt }))).await?;
                             let runner = resolve(use_).await
                                 .ok_or_else(|| anyhow::anyhow!("unknown step `use:` {}", use_))?;
@@ -93,7 +93,7 @@ impl Engine {
                                         StepProgress::Log(l) => ("log".to_string(), json!({ "msg": l })),
                                         StepProgress::Marker { kind, payload } => (kind, payload),
                                     };
-                                    let _ = db::run_events::append_with_bus_and_spill(&pool, &bus, &data_dir, job_id, Some(&step_id), &kind, Some(&payload)).await;
+                                    let _ = db::run_events::append_with_bus_and_spill(&pool, &bus, &data_dir, job_id, Some(&step_id), None, &kind, Some(&payload)).await;
                                 });
                             };
                             let timeout_secs = with.get("timeout")
@@ -117,14 +117,14 @@ impl Engine {
                             match result {
                                 Ok(Ok(())) => {
                                     crate::metrics::record_step_finished(use_, "ok", step_start.elapsed().as_secs_f64());
-                                    db::run_events::append_with_bus_and_spill(&self.pool, &self.bus, &self.data_dir, job_id, Some(&step_id), "completed", None).await?;
+                                    db::run_events::append_with_bus_and_spill(&self.pool, &self.bus, &self.data_dir, job_id, Some(&step_id), None, "completed", None).await?;
                                     db::checkpoints::upsert(&self.pool, job_id, my_index as i64, &ctx.to_snapshot()).await?;
                                     last_err = None;
                                     break;
                                 }
                                 Ok(Err(e)) => {
                                     crate::metrics::record_step_finished(use_, "err", step_start.elapsed().as_secs_f64());
-                                    db::run_events::append_with_bus_and_spill(&self.pool, &self.bus, &self.data_dir, job_id, Some(&step_id), "failed",
+                                    db::run_events::append_with_bus_and_spill(&self.pool, &self.bus, &self.data_dir, job_id, Some(&step_id), None, "failed",
                                         Some(&json!({ "error": e.to_string(), "attempt": attempt }))).await?;
                                     let should_retry = retry.as_ref().and_then(|r| r.on.as_deref())
                                         .map(|on_expr| expr::eval_bool(on_expr, ctx).unwrap_or(true))
@@ -137,7 +137,7 @@ impl Engine {
                                 }
                                 Err(_) => {
                                     crate::metrics::record_step_finished(use_, "err", step_start.elapsed().as_secs_f64());
-                                    db::run_events::append_with_bus_and_spill(&self.pool, &self.bus, &self.data_dir, job_id, Some(&step_id), "failed",
+                                    db::run_events::append_with_bus_and_spill(&self.pool, &self.bus, &self.data_dir, job_id, Some(&step_id), None, "failed",
                                         Some(&json!({ "error": "timeout", "after_seconds": timeout_secs, "attempt": attempt }))).await?;
                                     last_err = Some(anyhow::anyhow!("timeout after {timeout_secs}s"));
                                     break;
@@ -158,14 +158,14 @@ impl Engine {
                     Node::Conditional { id, if_, then_, else_ } => {
                         let step_id = id.clone().unwrap_or_else(|| format!("if_{my_index}"));
                         let v = expr::eval_bool(if_, ctx)?;
-                        db::run_events::append_with_bus_and_spill(&self.pool, &self.bus, &self.data_dir, job_id, Some(&step_id), "condition_evaluated",
+                        db::run_events::append_with_bus_and_spill(&self.pool, &self.bus, &self.data_dir, job_id, Some(&step_id), None, "condition_evaluated",
                             Some(&json!({ "expr": if_, "result": v }))).await?;
                         let branch = if v { then_.as_slice() } else { else_.as_deref().unwrap_or(&[]) };
                         let outcome = self.run_nodes(branch, job_id, ctx, counter, resume_at).await?;
                         if let NodeOutcome::Return(_) = &outcome { return Ok(outcome); }
                     }
                     Node::Return { return_ } => {
-                        db::run_events::append_with_bus_and_spill(&self.pool, &self.bus, &self.data_dir, job_id, None, "returned",
+                        db::run_events::append_with_bus_and_spill(&self.pool, &self.bus, &self.data_dir, job_id, None, None, "returned",
                             Some(&json!({ "label": return_ }))).await?;
                         return Ok(NodeOutcome::Return(return_.clone()));
                     }
