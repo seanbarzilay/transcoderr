@@ -146,6 +146,74 @@ pub async fn patch(
     Ok(Json(row_to_summary(row, false)))
 }
 
+#[derive(Debug, serde::Deserialize)]
+pub struct SetPathMappingsReq {
+    pub rules: Vec<crate::path_mapping::PathMapping>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct SetPathMappingsResp {
+    pub id: i64,
+    /// Echo of the canonical (trailing-slash-normalised) rules that
+    /// were stored. Empty array if the operator cleared mappings.
+    pub rules: Vec<crate::path_mapping::PathMapping>,
+}
+
+/// PUT /api/workers/:id/path-mappings — set or clear the per-worker
+/// path-mapping rules. Empty `rules` array clears (column → NULL).
+/// Refuses `kind='local'` rows with 400. Same auth as the rest of
+/// `/api/workers` (lives in the protected Router branch).
+pub async fn set_path_mappings(
+    State(state): State<AppState>,
+    Path(id): Path<i64>,
+    Json(req): Json<SetPathMappingsReq>,
+) -> Result<Json<SetPathMappingsResp>, StatusCode> {
+    // Reject any rule with empty from/to.
+    for rule in &req.rules {
+        if rule.from.trim().is_empty() || rule.to.trim().is_empty() {
+            return Err(StatusCode::BAD_REQUEST);
+        }
+    }
+
+    // Normalise (trailing slashes) by round-tripping through PathMappings.
+    let mappings = crate::path_mapping::PathMappings::from_rules(req.rules);
+    let canonical = mappings.rules().to_vec();
+
+    // Empty rules → store NULL; non-empty → re-serialise the canonical
+    // (trailing-slash-stripped) form.
+    let json: Option<String> = if canonical.is_empty() {
+        None
+    } else {
+        Some(
+            serde_json::to_string(&canonical)
+                .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?,
+        )
+    };
+
+    let n = db::workers::update_path_mappings(&state.pool, id, json.as_deref())
+        .await
+        .map_err(|e| {
+            tracing::error!(id, error = ?e, "failed to update path_mappings_json");
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
+    if n == 0 {
+        // Either the id is missing OR the row is kind='local'. Either way,
+        // 400 is the right answer for the operator-facing error: the
+        // request was rejected because the target worker can't accept
+        // mappings.
+        return Err(StatusCode::BAD_REQUEST);
+    }
+
+    // Refresh the Connections cache so a subsequent dispatch picks up
+    // the new mappings without re-reading the DB.
+    state
+        .connections
+        .set_path_mappings(id, mappings)
+        .await;
+
+    Ok(Json(SetPathMappingsResp { id, rules: canonical }))
+}
+
 // --- WebSocket upgrade -----------------------------------------------------
 
 use crate::worker::protocol::{Envelope, Message, RegisterAck};

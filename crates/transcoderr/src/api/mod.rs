@@ -17,7 +17,7 @@ use crate::http::AppState;
 use axum::{
     extract::State,
     middleware::from_fn_with_state,
-    routing::{delete, get, patch, post},
+    routing::{delete, get, patch, post, put},
     Router,
 };
 use tower_cookies::CookieManagerLayer;
@@ -69,6 +69,7 @@ pub fn router(state: AppState) -> Router<AppState> {
         .route("/dry-run",            post(dryrun::dry_run))
         .route("/workers",            get(workers::list).post(workers::create))
         .route("/workers/:id",        patch(workers::patch).delete(workers::delete))
+        .route("/workers/:id/path-mappings", put(workers::set_path_mappings))
         .route("/stream",             axum::routing::get(crate::bus::sse::stream))
         .route_layer(from_fn_with_state(state.clone(), auth::require_auth));
 
