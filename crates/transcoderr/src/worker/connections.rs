@@ -34,6 +34,14 @@ pub struct Connections {
     /// the worker disconnects. Used by `dispatch::eligible_remotes`
     /// to filter workers that can't run a given step kind.
     available_steps: Arc<RwLock<HashMap<i64, Vec<String>>>>,
+    /// Per-worker path-mapping rules (spec
+    /// `2026-05-03-worker-path-mappings-design.md`). Populated lazily
+    /// on first dispatch (loaded from `workers.path_mappings_json`)
+    /// and refreshed by the `PUT /api/workers/:id/path-mappings`
+    /// endpoint. Cleared by `SenderGuard::drop` on disconnect so a
+    /// reconnect re-loads from the DB. Empty `PathMappings` (via
+    /// `Self::default()`) means identity.
+    path_mappings: Arc<RwLock<HashMap<i64, crate::path_mapping::PathMappings>>>,
 }
 
 impl Connections {
@@ -52,6 +60,7 @@ impl Connections {
         SenderGuard {
             map: self.senders.clone(),
             available_steps: self.available_steps.clone(),
+            path_mappings: self.path_mappings.clone(),
             worker_id,
         }
     }
@@ -77,6 +86,30 @@ impl Connections {
             .get(&worker_id)
             .map(|v| v.iter().any(|s| s == step_kind))
             .unwrap_or(false)
+    }
+
+    /// Set the per-worker path-mapping cache entry. Called by the PUT
+    /// API endpoint after a successful DB update (cache invalidation),
+    /// AND lazily by `RemoteRunner` on the first dispatch to a worker
+    /// after register (cache fill). An empty `PathMappings` means the
+    /// worker has no mappings configured (identity).
+    pub async fn set_path_mappings(
+        &self,
+        worker_id: i64,
+        mappings: crate::path_mapping::PathMappings,
+    ) {
+        self.path_mappings.write().await.insert(worker_id, mappings);
+    }
+
+    /// Look up the cached mappings for this worker. Returns `None` if
+    /// no entry exists yet (caller should populate it lazily from the
+    /// DB) — distinct from `Some(empty)` which means "we know there
+    /// are no mappings, identity translation".
+    pub async fn path_mappings_for(
+        &self,
+        worker_id: i64,
+    ) -> Option<crate::path_mapping::PathMappings> {
+        self.path_mappings.read().await.get(&worker_id).cloned()
     }
 
     /// Send an envelope to the worker. Returns Err if the worker
@@ -156,6 +189,7 @@ impl Connections {
 pub struct SenderGuard {
     map: Arc<RwLock<HashMap<i64, mpsc::Sender<Envelope>>>>,
     available_steps: Arc<RwLock<HashMap<i64, Vec<String>>>>,
+    path_mappings: Arc<RwLock<HashMap<i64, crate::path_mapping::PathMappings>>>,
     worker_id: i64,
 }
 
@@ -164,10 +198,12 @@ impl Drop for SenderGuard {
         // Drop is sync; spawn a small task to remove from the async maps.
         let map = self.map.clone();
         let available_steps = self.available_steps.clone();
+        let path_mappings = self.path_mappings.clone();
         let worker_id = self.worker_id;
         tokio::spawn(async move {
             map.write().await.remove(&worker_id);
             available_steps.write().await.remove(&worker_id);
+            path_mappings.write().await.remove(&worker_id);
         });
     }
 }
@@ -316,5 +352,46 @@ mod tests {
         let env_b = rx_b.recv().await.expect("worker 2 got envelope");
         assert!(matches!(env_a.message, crate::worker::protocol::Message::PluginSync(_)));
         assert!(matches!(env_b.message, crate::worker::protocol::Message::PluginSync(_)));
+    }
+
+    #[tokio::test]
+    async fn set_and_query_path_mappings() {
+        let conns = Connections::new();
+        let mappings = crate::path_mapping::PathMappings::from_rules(vec![
+            crate::path_mapping::PathMapping {
+                from: "/mnt".into(),
+                to: "/data".into(),
+            },
+        ]);
+        conns.set_path_mappings(7, mappings).await;
+        let got = conns.path_mappings_for(7).await.expect("entry exists");
+        assert!(!got.is_empty());
+        assert!(conns.path_mappings_for(999).await.is_none(),
+            "missing worker → None, distinct from Some(empty)");
+    }
+
+    #[tokio::test]
+    async fn sender_guard_drop_clears_path_mappings_too() {
+        let conns = Connections::new();
+        let (tx, _rx) = mpsc::channel(4);
+        {
+            let _guard = conns.register_sender(13, tx).await;
+            conns
+                .set_path_mappings(
+                    13,
+                    crate::path_mapping::PathMappings::from_rules(vec![
+                        crate::path_mapping::PathMapping {
+                            from: "/a".into(),
+                            to: "/b".into(),
+                        },
+                    ]),
+                )
+                .await;
+            assert!(conns.path_mappings_for(13).await.is_some());
+        }
+        // Drop spawns an async cleanup; give it a moment.
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        assert!(conns.path_mappings_for(13).await.is_none(),
+            "entry must be cleared on disconnect");
     }
 }
