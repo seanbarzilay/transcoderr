@@ -62,7 +62,7 @@ async fn send_register_and_get_ack(
     ws: &mut Ws,
     name: &str,
     available_steps: Vec<String>,
-) -> Envelope {
+) {
     let reg = Envelope {
         id: "reg-1".into(),
         message: Message::Register(Register {
@@ -78,7 +78,7 @@ async fn send_register_and_get_ack(
         }),
     };
     send_env(ws, &reg).await;
-    recv_env(ws).await
+    let _ack = recv_env(ws).await;
 }
 
 /// Insert a flow + pending job. Returns (flow_id, job_id).
@@ -234,7 +234,10 @@ async fn cancel_unblocks_engine_within_a_second() {
         .expect("worker should receive step_dispatch within 10s");
 
     let start = std::time::Instant::now();
-    app.state.cancellations.cancel(job_id);
+    assert!(
+        app.state.cancellations.cancel(job_id),
+        "cancel should find the registered token"
+    );
     let final_status = wait_for_job_status(
         &app.pool,
         job_id,
