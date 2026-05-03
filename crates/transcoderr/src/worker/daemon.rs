@@ -87,7 +87,7 @@ async fn boot_config(cfg_path: &Path) -> anyhow::Result<WorkerConfig> {
     let cfg = match initial {
         Some(c) => c,
         None => {
-            crate::worker::enroll::discover_and_enroll(cfg_path, None).await?
+            crate::worker::enroll::discover_and_enroll(cfg_path, None, false).await?
         }
     };
 
@@ -100,7 +100,7 @@ async fn boot_config(cfg_path: &Path) -> anyhow::Result<WorkerConfig> {
                 cfg_path.display()
             );
             let _ = std::fs::remove_file(cfg_path);
-            let new_cfg = crate::worker::enroll::discover_and_enroll(cfg_path, None).await?;
+            let new_cfg = crate::worker::enroll::discover_and_enroll(cfg_path, None, false).await?;
             // Second probe — if STILL 401, give up.
             match probe_token(&new_cfg.coordinator_url, &new_cfg.coordinator_token).await {
                 ProbeOutcome::Ok => Ok(new_cfg),

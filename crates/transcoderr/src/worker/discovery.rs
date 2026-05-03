@@ -6,7 +6,7 @@
 //! `spawn_blocking` so we don't tie up the tokio runtime.
 
 use anyhow::Context;
-use mdns_sd::{ServiceDaemon, ServiceEvent, ServiceInfo};
+use mdns_sd::{IfKind, ServiceDaemon, ServiceEvent, ServiceInfo};
 use std::time::Duration;
 
 /// What a successful browse returns: enough to POST `/api/worker/enroll`.
@@ -22,11 +22,21 @@ pub struct DiscoveredCoordinator {
 }
 
 impl DiscoveredCoordinator {
+    /// Format the host:port part, bracketing IPv6 addresses so URLs are
+    /// valid (RFC 2732). E.g. `[fe80::1]:8765` vs `192.168.1.50:8765`.
+    fn host_port(&self) -> String {
+        if self.addr.contains(':') {
+            format!("[{}]:{}", self.addr, self.port)
+        } else {
+            format!("{}:{}", self.addr, self.port)
+        }
+    }
+
     pub fn http_url(&self) -> String {
-        format!("http://{}:{}", self.addr, self.port)
+        format!("http://{}", self.host_port())
     }
     pub fn ws_url(&self) -> String {
-        format!("ws://{}:{}{}", self.addr, self.port, self.ws_path)
+        format!("ws://{}{}", self.host_port(), self.ws_path)
     }
 }
 
@@ -34,11 +44,16 @@ impl DiscoveredCoordinator {
 /// Returns `Ok(None)` on timeout. `instance_filter`, when `Some`,
 /// restricts results to instances whose fullname *contains* the given
 /// substring — the integration test uses this to isolate concurrent runs.
+///
+/// `with_loopback`: when `true`, enables the loopback IPv4 interface on
+/// the browse daemon. Used by the integration test where both sides run
+/// on 127.0.0.1 (loopback is disabled in mdns-sd by default).
 pub async fn browse(
     deadline: Duration,
     instance_filter: Option<String>,
+    with_loopback: bool,
 ) -> anyhow::Result<Option<DiscoveredCoordinator>> {
-    tokio::task::spawn_blocking(move || browse_blocking(deadline, instance_filter))
+    tokio::task::spawn_blocking(move || browse_blocking(deadline, instance_filter, with_loopback))
         .await
         .context("mDNS browse task join")?
 }
@@ -46,8 +61,13 @@ pub async fn browse(
 fn browse_blocking(
     deadline: Duration,
     instance_filter: Option<String>,
+    with_loopback: bool,
 ) -> anyhow::Result<Option<DiscoveredCoordinator>> {
     let mdns = ServiceDaemon::new().context("start mDNS daemon for browse")?;
+    if with_loopback {
+        mdns.enable_interface(IfKind::LoopbackV4)
+            .context("enable loopback for browse")?;
+    }
     let receiver = mdns
         .browse(crate::discovery::SERVICE_TYPE)
         .context("start mDNS browse")?;
@@ -128,5 +148,18 @@ mod tests {
         };
         assert_eq!(d.http_url(), "http://192.168.1.50:8765");
         assert_eq!(d.ws_url(), "ws://192.168.1.50:8765/api/worker/connect");
+    }
+
+    #[test]
+    fn discovered_coordinator_url_helpers_ipv6() {
+        let d = DiscoveredCoordinator {
+            addr: "fe80::1".into(),
+            port: 8765,
+            enroll_path: "/api/worker/enroll".into(),
+            ws_path: "/api/worker/connect".into(),
+        };
+        // IPv6 addresses must be bracketed in URLs (RFC 2732).
+        assert_eq!(d.http_url(), "http://[fe80::1]:8765");
+        assert_eq!(d.ws_url(), "ws://[fe80::1]:8765/api/worker/connect");
     }
 }

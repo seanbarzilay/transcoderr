@@ -33,11 +33,17 @@ struct EnrollResp {
 /// `instance_filter`: when `Some`, restricts mDNS results to instances
 /// whose fullname contains the given substring. Used by the integration
 /// test to isolate concurrent runs; production callers pass `None`.
+///
+/// `with_loopback`: when `true`, the mDNS browse daemon enables the
+/// loopback IPv4 interface. Set to `true` only in tests where both the
+/// coordinator and the worker run on 127.0.0.1 (loopback is disabled in
+/// mdns-sd by default). Production callers pass `false`.
 pub async fn discover_and_enroll(
     cfg_path: &Path,
     instance_filter: Option<String>,
+    with_loopback: bool,
 ) -> anyhow::Result<WorkerConfig> {
-    let coord = browse(BROWSE_DEADLINE, instance_filter)
+    let coord = browse(BROWSE_DEADLINE, instance_filter, with_loopback)
         .await?
         .ok_or_else(|| anyhow::anyhow!(
             "no coordinator found on the LAN within {BROWSE_DEADLINE:?} — \
