@@ -69,7 +69,7 @@ impl Engine {
                     if my_index < skip_below { continue; }
                 }
                 match n {
-                    Node::Step { id, use_, with, retry } => {
+                    Node::Step { id, use_, with, retry, run_on: _ } => {
                         let step_id = id.clone().unwrap_or_else(|| format!("{use_}_{my_index}"));
                         let max_attempts = retry.as_ref().map(|r| r.max + 1).unwrap_or(1);
                         let mut last_err: Option<anyhow::Error> = None;
