@@ -16,6 +16,8 @@ pub struct TranscodeStep {
 impl Step for TranscodeStep {
     fn name(&self) -> &'static str { "transcode" }
 
+    fn executor(&self) -> crate::steps::Executor { crate::steps::Executor::Any }
+
     async fn execute(
         &self,
         with: &BTreeMap<String, Value>,

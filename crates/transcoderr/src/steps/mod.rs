@@ -3,6 +3,15 @@ use async_trait::async_trait;
 use serde_json::Value;
 use std::collections::BTreeMap;
 
+/// Where a step is allowed to run. Default is `CoordinatorOnly`; the
+/// remote-eligible built-ins override to `Any`. Subprocess plugins
+/// keep the default until Piece 5 wires plugin push.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Executor {
+    CoordinatorOnly,
+    Any,
+}
+
 pub mod audio_ensure;
 pub mod builtin;
 pub mod plan_execute;
@@ -42,6 +51,10 @@ pub trait Step: Send + Sync {
         ctx: &mut Context,
         on_progress: &mut (dyn FnMut(StepProgress) + Send),
     ) -> anyhow::Result<()>;
+
+    /// Default: coordinator-only. Each remote-eligible built-in
+    /// overrides this. See `dispatch::route` for how this is consumed.
+    fn executor(&self) -> Executor { Executor::CoordinatorOnly }
 }
 
 /// Look up a built-in step by `use:` name.

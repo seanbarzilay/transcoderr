@@ -39,6 +39,8 @@ pub struct PlanExecuteStep {
 impl Step for PlanExecuteStep {
     fn name(&self) -> &'static str { "plan.execute" }
 
+    fn executor(&self) -> crate::steps::Executor { crate::steps::Executor::Any }
+
     async fn execute(
         &self,
         _with: &BTreeMap<String, Value>,

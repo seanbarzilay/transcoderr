@@ -12,6 +12,8 @@ pub struct RemuxStep;
 impl Step for RemuxStep {
     fn name(&self) -> &'static str { "remux" }
 
+    fn executor(&self) -> crate::steps::Executor { crate::steps::Executor::Any }
+
     async fn execute(
         &self,
         with: &BTreeMap<String, Value>,

@@ -124,6 +124,8 @@ impl Step for AudioEnsureStep {
         "audio.ensure"
     }
 
+    fn executor(&self) -> crate::steps::Executor { crate::steps::Executor::Any }
+
     async fn execute(
         &self,
         with: &BTreeMap<String, Value>,
