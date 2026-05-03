@@ -32,9 +32,15 @@ pub async fn run(cfg_path: PathBuf) -> ! {
     );
 
     let caps = crate::ffmpeg_caps::FfmpegCaps::probe().await;
-    let hw_caps = serde_json::json!({
-        "has_libplacebo": caps.has_libplacebo,
-    });
+    // Full hardware probe (encoders + GPU enumeration) for the
+    // coordinator's Workers UI. Send the rich shape over the wire so
+    // the row's hardware column shows the actual GPU lineup instead
+    // of falling back to "software only". The simpler `caps` above is
+    // still consumed by the local step registry; both probes are
+    // boot-time only.
+    let hw_caps_full = crate::hw::probe::probe().await;
+    let hw_caps = serde_json::to_value(&hw_caps_full)
+        .unwrap_or_else(|_| serde_json::json!({}));
 
     let pool = match crate::db::open_in_memory().await {
         Ok(p) => p,
