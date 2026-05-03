@@ -102,6 +102,26 @@ impl Connections {
             tracing::debug!(correlation_id, "no inbox for inbound step frame; dropping");
         }
     }
+
+    /// Broadcast a `PluginSync` envelope to every connected worker.
+    /// Best-effort — dropped sends are logged but never block the
+    /// caller. Caller is responsible for building the manifest.
+    pub async fn broadcast_plugin_sync(
+        &self,
+        manifest: Vec<crate::worker::protocol::PluginInstall>,
+    ) {
+        use crate::worker::protocol::{Envelope, Message, PluginSync};
+        let env = Envelope {
+            id: format!("psync-{}", uuid::Uuid::new_v4()),
+            message: Message::PluginSync(PluginSync { plugins: manifest }),
+        };
+        let map = self.senders.read().await;
+        for (worker_id, tx) in map.iter() {
+            if let Err(e) = tx.try_send(env.clone()) {
+                tracing::warn!(worker_id, error = ?e, "plugin_sync broadcast: dropped");
+            }
+        }
+    }
 }
 
 pub struct SenderGuard {
@@ -204,5 +224,21 @@ mod tests {
                 }),
             )
             .await;
+    }
+
+    #[tokio::test]
+    async fn broadcast_plugin_sync_reaches_all_senders() {
+        let conns = Connections::new();
+        let (tx_a, mut rx_a) = mpsc::channel(4);
+        let (tx_b, mut rx_b) = mpsc::channel(4);
+        let _ga = conns.register_sender(1, tx_a).await;
+        let _gb = conns.register_sender(2, tx_b).await;
+
+        conns.broadcast_plugin_sync(vec![]).await;
+
+        let env_a = rx_a.recv().await.expect("worker 1 got envelope");
+        let env_b = rx_b.recv().await.expect("worker 2 got envelope");
+        assert!(matches!(env_a.message, crate::worker::protocol::Message::PluginSync(_)));
+        assert!(matches!(env_b.message, crate::worker::protocol::Message::PluginSync(_)));
     }
 }
