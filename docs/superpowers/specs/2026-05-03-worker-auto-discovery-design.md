@@ -73,7 +73,7 @@ The mDNS service is published *as well as*, not instead of, the existing UI flow
   ```json
   {"id": 7, "secret_token": "abc…", "ws_url": "ws://192.168.1.50:8765/api/worker/connect"}
   ```
-  **Unauthenticated.** Rate-limited to 10 enrollments / minute / source IP via the existing `tower_governor` middleware (already in the dep tree). The rate limit is a small safety net against accidental enrollment storms (e.g., a docker-compose `restart: always` with broken connect logic); it is **not** a security boundary — the trust model is LAN access.
+  **Unauthenticated.** No rate limiting — the trust model is LAN access; an attacker already on the LAN can do strictly worse things than create rows in the `workers` table. If accidental enrollment storms become a real problem (e.g. a docker-compose `restart: always` with broken connect logic spamming requests), a follow-up can add basic per-IP throttling.
 
 ### Worker side (new)
 
@@ -194,7 +194,6 @@ The test is sandbox-friendly because `mdns-sd` operates entirely in-process over
 ## Dependencies
 
 - **`mdns-sd`** — pure-Rust mDNS responder/browser. Latest version on crates.io. No system dependencies (avahi/Bonjour not required).
-- **`tower_governor`** — already in the dep tree from earlier API hardening; reuse for the enrollment rate limiter.
 
 No new system requirements beyond the existing transcoderr deployment.
 
