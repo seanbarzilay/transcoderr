@@ -26,6 +26,7 @@ pub enum Message {
     StepProgress(StepProgressMsg),
     StepComplete(StepComplete),
     PluginSync(PluginSync),
+    StepCancel(StepCancelMsg),
 }
 
 /// Wire frame: the message variant plus its correlation id.
@@ -107,6 +108,20 @@ pub struct StepComplete {
     /// Set when status == "ok" — the updated context to thread back
     /// into the engine for subsequent steps.
     pub ctx_snapshot: Option<String>,
+}
+
+/// Coordinator → worker. Tells the worker to abort the in-flight
+/// step identified by the envelope's `id` (correlation_id, matching
+/// the original `StepDispatch`). Worker side fires the registered
+/// `CancellationToken` for that correlation, which propagates
+/// through `Context.cancel` to running steps (kills ffmpeg etc.).
+///
+/// `job_id` and `step_id` are for log context on the worker side;
+/// the correlation_id (envelope.id) is the actual lookup key.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct StepCancelMsg {
+    pub job_id: i64,
+    pub step_id: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -260,5 +275,19 @@ mod tests {
         assert_eq!(round_trip(&env), env);
         let s = serde_json::to_string(&env).unwrap();
         assert!(s.contains(r#""type":"plugin_sync""#), "snake_case tag: {s}");
+    }
+
+    #[test]
+    fn step_cancel_round_trips() {
+        let env = Envelope {
+            id: "dsp-abc".into(),
+            message: Message::StepCancel(StepCancelMsg {
+                job_id: 42,
+                step_id: "transcode_0".into(),
+            }),
+        };
+        assert_eq!(round_trip(&env), env);
+        let s = serde_json::to_string(&env).unwrap();
+        assert!(s.contains(r#""type":"step_cancel""#), "snake_case tag: {s}");
     }
 }
