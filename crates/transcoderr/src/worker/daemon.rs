@@ -11,7 +11,7 @@
 
 use crate::worker::config::WorkerConfig;
 use crate::worker::connection::{probe_token, ProbeOutcome};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 /// Run the worker daemon. Blocks forever (or exits the process via
 /// `std::process::exit` on unrecoverable errors).
@@ -71,7 +71,7 @@ pub async fn run(cfg_path: PathBuf) -> ! {
 
 /// Resolve a usable `WorkerConfig`, performing auto-discovery and 401
 /// recovery if needed. Returns `Err` only on terminal failure.
-async fn boot_config(cfg_path: &PathBuf) -> anyhow::Result<WorkerConfig> {
+async fn boot_config(cfg_path: &Path) -> anyhow::Result<WorkerConfig> {
     let initial = match WorkerConfig::load(cfg_path) {
         Ok(c) => Some(c),
         Err(e) => {
