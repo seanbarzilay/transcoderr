@@ -56,7 +56,11 @@ pub fn build_service_info_with_host(
 /// where the coordinator HTTP server is bound to loopback only.
 ///
 /// Loopback is disabled in mdns-sd by default; this helper explicitly
-/// enables it on both the responder and the browse daemon.
+/// enables it on the responder daemon. Callers that browse for this
+/// service from the same process must separately pass `with_loopback:
+/// true` to `worker::discovery::browse` so the browse daemon also has
+/// loopback enabled — otherwise the advertisement will be sent on
+/// loopback but never received.
 pub fn start_responder_on_loopback(
     port: u16,
     instance_name: &str,

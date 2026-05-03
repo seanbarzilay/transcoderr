@@ -38,7 +38,7 @@ async fn discover_enroll_and_persist_worker_toml() {
     let cfg_path = dir.path().join("worker.toml");
     let cfg = transcoderr::worker::enroll::discover_and_enroll(
         &cfg_path,
-        Some(suffix.clone()),
+        Some(suffix),
         true,
     )
     .await
