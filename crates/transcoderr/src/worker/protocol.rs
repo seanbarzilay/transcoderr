@@ -25,6 +25,7 @@ pub enum Message {
     StepDispatch(StepDispatch),
     StepProgress(StepProgressMsg),
     StepComplete(StepComplete),
+    PluginSync(PluginSync),
 }
 
 /// Wire frame: the message variant plus its correlation id.
@@ -106,6 +107,13 @@ pub struct StepComplete {
     /// Set when status == "ok" — the updated context to thread back
     /// into the engine for subsequent steps.
     pub ctx_snapshot: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct PluginSync {
+    /// Full intended plugin manifest (NOT a delta). Workers run the
+    /// same full-mirror sync logic on every receive.
+    pub plugins: Vec<PluginInstall>,
 }
 
 #[cfg(test)]
@@ -232,5 +240,25 @@ mod tests {
             }),
         };
         assert_eq!(round_trip(&fail), fail);
+    }
+
+    #[test]
+    fn plugin_sync_round_trips() {
+        let env = Envelope {
+            id: "p1".into(),
+            message: Message::PluginSync(PluginSync {
+                plugins: vec![
+                    PluginInstall {
+                        name: "size-report".into(),
+                        version: "0.1.2".into(),
+                        sha256: "abc123".into(),
+                        tarball_url: "https://coord/api/worker/plugins/size-report/tarball".into(),
+                    },
+                ],
+            }),
+        };
+        assert_eq!(round_trip(&env), env);
+        let s = serde_json::to_string(&env).unwrap();
+        assert!(s.contains(r#""type":"plugin_sync""#), "snake_case tag: {s}");
     }
 }
