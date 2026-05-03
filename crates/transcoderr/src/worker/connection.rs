@@ -135,10 +135,12 @@ async fn connect_once(
     let sync_notify = std::sync::Arc::new(tokio::sync::Notify::new());
 
     // Sync worker: drain the slot whenever notified, run plugin_sync::sync,
-    // repeat. Lives for the connection's lifetime; aborted on disconnect.
+    // then re-register so the coordinator's `connections.available_steps`
+    // sees the new step kinds. Lives for the connection's lifetime;
+    // aborted on disconnect.
     let sync_task = {
-        let plugins_dir = ctx.plugins_dir.clone();
-        let token = ctx.coordinator_token.clone();
+        let ctx_for_sync = ctx.clone();
+        let outbound_for_sync = outbound_tx.clone();
         let slot = sync_slot.clone();
         let notify = sync_notify.clone();
         tokio::spawn(async move {
@@ -149,7 +151,20 @@ async fn connect_once(
                     g.take()
                 };
                 if let Some(m) = manifest {
-                    crate::worker::plugin_sync::sync(&plugins_dir, m, &token).await;
+                    crate::worker::plugin_sync::sync(
+                        &ctx_for_sync.plugins_dir,
+                        m,
+                        &ctx_for_sync.coordinator_token,
+                    )
+                    .await;
+                    // Re-register so the coordinator sees fresh
+                    // available_steps. Fire-and-forget — coordinator
+                    // does NOT respond with another register_ack
+                    // (would oscillate; see Piece 5 spec).
+                    let env = build_register_envelope(&ctx_for_sync).await;
+                    if let Err(e) = outbound_for_sync.send(env).await {
+                        tracing::warn!(error = ?e, "post-sync re-register: outbound send failed");
+                    }
                 }
             }
         })
