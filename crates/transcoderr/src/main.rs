@@ -143,6 +143,29 @@ async fn main() -> anyhow::Result<()> {
                 addr = %addr,
                 "transcoderr serving",
             );
+            // mDNS auto-discovery responder. Binds to the actual port
+            // (covers `bind = "0.0.0.0:0"` ephemeral case). Disable via
+            // `TRANSCODERR_DISCOVERY=disabled`. Held for the process
+            // lifetime; drops on shutdown.
+            let _mdns = if std::env::var("TRANSCODERR_DISCOVERY").as_deref() == Ok("disabled") {
+                tracing::info!("TRANSCODERR_DISCOVERY=disabled; mDNS responder skipped");
+                None
+            } else {
+                let instance = hostname::get()
+                    .ok()
+                    .and_then(|h| h.into_string().ok())
+                    .unwrap_or_else(|| format!("transcoderr-{}", uuid::Uuid::new_v4()));
+                match transcoderr::discovery::start_responder(addr.port(), &instance) {
+                    Ok(d) => Some(d),
+                    Err(e) => {
+                        tracing::warn!(
+                            error = %e,
+                            "failed to start mDNS responder; coordinator will run without LAN auto-discovery"
+                        );
+                        None
+                    }
+                }
+            };
             let public_url_arc = std::sync::Arc::new(public_url.url);
 
             let arr_cache = std::sync::Arc::new(transcoderr::arr::cache::ArrCache::new(
