@@ -107,7 +107,7 @@ executor = "any-worker"
         // The other declared step has no [steps.X] entry, so it's absent
         // from the map — the registry build path defaults to
         // CoordinatorOnly when looking up a missing key.
-        assert!(m.steps.get("whisper.detect_language").is_none());
+        assert!(!m.steps.contains_key("whisper.detect_language"));
     }
 
     #[test]
