@@ -39,7 +39,47 @@ pub async fn uninstall(
         std::fs::remove_dir_all(&dir)?;
     }
     sqlx::query("DELETE FROM plugins WHERE id = ?").bind(plugin_id).execute(pool).await?;
+
+    // Best-effort: clear any cached source tarballs for this name.
+    // Coordinator-side only — the worker has no cache dir, so the
+    // glob simply finds nothing.
+    clear_tarball_cache(plugins_dir, &name);
+
     Ok(name)
+}
+
+/// Worker-side uninstall: just remove the plugin directory. No DB,
+/// no cache (workers don't keep tarballs). Best-effort — missing
+/// directory is not an error.
+pub fn uninstall_by_name(plugins_dir: &Path, name: &str) -> Result<(), UninstallError> {
+    let dir = plugins_dir.join(name);
+    if dir.exists() {
+        std::fs::remove_dir_all(&dir)?;
+    }
+    Ok(())
+}
+
+/// Best-effort glob deletion of `<plugins_dir>/.tarball-cache/<name>-*.tar.gz`.
+/// Failures are logged but never returned — uninstall is already
+/// well underway by the time we get here, and a stuck cache file
+/// just wastes disk.
+fn clear_tarball_cache(plugins_dir: &Path, name: &str) {
+    let cache_dir = plugins_dir.join(".tarball-cache");
+    let prefix = format!("{name}-");
+    let suffix = ".tar.gz";
+    let entries = match std::fs::read_dir(&cache_dir) {
+        Ok(e) => e,
+        Err(_) => return,
+    };
+    for entry in entries.flatten() {
+        let fname = entry.file_name();
+        let fname = fname.to_string_lossy();
+        if fname.starts_with(&prefix) && fname.ends_with(suffix) {
+            if let Err(e) = std::fs::remove_file(entry.path()) {
+                tracing::warn!(error = ?e, file = %fname, "failed to remove cache file");
+            }
+        }
+    }
 }
 
 #[cfg(test)]
@@ -80,5 +120,41 @@ mod tests {
         let plugins_dir = tempdir().unwrap();
         let err = uninstall(&pool, plugins_dir.path(), 9999).await.unwrap_err();
         assert!(matches!(err, UninstallError::NotFound(_)));
+    }
+
+    #[test]
+    fn uninstall_by_name_removes_plugin_dir() {
+        let dir = tempdir().unwrap();
+        let plugins_dir = dir.path();
+        let name = "foo";
+        std::fs::create_dir_all(plugins_dir.join(name).join("bin")).unwrap();
+        assert!(plugins_dir.join(name).exists());
+
+        uninstall_by_name(plugins_dir, name).unwrap();
+        assert!(!plugins_dir.join(name).exists());
+    }
+
+    #[test]
+    fn uninstall_by_name_missing_dir_is_ok() {
+        let dir = tempdir().unwrap();
+        // No plugins/foo/ ever created — uninstall should succeed.
+        uninstall_by_name(dir.path(), "foo").unwrap();
+    }
+
+    #[test]
+    fn clear_tarball_cache_removes_matching_files() {
+        let dir = tempdir().unwrap();
+        let plugins_dir = dir.path();
+        let cache = plugins_dir.join(".tarball-cache");
+        std::fs::create_dir_all(&cache).unwrap();
+        std::fs::write(cache.join("foo-abc.tar.gz"), b"x").unwrap();
+        std::fs::write(cache.join("foo-def.tar.gz"), b"y").unwrap();
+        std::fs::write(cache.join("bar-xyz.tar.gz"), b"z").unwrap();
+
+        clear_tarball_cache(plugins_dir, "foo");
+
+        assert!(!cache.join("foo-abc.tar.gz").exists());
+        assert!(!cache.join("foo-def.tar.gz").exists());
+        assert!(cache.join("bar-xyz.tar.gz").exists(), "bar should be untouched");
     }
 }
