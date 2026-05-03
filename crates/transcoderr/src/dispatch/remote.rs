@@ -27,7 +27,8 @@ impl RemoteRunner {
     /// bail with `"step cancelled by operator"`).
     ///
     /// On Ok: `ctx` has been replaced with the worker's returned
-    /// context snapshot.
+    /// context snapshot (with paths reverse-mapped back to coordinator
+    /// space when the worker has path mappings configured).
     pub async fn run(
         state: &AppState,
         worker_id: i64,
@@ -40,13 +41,27 @@ impl RemoteRunner {
     ) -> anyhow::Result<()> {
         let correlation_id = format!("dsp-{}", uuid::Uuid::new_v4());
 
+        // 0. Load (or lazily fill) the per-worker path mappings cache.
+        //    Snapshot once for the duration of this step so a mid-flight
+        //    edit by the operator can't desync the round-trip.
+        let mappings = load_or_fill_mappings(state, worker_id).await;
+
         // 1. Register an inbox for inbound frames keyed by correlation_id.
         let (mut rx, _inbox_guard) = state
             .connections
             .register_inbox(correlation_id.clone())
             .await;
 
-        // 2. Build and send the dispatch envelope.
+        // 2. Build the context snapshot, rewriting paths on the way out.
+        let ctx_snapshot = if mappings.is_empty() {
+            ctx.to_snapshot()
+        } else {
+            let mut value: serde_json::Value =
+                serde_json::from_str(&ctx.to_snapshot())?;
+            mappings.apply(&mut value, crate::path_mapping::Direction::CoordToWorker);
+            serde_json::to_string(&value)?
+        };
+
         let with_json: serde_json::Value = serde_json::to_value(with)?;
         let dispatch_env = Envelope {
             id: correlation_id.clone(),
@@ -55,7 +70,7 @@ impl RemoteRunner {
                 step_id: step_id.into(),
                 use_: use_.into(),
                 with: with_json,
-                ctx_snapshot: ctx.to_snapshot(),
+                ctx_snapshot,
             }),
         };
         state
@@ -65,7 +80,7 @@ impl RemoteRunner {
             .map_err(|e| anyhow::anyhow!("dispatch send failed: {e}"))?;
 
         // 3. Pump inbound frames until completion, timeout, or cancel.
-        let cancel = ctx.cancel.clone(); // Option<CancellationToken>
+        let cancel = ctx.cancel.clone();
         loop {
             let frame = tokio::select! {
                 f = tokio::time::timeout(STEP_FRAME_TIMEOUT, rx.recv()) => match f {
@@ -74,18 +89,11 @@ impl RemoteRunner {
                     Err(_) => anyhow::bail!("worker step timed out"),
                 },
                 _ = async {
-                    // If ctx.cancel is None (test fixtures, edge cases),
-                    // this branch never resolves — the loop behaves
-                    // exactly as today.
                     match &cancel {
                         Some(c) => c.cancelled().await,
                         None => std::future::pending::<()>().await,
                     }
                 } => {
-                    // Operator cancelled the job. Send StepCancel to the
-                    // worker (fire-and-forget — Piece 6 spec Q1-A) and
-                    // bail. Engine records the run as cancelled via the
-                    // existing cancel-token-aware error path.
                     tracing::info!(
                         job_id,
                         step_id,
@@ -134,13 +142,22 @@ impl RemoteRunner {
                 InboundStepEvent::Complete(c) => {
                     if c.status == "ok" {
                         if let Some(snap) = c.ctx_snapshot {
-                            // Preserve cancel-token across the snapshot
-                            // restore. Context::cancel is #[serde(skip)],
-                            // so deserialising a snapshot loses it. Without
-                            // this, any local follow-on step in the same
-                            // flow would lose cancellation propagation.
+                            // Reverse-rewrite paths on the way back so
+                            // the next step on the coordinator sees
+                            // coordinator-space paths.
+                            let restored = if mappings.is_empty() {
+                                snap
+                            } else {
+                                let mut value: serde_json::Value =
+                                    serde_json::from_str(&snap)?;
+                                mappings.apply(
+                                    &mut value,
+                                    crate::path_mapping::Direction::WorkerToCoord,
+                                );
+                                serde_json::to_string(&value)?
+                            };
                             let cancel = ctx.cancel.clone();
-                            *ctx = Context::from_snapshot(&snap)?;
+                            *ctx = Context::from_snapshot(&restored)?;
                             ctx.cancel = cancel;
                         }
                         return Ok(());
@@ -153,4 +170,44 @@ impl RemoteRunner {
             }
         }
     }
+}
+
+/// Look up the cached `PathMappings` for `worker_id`. If there's no
+/// entry, load from `workers.path_mappings_json`, populate the cache,
+/// and return the loaded value. Errors are non-fatal: a parse failure
+/// is logged and the dispatch falls back to identity translation.
+async fn load_or_fill_mappings(
+    state: &AppState,
+    worker_id: i64,
+) -> crate::path_mapping::PathMappings {
+    if let Some(cached) = state.connections.path_mappings_for(worker_id).await {
+        return cached;
+    }
+    let row = match crate::db::workers::get_by_id(&state.pool, worker_id).await {
+        Ok(Some(r)) => r,
+        Ok(None) => return crate::path_mapping::PathMappings::default(),
+        Err(e) => {
+            tracing::warn!(worker_id, error = ?e, "load_or_fill_mappings: db read failed; falling back to identity");
+            return crate::path_mapping::PathMappings::default();
+        }
+    };
+    let mappings = match row.path_mappings_json.as_deref() {
+        Some(s) => match crate::path_mapping::PathMappings::from_json(s) {
+            Ok(m) => m,
+            Err(e) => {
+                tracing::warn!(
+                    worker_id,
+                    error = ?e,
+                    "path_mappings_json failed to parse; falling back to identity"
+                );
+                crate::path_mapping::PathMappings::default()
+            }
+        },
+        None => crate::path_mapping::PathMappings::default(),
+    };
+    state
+        .connections
+        .set_path_mappings(worker_id, mappings.clone())
+        .await;
+    mappings
 }
