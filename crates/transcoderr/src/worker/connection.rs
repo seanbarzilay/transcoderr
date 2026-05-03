@@ -14,30 +14,70 @@ const HEARTBEAT_INTERVAL: Duration = Duration::from_secs(30);
 const BACKOFF_INITIAL: Duration = Duration::from_secs(1);
 const BACKOFF_MAX: Duration = Duration::from_secs(30);
 
-/// Context the worker connection needs for plugin sync. Threaded
-/// from `daemon::run` → `connection::run` → `connect_once`.
+/// Context the worker connection needs for plugin sync AND for
+/// building Register envelopes (initial + post-sync). Threaded from
+/// `daemon::run` → `connection::run` → `connect_once`.
 #[derive(Clone)]
 pub struct ConnectionContext {
     pub plugins_dir: std::path::PathBuf,
     pub coordinator_token: String,
+    /// Worker's display name (from `worker.toml` or hostname). Used
+    /// in every Register envelope.
+    pub name: String,
+    /// Hardware capabilities, frozen at boot. Re-register reuses the
+    /// same value (hardware doesn't change mid-process).
+    pub hw_caps: serde_json::Value,
+}
+
+/// Build a fresh `Register` envelope from the live registry +
+/// on-disk plugin manifest. Called twice per connection lifecycle:
+/// once at the pre-handshake send, and once after each
+/// `plugin_sync::sync` completes. Both call sites need an
+/// up-to-the-moment snapshot of `available_steps`.
+pub async fn build_register_envelope(ctx: &ConnectionContext) -> Envelope {
+    use crate::worker::protocol::{PluginManifestEntry, Register};
+
+    let plugin_manifest: Vec<PluginManifestEntry> =
+        match crate::plugins::discover(&ctx.plugins_dir) {
+            Ok(found) => found
+                .into_iter()
+                .map(|d| PluginManifestEntry {
+                    name: d.manifest.name.clone(),
+                    version: d.manifest.version.clone(),
+                    sha256: None,
+                })
+                .collect(),
+            Err(e) => {
+                tracing::warn!(error = ?e, "register: plugin discovery failed; reporting empty manifest");
+                Vec::new()
+            }
+        };
+    let available_steps = crate::steps::registry::list_step_names().await;
+
+    Envelope {
+        id: format!("reg-{}", uuid::Uuid::new_v4()),
+        message: Message::Register(Register {
+            name: ctx.name.clone(),
+            version: env!("CARGO_PKG_VERSION").into(),
+            hw_caps: ctx.hw_caps.clone(),
+            available_steps,
+            plugin_manifest,
+        }),
+    }
 }
 
 /// Run the worker connection loop. Never returns. On every disconnect
 /// (clean or error), waits for the current backoff and retries. On a
 /// clean close (`Ok(())` from `connect_once`), the backoff resets.
-pub async fn run<F>(
+pub async fn run(
     url: String,
     token: String,
-    build_register: F,
     ctx: ConnectionContext,
-) -> !
-where
-    F: Fn() -> Envelope + Send + Sync,
-{
+) -> ! {
     let mut backoff = BACKOFF_INITIAL;
 
     loop {
-        match connect_once(&url, &token, &build_register, &ctx).await {
+        match connect_once(&url, &token, &ctx).await {
             Ok(()) => {
                 tracing::info!("worker connection closed cleanly; reconnecting");
                 backoff = BACKOFF_INITIAL;
@@ -53,15 +93,11 @@ where
     }
 }
 
-async fn connect_once<F>(
+async fn connect_once(
     url: &str,
     token: &str,
-    build_register: &F,
     ctx: &ConnectionContext,
-) -> anyhow::Result<()>
-where
-    F: Fn() -> Envelope,
-{
+) -> anyhow::Result<()> {
     let mut req = url.into_client_request()?;
     req.headers_mut().insert(
         AUTHORIZATION,
@@ -119,7 +155,7 @@ where
         })
     };
 
-    let register = build_register();
+    let register = build_register_envelope(ctx).await;
     if outbound_tx.send(register).await.is_err() {
         sender_task.abort();
         sync_task.abort();

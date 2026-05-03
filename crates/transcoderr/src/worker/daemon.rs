@@ -3,8 +3,6 @@
 //! reconnect loop.
 
 use crate::worker::config::WorkerConfig;
-use crate::worker::protocol::{Envelope, Message, PluginManifestEntry, Register};
-use std::path::Path;
 
 pub async fn run(config: WorkerConfig) -> ! {
     let name = config.resolved_name();
@@ -14,21 +12,6 @@ pub async fn run(config: WorkerConfig) -> ! {
     let hw_caps = serde_json::json!({
         "has_libplacebo": caps.has_libplacebo,
     });
-
-    let plugin_manifest: Vec<PluginManifestEntry> = match crate::plugins::discover(Path::new("./plugins")) {
-        Ok(found) => found
-            .into_iter()
-            .map(|d| PluginManifestEntry {
-                name: d.manifest.name.clone(),
-                version: d.manifest.version.clone(),
-                sha256: None,
-            })
-            .collect(),
-        Err(e) => {
-            tracing::warn!(error = ?e, "plugin discovery failed; reporting empty manifest");
-            Vec::new()
-        }
-    };
 
     // Piece 3: initialise the step registry on the worker side so
     // executor::handle_step_dispatch can resolve step kinds. Open a
@@ -53,38 +36,16 @@ pub async fn run(config: WorkerConfig) -> ! {
     )
     .await;
 
-    let available_steps = vec![
-        "plan.execute".into(),
-        "transcode".into(),
-        "remux".into(),
-        "extract.subs".into(),
-        "iso.extract".into(),
-        "audio.ensure".into(),
-        "strip.tracks".into(),
-    ];
-
-    let build_register = move || -> Envelope {
-        Envelope {
-            id: format!("reg-{}", uuid::Uuid::new_v4()),
-            message: Message::Register(Register {
-                name: name.clone(),
-                version: env!("CARGO_PKG_VERSION").into(),
-                hw_caps: hw_caps.clone(),
-                available_steps: available_steps.clone(),
-                plugin_manifest: plugin_manifest.clone(),
-            }),
-        }
-    };
-
     let ctx = crate::worker::connection::ConnectionContext {
         plugins_dir: std::path::PathBuf::from("./plugins"),
         coordinator_token: config.coordinator_token.clone(),
+        name: name.clone(),
+        hw_caps: hw_caps.clone(),
     };
 
     crate::worker::connection::run(
         config.coordinator_url,
         config.coordinator_token,
-        build_register,
         ctx,
     )
     .await
