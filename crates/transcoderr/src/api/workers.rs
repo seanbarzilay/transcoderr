@@ -226,6 +226,14 @@ async fn handle_connection(state: AppState, socket: WebSocket, worker_id: i64) {
         return;
     }
 
+    // Capture the worker's advertised step kinds so the dispatcher
+    // can filter eligible workers per step kind. Mirror image of the
+    // Message::Register receive-loop arm below (Piece 5).
+    state
+        .connections
+        .record_available_steps(worker_id, register_payload.available_steps.clone())
+        .await;
+
     // 3. Register the outbound channel in `Connections` (RAII cleanup
     //    on drop). We register BEFORE sending register_ack so the
     //    worker's first frames-after-ack already see a live entry.
@@ -300,6 +308,32 @@ async fn handle_connection(state: AppState, socket: WebSocket, worker_id: i64) {
                 if let Err(e) = db::workers::record_heartbeat(&state.pool, worker_id).await {
                     tracing::warn!(worker_id, error = ?e, "failed to record heartbeat");
                 }
+            }
+            Message::Register(r) => {
+                // Re-register from worker — typically fired after a
+                // plugin_sync::sync rebuilds its registry. Update the
+                // worker row + the in-memory available_steps map. NO
+                // register_ack response (would oscillate — see spec
+                // distributed-piece-5).
+                let hw_caps_json = serde_json::to_string(&r.hw_caps)
+                    .unwrap_or_else(|_| "null".into());
+                let plugin_manifest_json = serde_json::to_string(&r.plugin_manifest)
+                    .unwrap_or_else(|_| "[]".into());
+                if let Err(e) = db::workers::record_register(
+                    &state.pool,
+                    worker_id,
+                    &hw_caps_json,
+                    &plugin_manifest_json,
+                )
+                .await
+                {
+                    tracing::warn!(worker_id, error = ?e, "re-register: record_register failed");
+                }
+                state
+                    .connections
+                    .record_available_steps(worker_id, r.available_steps)
+                    .await;
+                tracing::debug!(worker_id, "re-register processed");
             }
             Message::StepProgress(p) => {
                 state
