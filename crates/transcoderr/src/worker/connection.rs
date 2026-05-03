@@ -56,23 +56,55 @@ where
 
     let (ws, _resp) = tokio_tungstenite::connect_async(req).await?;
     tracing::info!(url, "worker WS connected");
-    let (mut tx, mut rx) = ws.split();
+    let (mut ws_sink, mut ws_stream) = ws.split();
+
+    // Outbound mpsc → sender task → WS sink. Heartbeats and step
+    // results both go through this channel so the receive loop
+    // never blocks on the WS sink.
+    let (outbound_tx, mut outbound_rx) =
+        tokio::sync::mpsc::channel::<Envelope>(32);
+    let sender_task = tokio::spawn(async move {
+        while let Some(env) = outbound_rx.recv().await {
+            match serde_json::to_string(&env) {
+                Ok(s) => {
+                    if ws_sink.send(WsMessage::Text(s)).await.is_err() {
+                        break;
+                    }
+                }
+                Err(e) => {
+                    tracing::warn!(error = ?e, "worker outbound serialise failed");
+                }
+            }
+        }
+    });
 
     let register = build_register();
-    tx.send(WsMessage::Text(serde_json::to_string(&register)?)).await?;
+    if outbound_tx.send(register).await.is_err() {
+        sender_task.abort();
+        anyhow::bail!("failed to enqueue register frame");
+    }
 
-    let ack_raw = rx.next().await
+    let ack_raw = ws_stream.next().await
         .ok_or_else(|| anyhow::anyhow!("stream closed before register_ack"))??;
     let ack: Envelope = match ack_raw {
         WsMessage::Text(s) => serde_json::from_str(&s)?,
-        WsMessage::Close(_) => anyhow::bail!("server closed before register_ack"),
-        other => anyhow::bail!("unexpected non-text frame from server: {other:?}"),
+        WsMessage::Close(_) => {
+            sender_task.abort();
+            anyhow::bail!("server closed before register_ack");
+        }
+        other => {
+            sender_task.abort();
+            anyhow::bail!("unexpected non-text frame from server: {other:?}");
+        }
     };
     match ack.message {
         Message::RegisterAck(_) => {
             tracing::info!("worker register acknowledged");
         }
-        other => anyhow::bail!("expected register_ack, got {other:?}"),
+        other => {
+            sender_task.abort();
+            anyhow::bail!("expected register_ack, got {other:?}");
+        }
     }
 
     let mut ticker = tokio::time::interval(HEARTBEAT_INTERVAL);
@@ -85,14 +117,52 @@ where
                     id: format!("hb-{}", uuid::Uuid::new_v4()),
                     message: Message::Heartbeat(Heartbeat {}),
                 };
-                tx.send(WsMessage::Text(serde_json::to_string(&hb)?)).await?;
+                if outbound_tx.send(hb).await.is_err() {
+                    sender_task.abort();
+                    return Ok(());
+                }
             }
-            frame = rx.next() => {
+            frame = ws_stream.next() => {
                 match frame {
-                    Some(Ok(WsMessage::Close(_))) => return Ok(()),
-                    Some(Ok(_)) => {}
-                    Some(Err(e)) => return Err(e.into()),
-                    None => return Ok(()),
+                    Some(Ok(WsMessage::Close(_))) => {
+                        sender_task.abort();
+                        return Ok(());
+                    }
+                    Some(Ok(WsMessage::Text(s))) => {
+                        match serde_json::from_str::<Envelope>(&s) {
+                            Ok(env) => {
+                                let correlation = env.id.clone();
+                                match env.message {
+                                    Message::StepDispatch(dispatch) => {
+                                        let tx_for_step = outbound_tx.clone();
+                                        tokio::spawn(async move {
+                                            crate::worker::executor::handle_step_dispatch(
+                                                tx_for_step,
+                                                correlation,
+                                                dispatch,
+                                            )
+                                            .await;
+                                        });
+                                    }
+                                    other => {
+                                        tracing::warn!(?other, "worker received unexpected frame; ignoring");
+                                    }
+                                }
+                            }
+                            Err(e) => {
+                                tracing::warn!(error = ?e, "worker failed to parse inbound frame");
+                            }
+                        }
+                    }
+                    Some(Ok(_)) => continue,
+                    Some(Err(e)) => {
+                        sender_task.abort();
+                        return Err(e.into());
+                    }
+                    None => {
+                        sender_task.abort();
+                        return Ok(());
+                    }
                 }
             }
         }
