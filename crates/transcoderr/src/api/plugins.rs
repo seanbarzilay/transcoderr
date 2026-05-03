@@ -274,8 +274,26 @@ pub async fn install(
             return;
         }
 
+        // Capture the previously-installed sha (if any) so we can clean
+        // up the old cache file after a successful version bump.
+        let old_sha: Option<String> = sqlx::query_scalar(
+            "SELECT tarball_sha256 FROM plugins WHERE name = ?",
+        )
+        .bind(&entry.entry.name)
+        .fetch_optional(&pool)
+        .await
+        .ok()
+        .flatten();
+
+        let cache_path = state
+            .cfg
+            .data_dir
+            .join("plugins")
+            .join(".tarball-cache")
+            .join(format!("{}-{}.tar.gz", entry.entry.name, entry.entry.tarball_sha256));
+
         status("Downloading + verifying tarball");
-        let installed = match installer::install_from_entry(&entry.entry, &plugins_dir, None, None).await {
+        let installed = match installer::install_from_entry(&entry.entry, &plugins_dir, Some(&cache_path), None).await {
             Ok(i) => i,
             Err(e) => {
                 error(StatusCode::UNPROCESSABLE_ENTITY, &e.to_string());
@@ -336,6 +354,7 @@ pub async fn install(
                 return;
             }
         };
+        let new_sha = installed.tarball_sha256.clone();
         let mut provenance = HashMap::new();
         provenance.insert(
             installed.name.clone(),
@@ -347,6 +366,20 @@ pub async fn install(
             return;
         }
         crate::steps::registry::rebuild_from_discovered(discovered).await;
+
+        // Stale-cache cleanup: if we just upgraded a plugin's version,
+        // the old <name>-<old_sha>.tar.gz is left behind. Remove it.
+        if let Some(old) = old_sha {
+            if old != new_sha {
+                let old_path = state
+                    .cfg
+                    .data_dir
+                    .join("plugins")
+                    .join(".tarball-cache")
+                    .join(format!("{}-{}.tar.gz", entry.entry.name, old));
+                let _ = std::fs::remove_file(&old_path);
+            }
+        }
 
         broadcast_manifest(&state_for_broadcast).await;
 
