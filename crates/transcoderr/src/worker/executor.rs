@@ -122,10 +122,13 @@ pub async fn handle_step_dispatch(
     };
 
     // NEW (Piece 6): register a fresh cancel token for this dispatch
-    // and attach it to ctx.cancel. Existing transcode + subprocess
-    // steps read ctx.cancel.cancelled() to abort their work; the
-    // worker-side StepCancel envelope handler (in connection.rs)
-    // fires this token by correlation_id.
+    // and attach it to ctx.cancel. Placed here — after every early
+    // `return;` validation path (snapshot parse, registry resolve,
+    // with-map type check) — so the single `remove` at end-of-function
+    // covers all exit paths and no entry can leak. Existing transcode
+    // and subprocess steps read ctx.cancel.cancelled() to abort their
+    // work; the worker-side StepCancel envelope handler in
+    // connection.rs fires this token by correlation_id.
     let cancel_token = tokio_util::sync::CancellationToken::new();
     step_cancellations
         .write()
