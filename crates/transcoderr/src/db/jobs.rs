@@ -35,7 +35,7 @@ pub async fn insert(
 /// Returns None when no pending job exists OR when another worker beat
 /// us in a race. Uses a single UPDATE...RETURNING so we don't need a
 /// multi-statement transaction (which deadlocks under concurrent
-/// claim_next calls when pool_size > 1, hitting SQLITE_BUSY).
+/// claim_next calls when runs.max_concurrent > 1, hitting SQLITE_BUSY).
 pub async fn claim_next(pool: &SqlitePool) -> anyhow::Result<Option<JobRow>> {
     let row: Option<JobRow> = sqlx::query_as(
         "UPDATE jobs SET status = 'running', started_at = ?, attempt = attempt + 1 \

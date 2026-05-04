@@ -1,8 +1,9 @@
-//! Regression: with worker.pool_size > 1, multiple workers race against
-//! claim_next. A single job must only be claimed once. The previous
-//! implementation didn't check rows_affected on the UPDATE, so two
-//! workers seeing the same pending row in their snapshots would both
-//! return Ok(Some(job)) — the same job — and run it twice in parallel.
+//! Regression: with runs.max_concurrent > 1, multiple claim loops race
+//! against claim_next. A single job must only be claimed once. The
+//! previous implementation didn't check rows_affected on the UPDATE,
+//! so two loops seeing the same pending row in their snapshots would
+//! both return Ok(Some(job)) — the same job — and run it twice in
+//! parallel.
 
 use tempfile::tempdir;
 use transcoderr::db;
