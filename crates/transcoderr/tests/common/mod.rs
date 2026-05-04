@@ -38,6 +38,9 @@ pub async fn boot() -> TestApp {
     // Empty hw caps for tests.
     let caps = HwCaps::default();
     let hw_devices = DeviceRegistry::from_caps(&caps);
+    // Hold a clone for register_local_worker below; the original moves
+    // into the shared RwLock.
+    let local_hw_caps = caps.clone();
     let hw_caps = std::sync::Arc::new(tokio::sync::RwLock::new(caps));
 
     // Initialize the step registry with no subprocess plugins for tests.
@@ -64,7 +67,7 @@ pub async fn boot() -> TestApp {
     // `workers.enabled` being a real toggle the dispatcher honors.
     transcoderr::worker::local::register_local_worker(
         &pool,
-        &ffmpeg_caps,
+        &local_hw_caps,
         &[],
     )
     .await

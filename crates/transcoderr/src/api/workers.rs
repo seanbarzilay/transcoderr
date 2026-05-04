@@ -126,7 +126,10 @@ pub struct PatchReq {
 /// PATCH /api/workers/:id — currently the only mutable field is
 /// `enabled`. Returns the updated row as `WorkerSummary` (un-redacted —
 /// PATCH is session/UI-authed, not a token-replay surface). 404 if id
-/// missing; 400 if no settable fields supplied.
+/// missing; 400 if no settable fields supplied OR if the target is
+/// the seeded `kind='local'` row (disabling the local worker would
+/// silently stop coordinator-side processing — there's no scenario
+/// where this is a useful operation).
 pub async fn patch(
     State(state): State<AppState>,
     Path(id): Path<i64>,
@@ -135,15 +138,24 @@ pub async fn patch(
     let Some(enabled) = req.enabled else {
         return Err(StatusCode::BAD_REQUEST);
     };
-    let n = db::workers::set_enabled(&state.pool, id, enabled)
+    // Pre-check kind so kind='local' returns 400 (not 404 from a no-op
+    // UPDATE downstream). Mirrors the path-mappings handler.
+    let row = db::workers::get_by_id(&state.pool, id)
+        .await
+        .map_err(|e| {
+            tracing::error!(error = ?e, id, "failed to fetch worker row");
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?
+        .ok_or(StatusCode::NOT_FOUND)?;
+    if row.kind == "local" {
+        return Err(StatusCode::BAD_REQUEST);
+    }
+    db::workers::set_enabled(&state.pool, id, enabled)
         .await
         .map_err(|e| {
             tracing::error!(error = ?e, id, "failed to set workers.enabled");
             StatusCode::INTERNAL_SERVER_ERROR
         })?;
-    if n == 0 {
-        return Err(StatusCode::NOT_FOUND);
-    }
     let row = db::workers::get_by_id(&state.pool, id)
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
