@@ -1124,6 +1124,9 @@ tbody tr:hover td { background: var(--surface); }
   padding: var(--space-3) var(--space-5);
   border-top: 1px solid var(--border);
   font-size: 12px;
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-3);
 }
 .modal .btn-text {
   background: none;
