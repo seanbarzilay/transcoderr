@@ -120,6 +120,45 @@ jobs:
         with:
           files: out/*
 
+  bins-windows-amd64:
+    needs: create-release
+    runs-on: windows-latest
+    # Default shell is bash so the sed/cp/$GITHUB_REF_NAME bits below
+    # work the same way they do on the Linux/macOS jobs (Git Bash on
+    # Windows runners ships with GNU sed). Native PowerShell here would
+    # need a separate `-replace` and `Copy-Item` form for those steps.
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Build web assets
+        run: |
+          npm --prefix web ci
+          npm --prefix web run build
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+      - name: Stamp tag version into Cargo.toml
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          V="${GITHUB_REF_NAME#v}"
+          sed -i "s|^version = \".*\"|version = \"$V\"|" Cargo.toml
+      - name: Build release binaries
+        run: cargo build --release --workspace --target x86_64-pc-windows-msvc
+      - name: Stage artifacts
+        run: |
+          mkdir -p out
+          cp target/x86_64-pc-windows-msvc/release/transcoderr.exe     out/transcoderr-windows-amd64.exe
+          cp target/x86_64-pc-windows-msvc/release/transcoderr-mcp.exe out/transcoderr-mcp-windows-amd64.exe
+      - uses: softprops/action-gh-release@v2
+        if: startsWith(github.ref, 'refs/tags/')
+        with:
+          files: out/*
+
   images:
     needs: bins-linux-amd64
     runs-on: ubuntu-latest
