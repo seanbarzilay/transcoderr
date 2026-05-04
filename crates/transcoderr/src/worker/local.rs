@@ -1,12 +1,12 @@
 //! Local-worker registration. The seeded `local` row in the `workers`
 //! table (id=1) gets stamped with hw_caps + plugin_manifest at boot,
-//! and a background heartbeat task keeps `last_seen_at` fresh every 30s
-//! regardless of whether the row is enabled.
+//! and a background heartbeat task keeps `last_seen_at` fresh every 30s.
 //!
 //! `is_enabled` is consulted by `pool::Worker::run_loop` before each
-//! claim — toggling `workers.enabled` from the UI is the per-worker
-//! kill switch (graceful drain: the in-flight job finishes; the next
-//! claim short-circuits).
+//! claim. The API layer rejects `PATCH /api/workers/1 {enabled:false}`,
+//! so under normal operation this always returns true — the gate is
+//! kept as defense in depth (an out-of-band DB write to disable the
+//! row would still drain the pool gracefully on the next tick).
 
 use crate::db;
 use crate::hw::HwCaps;
