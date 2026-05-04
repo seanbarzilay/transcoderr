@@ -256,4 +256,4 @@ Create the token under **Settings → API tokens** in the web UI. See
 
 ## License
 
-(TBD by the project owner.)
+MIT — see [`LICENSE`](LICENSE).

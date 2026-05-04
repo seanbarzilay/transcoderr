@@ -10,6 +10,7 @@ members = [
 version = "0.11.6"
 edition = "2021"
 rust-version = "1.78"
+license = "MIT"
 
 [workspace.dependencies]
 serde = { version = "1", features = ["derive"] }
