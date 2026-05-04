@@ -159,17 +159,25 @@ async fn heartbeat_keeps_last_seen_fresh() {
     )
     .await;
 
-    // Give the coordinator a moment to record it.
-    tokio::time::sleep(std::time::Duration::from_millis(200)).await;
-
-    let after: i64 = sqlx::query_as::<_, (i64,)>(
-        "SELECT COALESCE(last_seen_at, 0) FROM workers WHERE id = ?",
-    )
-    .bind(worker_id)
-    .fetch_one(&app.pool)
-    .await
-    .unwrap()
-    .0;
+    // The websocket receive loop records heartbeats asynchronously. Poll with
+    // a deadline so a busy CI runner does not fail just because it processed
+    // the frame slightly after one fixed sleep.
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    let mut after = initial;
+    while std::time::Instant::now() < deadline {
+        after = sqlx::query_as::<_, (i64,)>(
+            "SELECT COALESCE(last_seen_at, 0) FROM workers WHERE id = ?",
+        )
+        .bind(worker_id)
+        .fetch_one(&app.pool)
+        .await
+        .unwrap()
+        .0;
+        if after > initial {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    }
 
     assert!(
         after > initial,
