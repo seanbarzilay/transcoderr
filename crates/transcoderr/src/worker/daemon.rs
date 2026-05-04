@@ -60,8 +60,27 @@ pub async fn run(cfg_path: PathBuf) -> ! {
     )
     .await;
 
+    // Plugin storage lives next to the config file so a single
+    // operator-controlled volume mount (e.g. -v transcoderr-worker:
+    // /var/lib/transcoderr) persists both `worker.toml` and the
+    // synced plugin tarballs across container recreates. Falls back
+    // to `./plugins` only when cfg_path has no parent (relative
+    // filename in cwd) — keeps existing test fixtures working.
+    let plugins_dir = cfg_path
+        .parent()
+        .filter(|p| !p.as_os_str().is_empty())
+        .map(|p| p.join("plugins"))
+        .unwrap_or_else(|| std::path::PathBuf::from("./plugins"));
+    if let Err(e) = std::fs::create_dir_all(&plugins_dir) {
+        tracing::warn!(
+            path = %plugins_dir.display(),
+            error = %e,
+            "failed to ensure plugins dir exists; plugin sync will likely fail"
+        );
+    }
+
     let ctx = crate::worker::connection::ConnectionContext {
-        plugins_dir: std::path::PathBuf::from("./plugins"),
+        plugins_dir,
         coordinator_token: cfg.coordinator_token.clone(),
         name: name.clone(),
         hw_caps: hw_caps.clone(),
