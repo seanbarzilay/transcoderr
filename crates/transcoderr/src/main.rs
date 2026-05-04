@@ -201,23 +201,24 @@ async fn main() -> anyhow::Result<()> {
                 tracing::warn!(reset, "recovered stale running jobs");
             }
 
-            // Concurrency: spawn N worker loops sharing the same pool.
+            // Concurrency: spawn N claim loops sharing the same pool.
             // claim_next is atomic (UPDATE...WHERE status='pending'), so
             // they cooperate without stepping on each other. Hardware
             // semaphores in DeviceRegistry still cap concurrent ffmpeg
             // invocations on each GPU, so this only affects how many
-            // jobs run in parallel — not how many ffmpegs hit one GPU.
-            let pool_size: usize = transcoderr::db::settings::get(&pool, "worker.pool_size")
+            // runs proceed in parallel — not how many ffmpegs hit one
+            // GPU.
+            let max_concurrent: usize = transcoderr::db::settings::get(&pool, "runs.max_concurrent")
                 .await
                 .ok()
                 .flatten()
                 .and_then(|s| s.parse().ok())
                 .filter(|n: &usize| *n >= 1)
                 .unwrap_or(1);
-            tracing::info!(pool_size, "spawning worker pool");
+            tracing::info!(max_concurrent, "spawning run loops");
 
             let (tx, _) = tokio::sync::watch::channel(false);
-            let worker_tasks: Vec<_> = (0..pool_size)
+            let worker_tasks: Vec<_> = (0..max_concurrent)
                 .map(|_| {
                     let w = worker.clone();
                     let rx = tx.subscribe();

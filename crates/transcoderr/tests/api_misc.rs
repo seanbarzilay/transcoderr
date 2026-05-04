@@ -211,16 +211,16 @@ async fn settings_get_and_patch() {
     // auth.enabled is seeded as 'false'
     assert!(settings.contains_key("auth.enabled"));
 
-    // patch worker pool size
+    // patch the run-concurrency setting
     let patch = client.patch(format!("{}/api/settings", app.url))
-        .json(&json!({"worker.pool_size": "4"}))
+        .json(&json!({"runs.max_concurrent": "4"}))
         .send().await.unwrap();
     assert!(patch.status().is_success());
 
     let settings2: std::collections::HashMap<String, serde_json::Value> = client
         .get(format!("{}/api/settings", app.url))
         .send().await.unwrap().json().await.unwrap();
-    assert_eq!(settings2["worker.pool_size"].as_str().unwrap(), "4");
+    assert_eq!(settings2["runs.max_concurrent"].as_str().unwrap(), "4");
 }
 
 #[tokio::test]
