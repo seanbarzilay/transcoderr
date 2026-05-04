@@ -99,6 +99,11 @@ re-discovers and re-enrolls automatically — once, then exits. To
 disable the responder on the coordinator side, set
 `TRANSCODERR_DISCOVERY=disabled`.
 
+The `transcoderr-worker` volume captures both `worker.toml` and the
+synced plugins (the worker stores plugins next to its config file),
+so plugin tarballs survive image upgrades and the worker doesn't
+re-download them from the coordinator on every restart.
+
 **B. Manual token.** When the worker isn't on the same LAN
 (remote VPS, behind a VPN, Docker default-bridge networking), mint a
 token in the coordinator UI (**Workers → Add worker**) and drop a
