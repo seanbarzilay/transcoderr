@@ -11,11 +11,19 @@ use crate::worker::protocol::{Envelope, Message, StepCancelMsg, StepDispatch};
 use std::collections::BTreeMap;
 use std::time::Duration;
 
-/// Time we wait for any inbound frame from the worker before deciding
-/// the dispatch is dead. Matches Piece 1's connection register
-/// timeout semantics — long enough to ride out network blips, short
-/// enough to fail a stuck flow promptly.
+/// Inter-frame timeout: how long we wait between progress frames once
+/// the worker has emitted *something* for this step. Long enough to
+/// ride out network blips, short enough to fail a stuck flow promptly.
 const STEP_FRAME_TIMEOUT: Duration = Duration::from_secs(30);
+
+/// First-frame timeout: how long we wait for the worker to emit its
+/// first frame (any kind) for this step. Generous because heavy
+/// ffmpeg invocations (UHD HEVC, software encoding, cold storage)
+/// can legitimately spend several minutes on file-open + index +
+/// codec init before printing their first `progress=` line, and the
+/// worker only relays frames once ffmpeg actually starts producing
+/// output.
+const STEP_FIRST_FRAME_TIMEOUT: Duration = Duration::from_secs(300);
 
 pub struct RemoteRunner;
 
@@ -80,14 +88,41 @@ impl RemoteRunner {
             .map_err(|e| anyhow::anyhow!("dispatch send failed: {e}"))?;
 
         // 3. Pump inbound frames until completion, timeout, or cancel.
+        //    Use the lenient `STEP_FIRST_FRAME_TIMEOUT` until the
+        //    worker has emitted any frame; tighten to
+        //    `STEP_FRAME_TIMEOUT` for subsequent frames so a stuck
+        //    mid-stream worker still gets caught quickly.
         let cancel = ctx.cancel.clone();
+        let mut first_frame_seen = false;
         loop {
+            let timeout = if first_frame_seen {
+                STEP_FRAME_TIMEOUT
+            } else {
+                STEP_FIRST_FRAME_TIMEOUT
+            };
             let frame = tokio::select! {
-                f = tokio::time::timeout(STEP_FRAME_TIMEOUT, rx.recv()) => match f {
+                f = tokio::time::timeout(timeout, rx.recv()) => match f {
                     Ok(Some(f)) => f,
                     Ok(None) => anyhow::bail!("worker inbox channel closed"),
                     Err(_) => anyhow::bail!("worker step timed out"),
                 },
+                _ = async {
+                    // Explicit disconnect-watch. Without this, a worker
+                    // that drops its WS before sending any frame would
+                    // sit silently until STEP_FIRST_FRAME_TIMEOUT (5min)
+                    // — the inbox sender stays alive in the
+                    // Connections registry until our InboxGuard drops.
+                    // Polling is_connected every 2s catches the
+                    // disconnect within ~2s of SenderGuard cleanup.
+                    loop {
+                        tokio::time::sleep(Duration::from_secs(2)).await;
+                        if !state.connections.is_connected(worker_id).await {
+                            return;
+                        }
+                    }
+                } => {
+                    anyhow::bail!("worker disconnected mid-step");
+                }
                 _ = async {
                     // If ctx.cancel is None (test fixtures, edge cases),
                     // this branch never resolves — the loop behaves
@@ -122,6 +157,12 @@ impl RemoteRunner {
                     anyhow::bail!("step cancelled by operator");
                 }
             };
+
+            // Reaching here means we successfully extracted a frame
+            // (the only fall-through arm of the select; cancel and
+            // timeout/recv-failed branches all bail). Tighten the
+            // timeout for subsequent frames.
+            first_frame_seen = true;
 
             match frame {
                 InboundStepEvent::Progress(p) => {
