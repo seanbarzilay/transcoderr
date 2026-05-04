@@ -77,6 +77,13 @@ export default function AddWorkerForm({ coordinatorUrlGuess, onClose }: Props) {
                 shown. Save it as <code>worker.toml</code> on the worker
                 host and run <code>transcoderr worker --config worker.toml</code>.
               </p>
+              <p className="muted" style={{ fontSize: 13 }}>
+                <strong>Tip:</strong> if the worker is on the same LAN
+                as this coordinator, you can skip this entirely — start{" "}
+                <code>transcoderr worker</code> with no config and it
+                will auto-discover via mDNS, enroll itself, and persist
+                its own token. See <code>docs/deploy.md</code>.
+              </p>
               <pre
                 style={{
                   background: "var(--surface)",

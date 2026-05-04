@@ -64,21 +64,51 @@ If you put the binary behind nginx/caddy/traefik, terminate TLS at the proxy. SS
 ## Distributed transcoding (worker mode)
 
 A second host can connect to a running coordinator as a worker and
-receive ffmpeg / heavy plugin work over a WebSocket. As of v0.31 this
-release ships only the connection layer — the Workers UI shows them as
-connected; jobs still run on the coordinator. Future releases route
-work to remote workers.
+receive ffmpeg / heavy plugin work over a WebSocket. As of v0.37 the
+full distributed pipeline is live: the dispatcher routes per-step
+work between the local worker and any registered remote workers, the
+operator can cancel a run mid-flight (signal propagates all the way
+to the worker's ffmpeg child), and plugin steps marked
+`run_on: any-worker` are eligible for remote dispatch.
 
-Mint a token in the coordinator UI (**Workers → Add worker**) and save
-it as `worker.toml` on the worker host:
+Three operator concerns: **enrolling a worker**, **mismatched
+filesystem paths**, and **how many runs proceed in parallel**.
+
+### Enrolling a worker
+
+Two flows:
+
+**A. LAN auto-discovery (v0.38+, recommended).** On the same
+broadcast domain as the coordinator, a worker started with no
+`worker.toml` finds the coordinator via mDNS
+(`_transcoderr._tcp.local.`), enrolls for a fresh token over
+`POST /api/worker/enroll`, and writes its config to
+`/var/lib/transcoderr/worker.toml`. One command on the worker host:
+
+```bash
+docker run --rm --network=host \
+  -v transcoderr-worker:/var/lib/transcoderr \
+  ghcr.io/seanbarzilay/transcoderr:nvidia-latest \
+  transcoderr worker
+```
+
+`--network=host` is required because mDNS multicast doesn't propagate
+through Docker's default bridge. If the cached token is later
+rejected (the coordinator's database was wiped, etc.), the worker
+re-discovers and re-enrolls automatically — once, then exits. To
+disable the responder on the coordinator side, set
+`TRANSCODERR_DISCOVERY=disabled`.
+
+**B. Manual token.** When the worker isn't on the same LAN
+(remote VPS, behind a VPN, Docker default-bridge networking), mint a
+token in the coordinator UI (**Workers → Add worker**) and drop a
+`worker.toml` on the worker host:
 
 ```toml
 coordinator_url   = "wss://transcoderr.example/api/worker/connect"
 coordinator_token = "<token-shown-once>"
 name              = "gpu-box-1"
 ```
-
-Then on the worker host:
 
 ```bash
 docker run --rm \
@@ -88,9 +118,30 @@ docker run --rm \
   transcoderr worker --config /etc/transcoderr/worker.toml
 ```
 
-Mount the media volume at the same path the coordinator uses — the
-worker reads/writes the file directly. Docker images already include
-both `serve` and `worker` subcommands.
+Either flow enrolls a row in the coordinator's `workers` table; the
+Workers UI shows it as `remote` once it connects.
+
+### Mismatched filesystem paths
+
+Older releases required the worker to mount the media volume at the
+same absolute path as the coordinator. As of v0.39+ that's optional
+— the coordinator can rewrite paths per-worker on the wire. From the
+Workers page, click **Edit mappings** on a remote worker and add
+prefix pairs (e.g. coordinator `/mnt/movies` → worker
+`/data/media/movies`). The dispatcher walks the Context JSON snapshot
+on dispatch and again on completion, so paths in `ctx.file.path` and
+`ctx.steps.<id>.output_path` are translated transparently. Workers
+with no mappings configured stay on identity translation —
+homogeneous-mount setups keep working unchanged.
+
+### Concurrent run limit
+
+The `runs.max_concurrent` setting (Settings page) caps how many flow
+runs the coordinator processes in parallel — one job per claim loop.
+Hardware semaphores still cap concurrent ffmpeg invocations per GPU,
+so this setting only controls flow-level parallelism. Defaults to 2.
+This setting was renamed from `worker.pool_size` in v0.39.2; the
+migration preserves any operator-customised value automatically.
 
 ### Reverse-proxy notes
 

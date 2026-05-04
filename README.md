@@ -43,10 +43,12 @@ Webhook in, ffmpeg out, configurable in between.
   add your own private catalogs in **Plugins → Catalogs**.
 - **Single binary.** Rust + embedded SQLite + embedded React SPA. One image,
   one volume mount, no broker, no external DB.
-- **Distributed-ready.** Optional `transcoderr worker` mode connects to a
-  coordinator over WebSocket and (in future releases) takes ffmpeg / heavy
-  plugin work off your main box. As of v0.31 the connection layer is in;
-  routing lands in subsequent releases.
+- **Distributed.** Run `transcoderr worker` on a second host (LAN
+  auto-discovery via mDNS, or a manual token from the UI) and the
+  coordinator's dispatcher routes ffmpeg / heavy-plugin steps to it
+  per-flow. Per-worker path mappings let the worker mount media at a
+  different absolute path; cancel signals propagate all the way to
+  the worker's ffmpeg child within a second.
 
 ## Quickstart
 

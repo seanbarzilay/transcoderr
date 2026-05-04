@@ -47,15 +47,20 @@ A complete example lives at
 
 ## Path-mapping
 
-The downstream instance must be able to read the file at the same
-path it was passed. Mount the same media volume on both hosts at the
-same path — same constraint as Radarr → transcoderr. If the paths
-differ, either:
+The downstream instance must be able to read the file at the path it
+was passed. Two cases:
 
-- Set the receiver's `path_expr` to a CEL transformation that rewrites
-  the path (e.g. `"steps.payload.path".replace("/upstream/", "/local/")`).
-- Or rewrite the path in the sender's `body` (e.g. use a templated
-  expression to map prefixes before sending).
+- **Two coordinators with their own filesystems.** The sender (relay
+  source) ships a path string; the receiver opens it. If the
+  filesystems differ, set the receiver's `path_expr` to a CEL
+  transformation that rewrites the path
+  (e.g. `"steps.payload.path".replace("/upstream/", "/local/")`), or
+  rewrite the path in the sender's `body` before sending.
+- **Single coordinator with remote workers.** This is a different
+  layer entirely. Per-worker path mappings (Workers page →
+  **Edit mappings**) handle coordinator ↔ worker prefix translation
+  on the dispatcher's wire path; you don't need a relay or CEL hook
+  for that.
 
 ## Idempotency
 
