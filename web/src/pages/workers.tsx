@@ -104,7 +104,10 @@ export default function Workers() {
                     <input
                       type="checkbox"
                       checked={w.enabled}
-                      disabled={togg.isPending}
+                      disabled={togg.isPending || w.kind === "local"}
+                      title={w.kind === "local"
+                        ? "the local worker can't be disabled"
+                        : undefined}
                       onChange={(e) =>
                         togg.mutate({ id: w.id, enabled: e.target.checked })
                       }
