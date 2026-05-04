@@ -23,5 +23,6 @@ steps:
 
   - use: plan.execute        # ONE ffmpeg pass
   - use: verify.playable
+  # Use { mode: alongside } to keep the source and write the new mkv beside it.
   - use: output
     with: { mode: replace }

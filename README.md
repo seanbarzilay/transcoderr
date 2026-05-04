@@ -135,6 +135,12 @@ on_failure:
     with: { channel: tg-main, template: "✗ {{ file.path }} failed at {{ failed.id }}: {{ failed.error }}" }
 ```
 
+`output` defaults to `mode: replace`, which swaps the staged result into
+place and deletes the source when the planned container changes the
+extension. Use `with: { mode: alongside }` to keep the source untouched;
+the output lands beside it as the planned container path, or as
+`*.transcoderr.mkv` when that path would overwrite an existing file.
+
 A second example, [`docs/flows/webhook.yaml`](docs/flows/webhook.yaml),
 shows the `webhook` step — fire an arbitrary templated HTTP request
 (URL, method, headers, body) inline from a flow.

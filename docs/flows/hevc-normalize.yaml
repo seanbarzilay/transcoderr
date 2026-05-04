@@ -94,6 +94,7 @@ steps:
     use: verify.playable
     with: { min_duration_ratio: 0.99 }
 
+  # Use { mode: alongside } to keep the source and write the new mkv beside it.
   - id: swap
     use: output
     with: { mode: replace }
