@@ -11,9 +11,13 @@ pub struct ExtractSubsStep;
 
 #[async_trait]
 impl Step for ExtractSubsStep {
-    fn name(&self) -> &'static str { "extract.subs" }
+    fn name(&self) -> &'static str {
+        "extract.subs"
+    }
 
-    fn executor(&self) -> crate::steps::Executor { crate::steps::Executor::Any }
+    fn executor(&self) -> crate::steps::Executor {
+        crate::steps::Executor::Any
+    }
 
     async fn execute(
         &self,
@@ -21,7 +25,10 @@ impl Step for ExtractSubsStep {
         ctx: &mut Context,
         on_progress: &mut (dyn FnMut(StepProgress) + Send),
     ) -> anyhow::Result<()> {
-        let lang = with.get("language").and_then(|v| v.as_str()).unwrap_or("eng");
+        let lang = with
+            .get("language")
+            .and_then(|v| v.as_str())
+            .unwrap_or("eng");
 
         // Only text-format subtitle codecs can be written into an .srt file. Bitmap
         // formats (PGS, DVD, DVB) require OCR and aren't supported here. Skip silently
@@ -38,10 +45,7 @@ impl Step for ExtractSubsStep {
             .and_then(|s| s.as_array())
             .map(|arr| {
                 arr.iter().any(|s| {
-                    let is_sub = s
-                        .get("codec_type")
-                        .and_then(|v| v.as_str())
-                        == Some("subtitle");
+                    let is_sub = s.get("codec_type").and_then(|v| v.as_str()) == Some("subtitle");
                     if !is_sub {
                         return false;
                     }
@@ -66,7 +70,9 @@ impl Step for ExtractSubsStep {
             .unwrap_or(false);
         if !has_text_sub {
             let why = if found_lang_match {
-                format!("only bitmap {lang} subtitle streams found (PGS/DVD/DVB); cannot write .srt")
+                format!(
+                    "only bitmap {lang} subtitle streams found (PGS/DVD/DVB); cannot write .srt"
+                )
             } else {
                 format!("no {lang} subtitle stream found")
             };

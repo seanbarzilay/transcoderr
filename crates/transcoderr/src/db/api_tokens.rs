@@ -73,22 +73,22 @@ pub async fn verify(pool: &SqlitePool, presented: &str) -> Option<i64> {
         return None;
     }
     let prefix = &presented[..PREFIX_LEN];
-    let row: Option<(i64, String)> = sqlx::query_as(
-        "SELECT id, hash FROM api_tokens WHERE prefix = ?",
-    )
-    .bind(prefix)
-    .fetch_optional(pool)
-    .await
-    .ok()?;
+    let row: Option<(i64, String)> =
+        sqlx::query_as("SELECT id, hash FROM api_tokens WHERE prefix = ?")
+            .bind(prefix)
+            .fetch_optional(pool)
+            .await
+            .ok()?;
     let (id, hash) = row?;
     let parsed = PasswordHash::new(&hash).ok()?;
     Argon2::default()
         .verify_password(presented.as_bytes(), &parsed)
         .ok()?;
-    if let Err(e) = sqlx::query("UPDATE api_tokens SET last_used_at = strftime('%s','now') WHERE id = ?")
-        .bind(id)
-        .execute(pool)
-        .await
+    if let Err(e) =
+        sqlx::query("UPDATE api_tokens SET last_used_at = strftime('%s','now') WHERE id = ?")
+            .bind(id)
+            .execute(pool)
+            .await
     {
         tracing::warn!(token_id = id, error = %e, "failed to stamp api_token last_used_at");
     }

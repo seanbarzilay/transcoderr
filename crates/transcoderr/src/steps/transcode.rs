@@ -14,9 +14,13 @@ pub struct TranscodeStep {
 
 #[async_trait]
 impl Step for TranscodeStep {
-    fn name(&self) -> &'static str { "transcode" }
+    fn name(&self) -> &'static str {
+        "transcode"
+    }
 
-    fn executor(&self) -> crate::steps::Executor { crate::steps::Executor::Any }
+    fn executor(&self) -> crate::steps::Executor {
+        crate::steps::Executor::Any
+    }
 
     async fn execute(
         &self,
@@ -26,9 +30,18 @@ impl Step for TranscodeStep {
     ) -> anyhow::Result<()> {
         let codec = with.get("codec").and_then(|v| v.as_str()).unwrap_or("x265");
         let crf = with.get("crf").and_then(|v| v.as_i64()).unwrap_or(22);
-        let preset = with.get("preset").and_then(|v| v.as_str()).unwrap_or("medium");
-        let preserve_10bit = with.get("preserve_10bit").and_then(|v| v.as_bool()).unwrap_or(false);
-        let tolerate_errors = with.get("tolerate_errors").and_then(|v| v.as_bool()).unwrap_or(false);
+        let preset = with
+            .get("preset")
+            .and_then(|v| v.as_str())
+            .unwrap_or("medium");
+        let preserve_10bit = with
+            .get("preserve_10bit")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
+        let tolerate_errors = with
+            .get("tolerate_errors")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
 
         // Detect 10-bit from probe data when preserve_10bit is on.
         let force_10bit = preserve_10bit && detect_10bit(ctx);
@@ -44,8 +57,7 @@ impl Step for TranscodeStep {
                     .collect()
             })
             .unwrap_or_default();
-        let cpu_fallback =
-            hw_block.get("fallback").and_then(|v| v.as_str()) == Some("cpu");
+        let cpu_fallback = hw_block.get("fallback").and_then(|v| v.as_str()) == Some("cpu");
 
         let (src, dest) = staging::next_io(ctx, "mkv");
         let _ = std::fs::remove_file(&dest);
@@ -72,9 +84,7 @@ impl Step for TranscodeStep {
                     }),
                 });
                 if !cpu_fallback {
-                    anyhow::bail!(
-                        "no preferred hw accel available and cpu fallback disabled"
-                    );
+                    anyhow::bail!("no preferred hw accel available and cpu fallback disabled");
                 }
             }
         }
@@ -83,15 +93,17 @@ impl Step for TranscodeStep {
 
         // First attempt.
         let result = run_ffmpeg(
-            &src,
-            &dest,
-            codec_arg,
-            preset,
-            crf,
-            duration_sec,
-            tolerate_errors,
-            force_10bit,
-            ctx.cancel.as_ref(),
+            FfmpegRun {
+                src: &src,
+                dest: &dest,
+                codec_arg,
+                preset,
+                crf,
+                duration_sec,
+                tolerate_errors,
+                force_10bit,
+                cancel: ctx.cancel.as_ref(),
+            },
             on_progress,
         )
         .await;
@@ -128,15 +140,17 @@ impl Step for TranscodeStep {
                         _ => "libx265",
                     };
                     run_ffmpeg(
-                        &src,
-                        &dest,
-                        cpu_codec,
-                        "ultrafast",
-                        crf,
-                        duration_sec,
-                        tolerate_errors,
-                        force_10bit,
-                        ctx.cancel.as_ref(),
+                        FfmpegRun {
+                            src: &src,
+                            dest: &dest,
+                            codec_arg: cpu_codec,
+                            preset: "ultrafast",
+                            crf,
+                            duration_sec,
+                            tolerate_errors,
+                            force_10bit,
+                            cancel: ctx.cancel.as_ref(),
+                        },
                         on_progress,
                     )
                     .await?;
@@ -181,14 +195,25 @@ fn pick_codec_arg(codec: &str, acquired_key: Option<&str>) -> anyhow::Result<&'s
 
 /// Inspect the probe data on `ctx` and return true if the first video stream is 10-bit.
 fn detect_10bit(ctx: &Context) -> bool {
-    let Some(probe) = ctx.probe.as_ref() else { return false; };
-    let Some(streams) = probe.get("streams").and_then(|s| s.as_array()) else { return false; };
+    let Some(probe) = ctx.probe.as_ref() else {
+        return false;
+    };
+    let Some(streams) = probe.get("streams").and_then(|s| s.as_array()) else {
+        return false;
+    };
     for s in streams {
         if s.get("codec_type").and_then(|v| v.as_str()) != Some("video") {
             continue;
         }
-        let pix_fmt = s.get("pix_fmt").and_then(|v| v.as_str()).unwrap_or("").to_lowercase();
-        let bps = s.get("bits_per_raw_sample").and_then(|v| v.as_str()).unwrap_or("");
+        let pix_fmt = s
+            .get("pix_fmt")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_lowercase();
+        let bps = s
+            .get("bits_per_raw_sample")
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
         return bps == "10"
             || pix_fmt.contains("p010")
             || pix_fmt.contains("yuv420p10")
@@ -203,46 +228,62 @@ fn is_disk_full(e: &anyhow::Error) -> bool {
     s.contains("no space left") || s.contains("enospc")
 }
 
-async fn run_ffmpeg(
-    src: &Path,
-    dest: &Path,
-    codec_arg: &str,
-    preset: &str,
+struct FfmpegRun<'a> {
+    src: &'a Path,
+    dest: &'a Path,
+    codec_arg: &'a str,
+    preset: &'a str,
     crf: i64,
     duration_sec: f64,
     tolerate_errors: bool,
     force_10bit: bool,
-    cancel: Option<&tokio_util::sync::CancellationToken>,
+    cancel: Option<&'a tokio_util::sync::CancellationToken>,
+}
+
+async fn run_ffmpeg(
+    request: FfmpegRun<'_>,
     on_progress: &mut (dyn FnMut(StepProgress) + Send),
 ) -> anyhow::Result<()> {
     let mut cmd = Command::new("ffmpeg");
     cmd.args(["-hide_banner", "-y"]);
-    if tolerate_errors {
+    if request.tolerate_errors {
         cmd.args(["-err_detect", "ignore_err", "-fflags", "+discardcorrupt"]);
     }
-    cmd.arg("-i").arg(src);
+    cmd.arg("-i").arg(request.src);
     // Preserve every input stream — without `-map 0`, ffmpeg's default selection
     // picks "the best one of each type" (one video, one audio, one subtitle) and
     // silently drops everything else. That breaks chains like `audio.ensure` →
     // `transcode`: the AC3 6ch track that audio.ensure added would be dropped
     // because ffmpeg considers the lossless DTS-HD MA the "best" audio.
     cmd.args(["-map", "0"]);
-    cmd.args(["-c:v", codec_arg, "-preset", preset, "-crf", &crf.to_string()]);
-    if force_10bit {
+    cmd.args([
+        "-c:v",
+        request.codec_arg,
+        "-preset",
+        request.preset,
+        "-crf",
+        &request.crf.to_string(),
+    ]);
+    if request.force_10bit {
         cmd.args(["-profile:v", "main10", "-pix_fmt", "p010le"]);
     }
-    cmd.args(["-c:a", "copy", "-c:s", "copy"]).arg(dest);
+    cmd.args(["-c:a", "copy", "-c:s", "copy"]).arg(request.dest);
 
     let mut emitted_any_pct = false;
-    let status = crate::ffmpeg::run_with_live_events(cmd, duration_sec, cancel, |ev| match ev {
-        FfmpegEvent::Pct(p) => {
-            emitted_any_pct = true;
-            on_progress(StepProgress::Pct(p));
-        }
-        FfmpegEvent::Line(l) => {
-            on_progress(StepProgress::Log(format!("ffmpeg: {l}")));
-        }
-    })
+    let status = crate::ffmpeg::run_with_live_events(
+        cmd,
+        request.duration_sec,
+        request.cancel,
+        |ev| match ev {
+            FfmpegEvent::Pct(p) => {
+                emitted_any_pct = true;
+                on_progress(StepProgress::Pct(p));
+            }
+            FfmpegEvent::Line(l) => {
+                on_progress(StepProgress::Log(format!("ffmpeg: {l}")));
+            }
+        },
+    )
     .await?;
 
     if !emitted_any_pct {

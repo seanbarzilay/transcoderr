@@ -26,10 +26,18 @@ export default function App() {
     return stop;
   }, []);
   const me = useQuery({ queryKey: ["me"], queryFn: api.auth.me });
-  const [navOpen, setNavOpen] = useState(false);
   const location = useLocation();
-  // Auto-close the mobile drawer on route change.
-  useEffect(() => { setNavOpen(false); }, [location.pathname]);
+  const [navState, setNavState] = useState({ path: location.pathname, open: false });
+  const navOpen = navState.path === location.pathname && navState.open;
+  const setNavOpen = (next: boolean | ((open: boolean) => boolean)) => {
+    setNavState((prev) => {
+      const currentOpen = prev.path === location.pathname ? prev.open : false;
+      return {
+        path: location.pathname,
+        open: typeof next === "function" ? next(currentOpen) : next,
+      };
+    });
+  };
 
   if (me.isLoading) return null;
   if (me.data?.auth_required && !me.data?.authed)

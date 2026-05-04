@@ -40,8 +40,14 @@ pub struct DryRunArgs {
 
 #[tool_router(router = flows_router, vis = "pub")]
 impl Server {
-    #[tool(name = "list_flows", description = "List all configured transcode flows.")]
-    pub async fn list_flows(&self, _: Parameters<super::NoArgs>) -> Result<Json<Vec<FlowSummary>>, ErrorData> {
+    #[tool(
+        name = "list_flows",
+        description = "List all configured transcode flows."
+    )]
+    pub async fn list_flows(
+        &self,
+        _: Parameters<super::NoArgs>,
+    ) -> Result<Json<Vec<FlowSummary>>, ErrorData> {
         self.api
             .get::<Vec<FlowSummary>>("/api/flows")
             .await
@@ -49,7 +55,10 @@ impl Server {
             .map_err(|e| e.into_error_data())
     }
 
-    #[tool(name = "get_flow", description = "Get a flow by id with its YAML source and parsed AST.")]
+    #[tool(
+        name = "get_flow",
+        description = "Get a flow by id with its YAML source and parsed AST."
+    )]
     pub async fn get_flow(
         &self,
         Parameters(a): Parameters<IdArgs>,
@@ -61,7 +70,10 @@ impl Server {
             .map_err(|e| e.into_error_data())
     }
 
-    #[tool(name = "create_flow", description = "Create a new flow from YAML. Side effect: persists a new flow available for webhook dispatch. Name must be unique.")]
+    #[tool(
+        name = "create_flow",
+        description = "Create a new flow from YAML. Side effect: persists a new flow available for webhook dispatch. Name must be unique."
+    )]
     pub async fn create_flow(
         &self,
         Parameters(a): Parameters<CreateFlowReq>,
@@ -73,7 +85,10 @@ impl Server {
             .map_err(|e| e.into_error_data())
     }
 
-    #[tool(name = "update_flow", description = "Replace the YAML for an existing flow. Side effect: bumps the flow version; future jobs will use the new YAML. Optionally toggles `enabled`.")]
+    #[tool(
+        name = "update_flow",
+        description = "Replace the YAML for an existing flow. Side effect: bumps the flow version; future jobs will use the new YAML. Optionally toggles `enabled`."
+    )]
     pub async fn update_flow(
         &self,
         Parameters(a): Parameters<UpdateFlowArgs>,
@@ -89,7 +104,10 @@ impl Server {
         Ok(Json(serde_json::json!({"updated": true, "id": a.id})))
     }
 
-    #[tool(name = "delete_flow", description = "Destructive: permanently delete a flow. Cannot be undone. Requires confirm=true.")]
+    #[tool(
+        name = "delete_flow",
+        description = "Destructive: permanently delete a flow. Cannot be undone. Requires confirm=true."
+    )]
     pub async fn delete_flow(
         &self,
         Parameters(a): Parameters<DeleteFlowArgs>,
@@ -108,7 +126,10 @@ impl Server {
         Ok(Json(serde_json::json!({"deleted": true, "id": a.id})))
     }
 
-    #[tool(name = "dry_run_flow", description = "Walk a flow's AST against a synthetic file path to see which steps would execute. No side effects.")]
+    #[tool(
+        name = "dry_run_flow",
+        description = "Walk a flow's AST against a synthetic file path to see which steps would execute. No side effects."
+    )]
     pub async fn dry_run_flow(
         &self,
         Parameters(a): Parameters<DryRunArgs>,

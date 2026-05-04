@@ -1,12 +1,13 @@
 import { create } from "zustand";
 import { connectSSE } from "../api/sse";
+import { asRecord } from "../lib/records";
 
 export type LiveRunEvent = {
   ts: number;
   job_id: number;
   step_id?: string;
   kind: string;
-  payload?: any;
+  payload?: unknown;
   worker_id?: number;
   worker_name?: string;
 };
@@ -52,14 +53,14 @@ export function startSSE() {
         step_id: e.data.step_id,
         kind: e.data.kind,
         payload: e.data.payload,
-        worker_id: (e.data as any).worker_id,
-        worker_name: (e.data as any).worker_name,
+        worker_id: e.data.worker_id,
+        worker_name: e.data.worker_name,
       };
       appendEvent(e.data.job_id, ev);
 
       if (e.data.kind === "progress") {
-        const pct = e.data.payload?.pct;
-        if (pct != null) {
+        const pct = asRecord(e.data.payload).pct;
+        if (typeof pct === "number") {
           useLive.setState((s) => ({
             jobProgress: {
               ...s.jobProgress,
@@ -73,7 +74,7 @@ export function startSSE() {
         }
       }
       if (e.data.kind === "log") {
-        const msg = e.data.payload?.msg;
+        const msg = asRecord(e.data.payload).msg;
         if (typeof msg === "string" && msg.startsWith("ffmpeg: ")) {
           useLive.setState((s) => ({
             jobProgress: {

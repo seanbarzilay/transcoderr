@@ -34,7 +34,9 @@ impl Step for SubprocessStep {
         on_progress: &mut (dyn FnMut(StepProgress) + Send),
     ) -> anyhow::Result<()> {
         let mut child = Command::new(&self.entrypoint_abs)
-            .stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped())
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
             .spawn()?;
 
         let mut stdin = child.stdin.take().expect("piped");
@@ -54,26 +56,37 @@ impl Step for SubprocessStep {
 
         let mut step_result: Option<Value> = None;
         while let Ok(Some(line)) = stdout.next_line().await {
-            let v: Value = match serde_json::from_str(&line) { Ok(v) => v, Err(_) => continue };
+            let v: Value = match serde_json::from_str(&line) {
+                Ok(v) => v,
+                Err(_) => continue,
+            };
             match v["event"].as_str() {
                 Some("progress") => {
-                    if let Some(p) = v["pct"].as_f64() { on_progress(StepProgress::Pct(p)); }
+                    if let Some(p) = v["pct"].as_f64() {
+                        on_progress(StepProgress::Pct(p));
+                    }
                 }
                 Some("log") => {
-                    if let Some(m) = v["msg"].as_str() { on_progress(StepProgress::Log(m.into())); }
+                    if let Some(m) = v["msg"].as_str() {
+                        on_progress(StepProgress::Log(m.into()));
+                    }
                 }
                 Some("context_set") => {
                     if let (Some(k), Some(val)) = (v["key"].as_str(), v.get("value")) {
                         ctx.steps.insert(k.into(), val.clone());
                     }
                 }
-                Some("result") => { step_result = Some(v); break; }
+                Some("result") => {
+                    step_result = Some(v);
+                    break;
+                }
                 _ => {}
             }
         }
         let _ = stdin.shutdown().await;
         let _ = child.wait().await;
-        let res = step_result.ok_or_else(|| anyhow::anyhow!("plugin {} produced no result", self.step_name))?;
+        let res = step_result
+            .ok_or_else(|| anyhow::anyhow!("plugin {} produced no result", self.step_name))?;
         if res["status"] == "ok" {
             Ok(())
         } else {

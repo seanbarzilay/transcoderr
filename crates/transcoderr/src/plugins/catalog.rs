@@ -91,7 +91,9 @@ pub struct CatalogClient {
 
 impl Default for CatalogClient {
     fn default() -> Self {
-        Self { cache: RwLock::new(std::collections::HashMap::new()) }
+        Self {
+            cache: RwLock::new(std::collections::HashMap::new()),
+        }
     }
 }
 
@@ -118,7 +120,9 @@ impl CatalogClient {
         if idx.schema_version != CATALOG_SCHEMA_VERSION {
             anyhow::bail!(
                 "catalog {}: schema_version {} unsupported (expected {})",
-                catalog.name, idx.schema_version, CATALOG_SCHEMA_VERSION
+                catalog.name,
+                idx.schema_version,
+                CATALOG_SCHEMA_VERSION
             );
         }
         Ok(idx.plugins)
@@ -138,16 +142,21 @@ impl CatalogClient {
             let cache = self.cache.read().await;
             for c in &catalogs {
                 match cache.get(&c.id) {
-                    Some(e) if e.fetched_at.is_some_and(|t| now.duration_since(t) < CACHE_TTL) => {
+                    Some(e)
+                        if e.fetched_at
+                            .is_some_and(|t| now.duration_since(t) < CACHE_TTL) =>
+                    {
                         match &e.result {
-                            Ok(plugins) => for p in plugins {
-                                entries.push(CatalogEntry {
-                                    catalog_id: c.id,
-                                    catalog_name: c.name.clone(),
-                                    entry: p.clone(),
-                                    missing_runtimes: Vec::new(),
-                                });
-                            },
+                            Ok(plugins) => {
+                                for p in plugins {
+                                    entries.push(CatalogEntry {
+                                        catalog_id: c.id,
+                                        catalog_name: c.name.clone(),
+                                        entry: p.clone(),
+                                        missing_runtimes: Vec::new(),
+                                    });
+                                }
+                            }
                             Err(msg) => errors.push(CatalogFetchError {
                                 catalog_id: c.id,
                                 catalog_name: c.name.clone(),
@@ -164,10 +173,15 @@ impl CatalogClient {
         // the typical "1-3 catalogs" load -- parallelizing adds noise
         // (need to clone CatalogRow into 'static) for negligible win.
         for c in to_fetch {
-            let res = self.fetch_index(c).await
-                .map_err(|e| e.to_string());
+            let res = self.fetch_index(c).await.map_err(|e| e.to_string());
             let mut cache = self.cache.write().await;
-            cache.insert(c.id, CacheEntry { fetched_at: Some(now), result: res.clone() });
+            cache.insert(
+                c.id,
+                CacheEntry {
+                    fetched_at: Some(now),
+                    result: res.clone(),
+                },
+            );
             match res {
                 Ok(plugins) => {
                     if let Err(e) = plugin_catalogs::record_fetch_success(pool, c.id).await {
@@ -213,14 +227,18 @@ mod tests {
     async fn open_pool() -> (SqlitePool, tempfile::TempDir) {
         let dir = tempdir().unwrap();
         let pool = crate::db::open(dir.path()).await.unwrap();
-        sqlx::query("DELETE FROM plugin_catalogs").execute(&pool).await.unwrap();
+        sqlx::query("DELETE FROM plugin_catalogs")
+            .execute(&pool)
+            .await
+            .unwrap();
         (pool, dir)
     }
 
     #[tokio::test]
     async fn fetch_index_happy_path_returns_plugins() {
         let server = MockServer::start().await;
-        Mock::given(method("GET")).and(path("/index.json"))
+        Mock::given(method("GET"))
+            .and(path("/index.json"))
             .respond_with(ResponseTemplate::new(200).set_body_json(json!({
                 "schema_version": 1,
                 "catalog_name": "test",
@@ -234,13 +252,17 @@ mod tests {
                     "provides_steps": ["size.report.before", "size.report.after"]
                 }]
             })))
-            .mount(&server).await;
+            .mount(&server)
+            .await;
 
         let cat = CatalogRow {
-            id: 1, name: "test".into(),
+            id: 1,
+            name: "test".into(),
             url: format!("{}/index.json", server.uri()),
-            auth_header: None, priority: 0,
-            last_fetched_at: None, last_error: None,
+            auth_header: None,
+            priority: 0,
+            last_fetched_at: None,
+            last_error: None,
         };
         let plugins = CatalogClient::default().fetch_index(&cat).await.unwrap();
         assert_eq!(plugins.len(), 1);
@@ -251,19 +273,24 @@ mod tests {
     #[tokio::test]
     async fn fetch_index_sends_auth_header_when_present() {
         let server = MockServer::start().await;
-        Mock::given(method("GET")).and(path("/index.json"))
+        Mock::given(method("GET"))
+            .and(path("/index.json"))
             .and(header("Authorization", "Bearer secret"))
             .respond_with(ResponseTemplate::new(200).set_body_json(json!({
                 "schema_version": 1, "plugins": []
             })))
             .expect(1)
-            .mount(&server).await;
+            .mount(&server)
+            .await;
 
         let cat = CatalogRow {
-            id: 1, name: "private".into(),
+            id: 1,
+            name: "private".into(),
             url: format!("{}/index.json", server.uri()),
             auth_header: Some("Bearer secret".into()),
-            priority: 0, last_fetched_at: None, last_error: None,
+            priority: 0,
+            last_fetched_at: None,
+            last_error: None,
         };
         CatalogClient::default().fetch_index(&cat).await.unwrap();
     }
@@ -271,25 +298,34 @@ mod tests {
     #[tokio::test]
     async fn fetch_index_rejects_wrong_schema_version() {
         let server = MockServer::start().await;
-        Mock::given(method("GET")).and(path("/index.json"))
+        Mock::given(method("GET"))
+            .and(path("/index.json"))
             .respond_with(ResponseTemplate::new(200).set_body_json(json!({
                 "schema_version": 99, "plugins": []
             })))
-            .mount(&server).await;
+            .mount(&server)
+            .await;
         let cat = CatalogRow {
-            id: 1, name: "future".into(),
+            id: 1,
+            name: "future".into(),
             url: format!("{}/index.json", server.uri()),
-            auth_header: None, priority: 0,
-            last_fetched_at: None, last_error: None,
+            auth_header: None,
+            priority: 0,
+            last_fetched_at: None,
+            last_error: None,
         };
-        let err = CatalogClient::default().fetch_index(&cat).await.unwrap_err();
+        let err = CatalogClient::default()
+            .fetch_index(&cat)
+            .await
+            .unwrap_err();
         assert!(err.to_string().contains("schema_version 99"));
     }
 
     #[tokio::test]
     async fn list_all_aggregates_success_and_failure_per_catalog() {
         let server_ok = MockServer::start().await;
-        Mock::given(method("GET")).and(path("/ok.json"))
+        Mock::given(method("GET"))
+            .and(path("/ok.json"))
             .respond_with(ResponseTemplate::new(200).set_body_json(json!({
                 "schema_version": 1,
                 "plugins": [{
@@ -298,15 +334,34 @@ mod tests {
                     "kind": "subprocess", "provides_steps": []
                 }]
             })))
-            .mount(&server_ok).await;
+            .mount(&server_ok)
+            .await;
         let server_bad = MockServer::start().await;
-        Mock::given(method("GET")).and(path("/bad.json"))
+        Mock::given(method("GET"))
+            .and(path("/bad.json"))
             .respond_with(ResponseTemplate::new(503))
-            .mount(&server_bad).await;
+            .mount(&server_bad)
+            .await;
 
         let (pool, _dir) = open_pool().await;
-        plugin_catalogs::create(&pool, "ok", &format!("{}/ok.json", server_ok.uri()), None, 0).await.unwrap();
-        plugin_catalogs::create(&pool, "bad", &format!("{}/bad.json", server_bad.uri()), None, 1).await.unwrap();
+        plugin_catalogs::create(
+            &pool,
+            "ok",
+            &format!("{}/ok.json", server_ok.uri()),
+            None,
+            0,
+        )
+        .await
+        .unwrap();
+        plugin_catalogs::create(
+            &pool,
+            "bad",
+            &format!("{}/bad.json", server_bad.uri()),
+            None,
+            1,
+        )
+        .await
+        .unwrap();
 
         let res = CatalogClient::default().list_all(&pool).await.unwrap();
         assert_eq!(res.entries.len(), 1);
@@ -318,7 +373,7 @@ mod tests {
 
         // last_error / last_fetched_at recorded.
         let rows = plugin_catalogs::list(&pool).await.unwrap();
-        let ok_row  = rows.iter().find(|r| r.name == "ok").unwrap();
+        let ok_row = rows.iter().find(|r| r.name == "ok").unwrap();
         let bad_row = rows.iter().find(|r| r.name == "bad").unwrap();
         assert!(ok_row.last_fetched_at.is_some());
         assert!(ok_row.last_error.is_none());
@@ -328,18 +383,22 @@ mod tests {
     #[tokio::test]
     async fn list_all_serves_from_cache_within_ttl() {
         let server = MockServer::start().await;
-        Mock::given(method("GET")).and(path("/index.json"))
+        Mock::given(method("GET"))
+            .and(path("/index.json"))
             .respond_with(ResponseTemplate::new(200).set_body_json(json!({
                 "schema_version": 1, "plugins": []
             })))
-            .expect(1)  // <-- key: only ONE call expected
-            .mount(&server).await;
+            .expect(1) // <-- key: only ONE call expected
+            .mount(&server)
+            .await;
 
         let (pool, _dir) = open_pool().await;
-        plugin_catalogs::create(&pool, "c", &format!("{}/index.json", server.uri()), None, 0).await.unwrap();
+        plugin_catalogs::create(&pool, "c", &format!("{}/index.json", server.uri()), None, 0)
+            .await
+            .unwrap();
 
         let client = CatalogClient::default();
         client.list_all(&pool).await.unwrap();
-        client.list_all(&pool).await.unwrap();  // cache hit -- no second HTTP call
+        client.list_all(&pool).await.unwrap(); // cache hit -- no second HTTP call
     }
 }

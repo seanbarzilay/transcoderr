@@ -73,7 +73,11 @@ fn parse_streams(probe: &Value) -> Vec<StreamInfo> {
     };
     for s in streams {
         let index = s.get("index").and_then(|v| v.as_i64()).unwrap_or(-1);
-        let codec_type = s.get("codec_type").and_then(|v| v.as_str()).unwrap_or("").to_string();
+        let codec_type = s
+            .get("codec_type")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
         let codec_name = s
             .get("codec_name")
             .and_then(|v| v.as_str())
@@ -124,7 +128,9 @@ impl Step for AudioEnsureStep {
         "audio.ensure"
     }
 
-    fn executor(&self) -> crate::steps::Executor { crate::steps::Executor::Any }
+    fn executor(&self) -> crate::steps::Executor {
+        crate::steps::Executor::Any
+    }
 
     async fn execute(
         &self,
@@ -142,10 +148,7 @@ impl Step for AudioEnsureStep {
             .and_then(|v| v.as_str())
             .unwrap_or("eng")
             .to_string();
-        let target_channels = with
-            .get("channels")
-            .and_then(|v| v.as_i64())
-            .unwrap_or(6) as i64;
+        let target_channels = with.get("channels").and_then(|v| v.as_i64()).unwrap_or(6);
         let drop_cover_art = with
             .get("drop_cover_art")
             .and_then(|v| v.as_bool())
@@ -167,10 +170,9 @@ impl Step for AudioEnsureStep {
             .and_then(|v| v.as_bool())
             .unwrap_or(false);
 
-        let probe = ctx
-            .probe
-            .as_ref()
-            .ok_or_else(|| anyhow::anyhow!("audio.ensure: no probe data on context (run probe first)"))?;
+        let probe = ctx.probe.as_ref().ok_or_else(|| {
+            anyhow::anyhow!("audio.ensure: no probe data on context (run probe first)")
+        })?;
         let streams = parse_streams(probe);
         if streams.is_empty() {
             anyhow::bail!("audio.ensure: probe reported zero streams");
@@ -182,9 +184,7 @@ impl Step for AudioEnsureStep {
                 && !s.is_commentary
                 && s.codec_name == target_codec
                 && s.channels >= target_channels
-                && (s.language == target_lang
-                    || s.language.is_empty()
-                    || s.language == "und")
+                && (s.language == target_lang || s.language.is_empty() || s.language == "und")
         });
 
         // Find the highest-channel non-commentary audio source — used as the seed for the
@@ -256,10 +256,7 @@ impl Step for AudioEnsureStep {
                 }
                 "audio" => {
                     cmd.args(["-map", &format!("0:{}", s.index)]);
-                    cmd.args([
-                        &format!("-c:a:{audio_out_idx}"),
-                        "copy",
-                    ]);
+                    cmd.args([&format!("-c:a:{audio_out_idx}"), "copy"]);
                     audio_out_idx += 1;
                 }
                 "subtitle" => {
@@ -334,13 +331,16 @@ impl Step for AudioEnsureStep {
             .and_then(|s| s.parse::<f64>().ok())
             .unwrap_or(0.0);
 
-        let status = crate::ffmpeg::run_with_live_events(cmd, duration_sec, ctx.cancel.as_ref(), |ev| match ev {
-            crate::ffmpeg::FfmpegEvent::Pct(p) => on_progress(StepProgress::Pct(p)),
-            crate::ffmpeg::FfmpegEvent::Line(l) => {
-                on_progress(StepProgress::Log(format!("ffmpeg: {l}")))
-            }
-        })
-        .await?;
+        let status =
+            crate::ffmpeg::run_with_live_events(cmd, duration_sec, ctx.cancel.as_ref(), |ev| {
+                match ev {
+                    crate::ffmpeg::FfmpegEvent::Pct(p) => on_progress(StepProgress::Pct(p)),
+                    crate::ffmpeg::FfmpegEvent::Line(l) => {
+                        on_progress(StepProgress::Log(format!("ffmpeg: {l}")))
+                    }
+                }
+            })
+            .await?;
         if !status.success() {
             anyhow::bail!("audio.ensure: ffmpeg failed");
         }

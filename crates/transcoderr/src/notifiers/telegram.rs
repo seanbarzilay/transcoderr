@@ -23,7 +23,11 @@ impl Telegram {
             .unwrap_or("https://api.telegram.org")
             .trim_end_matches('/')
             .to_string();
-        Ok(Self { base_url, bot_token, chat_id })
+        Ok(Self {
+            base_url,
+            bot_token,
+            chat_id,
+        })
     }
 }
 

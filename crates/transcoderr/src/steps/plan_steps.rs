@@ -85,7 +85,9 @@ fn channel_layout_label(channels: i64) -> String {
 fn detect_hdr_kind(probe: &serde_json::Value) -> Option<&'static str> {
     let streams = probe.get("streams")?.as_array()?;
     for s in streams {
-        if s.get("codec_type")?.as_str()? != "video" { continue; }
+        if s.get("codec_type")?.as_str()? != "video" {
+            continue;
+        }
         let transfer = s.get("color_transfer")?.as_str()?;
         return match transfer {
             "smpte2084" => Some("hdr10"),
@@ -104,7 +106,9 @@ pub struct PlanInitStep;
 
 #[async_trait]
 impl Step for PlanInitStep {
-    fn name(&self) -> &'static str { "plan.init" }
+    fn name(&self) -> &'static str {
+        "plan.init"
+    }
 
     async fn execute(
         &self,
@@ -135,7 +139,9 @@ pub struct PlanTolerateErrorsStep;
 
 #[async_trait]
 impl Step for PlanTolerateErrorsStep {
-    fn name(&self) -> &'static str { "plan.input.tolerate_errors" }
+    fn name(&self) -> &'static str {
+        "plan.input.tolerate_errors"
+    }
 
     async fn execute(
         &self,
@@ -165,7 +171,9 @@ pub struct PlanDropCoverArtStep;
 
 #[async_trait]
 impl Step for PlanDropCoverArtStep {
-    fn name(&self) -> &'static str { "plan.streams.drop_cover_art" }
+    fn name(&self) -> &'static str {
+        "plan.streams.drop_cover_art"
+    }
 
     async fn execute(
         &self,
@@ -201,7 +209,9 @@ pub struct PlanDropDataStep;
 
 #[async_trait]
 impl Step for PlanDropDataStep {
-    fn name(&self) -> &'static str { "plan.streams.drop_data" }
+    fn name(&self) -> &'static str {
+        "plan.streams.drop_data"
+    }
 
     async fn execute(
         &self,
@@ -234,7 +244,9 @@ pub struct PlanDropUnsupportedSubsStep;
 
 #[async_trait]
 impl Step for PlanDropUnsupportedSubsStep {
-    fn name(&self) -> &'static str { "plan.subs.drop_unsupported" }
+    fn name(&self) -> &'static str {
+        "plan.subs.drop_unsupported"
+    }
 
     async fn execute(
         &self,
@@ -284,7 +296,9 @@ pub struct PlanContainerStep;
 
 #[async_trait]
 impl Step for PlanContainerStep {
-    fn name(&self) -> &'static str { "plan.container" }
+    fn name(&self) -> &'static str {
+        "plan.container"
+    }
 
     async fn execute(
         &self,
@@ -302,9 +316,7 @@ impl Step for PlanContainerStep {
         let mut plan = require_plan(ctx)?;
         plan.container = container.to_string();
         save_plan(ctx, &plan);
-        on_progress(StepProgress::Log(format!(
-            "plan.container: {container}"
-        )));
+        on_progress(StepProgress::Log(format!("plan.container: {container}")));
         Ok(())
     }
 }
@@ -317,7 +329,9 @@ pub struct PlanVideoEncodeStep;
 
 #[async_trait]
 impl Step for PlanVideoEncodeStep {
-    fn name(&self) -> &'static str { "plan.video.encode" }
+    fn name(&self) -> &'static str {
+        "plan.video.encode"
+    }
 
     async fn execute(
         &self,
@@ -349,11 +363,12 @@ impl Step for PlanVideoEncodeStep {
                     .collect::<Vec<_>>()
             })
             .unwrap_or_default();
-        let cpu_fallback =
-            hw_block.get("fallback").and_then(|v| v.as_str()) == Some("cpu");
+        let cpu_fallback = hw_block.get("fallback").and_then(|v| v.as_str()) == Some("cpu");
 
         let mut plan = require_plan(ctx)?;
-        plan.video.mode = VideoMode::Encode { codec: codec.clone() };
+        plan.video.mode = VideoMode::Encode {
+            codec: codec.clone(),
+        };
         plan.video.crf = crf;
         plan.video.preset = preset;
         plan.video.preserve_10bit = preserve_10bit;
@@ -376,7 +391,9 @@ pub struct PlanVideoTonemapStep;
 
 #[async_trait]
 impl Step for PlanVideoTonemapStep {
-    fn name(&self) -> &'static str { "plan.video.tonemap" }
+    fn name(&self) -> &'static str {
+        "plan.video.tonemap"
+    }
 
     async fn execute(
         &self,
@@ -436,7 +453,9 @@ pub struct PlanAudioEnsureStep;
 
 #[async_trait]
 impl Step for PlanAudioEnsureStep {
-    fn name(&self) -> &'static str { "plan.audio.ensure" }
+    fn name(&self) -> &'static str {
+        "plan.audio.ensure"
+    }
 
     async fn execute(
         &self,
@@ -454,14 +473,8 @@ impl Step for PlanAudioEnsureStep {
             .and_then(|v| v.as_str())
             .unwrap_or("eng")
             .to_string();
-        let target_channels = with
-            .get("channels")
-            .and_then(|v| v.as_i64())
-            .unwrap_or(6);
-        let dedupe = with
-            .get("dedupe")
-            .and_then(|v| v.as_bool())
-            .unwrap_or(true);
+        let target_channels = with.get("channels").and_then(|v| v.as_i64()).unwrap_or(6);
+        let dedupe = with.get("dedupe").and_then(|v| v.as_bool()).unwrap_or(true);
 
         let probe = ctx
             .probe
@@ -521,9 +534,7 @@ impl Step for PlanAudioEnsureStep {
             .filter(|s| !is_commentary(s))
             .max_by_key(|s| s.get("channels").and_then(|v| v.as_i64()).unwrap_or(0))
             .ok_or_else(|| {
-                anyhow::anyhow!(
-                    "plan.audio.ensure: no non-commentary audio stream to seed from"
-                )
+                anyhow::anyhow!("plan.audio.ensure: no non-commentary audio stream to seed from")
             })?;
         let seed_index = seed.get("index").and_then(|v| v.as_i64()).unwrap_or(-1);
         let seed_ch = seed.get("channels").and_then(|v| v.as_i64()).unwrap_or(0);
@@ -591,7 +602,10 @@ mod tests {
         }));
         let mut events = vec![];
         let mut cb = |e: StepProgress| events.push(e);
-        PlanInitStep.execute(&Default::default(), &mut ctx, &mut cb).await.unwrap();
+        PlanInitStep
+            .execute(&Default::default(), &mut ctx, &mut cb)
+            .await
+            .unwrap();
         let plan = load_plan(&ctx).unwrap();
         assert_eq!(plan.kept_indices(), vec![0, 1, 2]);
         assert_eq!(plan.container, "mkv");
@@ -608,9 +622,13 @@ mod tests {
                 {"index": 2, "codec_type": "audio", "codec_name": "aac"},
             ]
         }));
-        let plan = StreamPlan::from_probe(ctx.probe.as_ref().unwrap()); save_plan(&mut ctx, &plan);
+        let plan = StreamPlan::from_probe(ctx.probe.as_ref().unwrap());
+        save_plan(&mut ctx, &plan);
         let mut cb = |_: StepProgress| {};
-        PlanDropCoverArtStep.execute(&Default::default(), &mut ctx, &mut cb).await.unwrap();
+        PlanDropCoverArtStep
+            .execute(&Default::default(), &mut ctx, &mut cb)
+            .await
+            .unwrap();
         let plan = load_plan(&ctx).unwrap();
         assert_eq!(plan.kept_indices(), vec![0, 2]);
     }
@@ -624,14 +642,18 @@ mod tests {
                 {"index": 1, "codec_type": "audio", "codec_name": "dts", "channels": 6, "tags": {"language": "eng"}},
             ]
         }));
-        let plan = StreamPlan::from_probe(ctx.probe.as_ref().unwrap()); save_plan(&mut ctx, &plan);
+        let plan = StreamPlan::from_probe(ctx.probe.as_ref().unwrap());
+        save_plan(&mut ctx, &plan);
         let mut with: BTreeMap<String, Value> = BTreeMap::new();
         with.insert("codec".into(), json!("ac3"));
         with.insert("channels".into(), json!(6));
         with.insert("language".into(), json!("eng"));
         with.insert("dedupe".into(), json!(false));
         let mut cb = |_: StepProgress| {};
-        PlanAudioEnsureStep.execute(&with, &mut ctx, &mut cb).await.unwrap();
+        PlanAudioEnsureStep
+            .execute(&with, &mut ctx, &mut cb)
+            .await
+            .unwrap();
         let plan = load_plan(&ctx).unwrap();
         assert_eq!(plan.audio_added.len(), 1);
         assert_eq!(plan.audio_added[0].codec, "ac3");
@@ -647,13 +669,17 @@ mod tests {
                 {"index": 1, "codec_type": "audio", "codec_name": "ac3", "channels": 6, "tags": {"language": "eng"}},
             ]
         }));
-        let plan = StreamPlan::from_probe(ctx.probe.as_ref().unwrap()); save_plan(&mut ctx, &plan);
+        let plan = StreamPlan::from_probe(ctx.probe.as_ref().unwrap());
+        save_plan(&mut ctx, &plan);
         let mut with: BTreeMap<String, Value> = BTreeMap::new();
         with.insert("codec".into(), json!("ac3"));
         with.insert("channels".into(), json!(6));
         with.insert("language".into(), json!("eng"));
         let mut cb = |_: StepProgress| {};
-        PlanAudioEnsureStep.execute(&with, &mut ctx, &mut cb).await.unwrap();
+        PlanAudioEnsureStep
+            .execute(&with, &mut ctx, &mut cb)
+            .await
+            .unwrap();
         let plan = load_plan(&ctx).unwrap();
         assert!(plan.audio_added.is_empty());
     }
@@ -683,7 +709,10 @@ mod tests {
         with.insert("language".into(), json!("eng"));
         with.insert("dedupe".into(), json!(false));
         let mut cb = |_: StepProgress| {};
-        PlanAudioEnsureStep.execute(&with, &mut ctx, &mut cb).await.unwrap();
+        PlanAudioEnsureStep
+            .execute(&with, &mut ctx, &mut cb)
+            .await
+            .unwrap();
 
         let plan = load_plan(&ctx).unwrap();
         // The commentary did NOT satisfy has_target → a new AC3 6ch was added.
@@ -716,9 +745,16 @@ mod tests {
         with.insert("language".into(), json!("eng"));
         with.insert("dedupe".into(), json!(false));
         let mut cb = |_: StepProgress| {};
-        PlanAudioEnsureStep.execute(&with, &mut ctx, &mut cb).await.unwrap();
+        PlanAudioEnsureStep
+            .execute(&with, &mut ctx, &mut cb)
+            .await
+            .unwrap();
         let plan = load_plan(&ctx).unwrap();
-        assert_eq!(plan.audio_added.len(), 1, "commentary by title should not satisfy target");
+        assert_eq!(
+            plan.audio_added.len(),
+            1,
+            "commentary by title should not satisfy target"
+        );
     }
 
     #[test]
@@ -779,7 +815,9 @@ mod tests {
 
         let mut log_count = 0usize;
         let mut on_progress = |p: StepProgress| {
-            if matches!(p, StepProgress::Log(_)) { log_count += 1; }
+            if matches!(p, StepProgress::Log(_)) {
+                log_count += 1;
+            }
         };
         PlanVideoTonemapStep
             .execute(&BTreeMap::new(), &mut ctx, &mut on_progress)

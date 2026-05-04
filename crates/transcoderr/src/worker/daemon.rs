@@ -39,8 +39,7 @@ pub async fn run(cfg_path: PathBuf) -> ! {
     // still consumed by the local step registry; both probes are
     // boot-time only.
     let hw_caps_full = crate::hw::probe::probe().await;
-    let hw_caps = serde_json::to_value(&hw_caps_full)
-        .unwrap_or_else(|_| serde_json::json!({}));
+    let hw_caps = serde_json::to_value(&hw_caps_full).unwrap_or_else(|_| serde_json::json!({}));
 
     let pool = match crate::db::open_in_memory().await {
         Ok(p) => p,
@@ -86,12 +85,7 @@ pub async fn run(cfg_path: PathBuf) -> ! {
         hw_caps: hw_caps.clone(),
     };
 
-    crate::worker::connection::run(
-        cfg.coordinator_url,
-        cfg.coordinator_token,
-        ctx,
-    )
-    .await
+    crate::worker::connection::run(cfg.coordinator_url, cfg.coordinator_token, ctx).await
 }
 
 /// Resolve a usable `WorkerConfig`, performing auto-discovery and 401
@@ -111,9 +105,7 @@ async fn boot_config(cfg_path: &Path) -> anyhow::Result<WorkerConfig> {
 
     let cfg = match initial {
         Some(c) => c,
-        None => {
-            crate::worker::enroll::discover_and_enroll(cfg_path, None, false).await?
-        }
+        None => crate::worker::enroll::discover_and_enroll(cfg_path, None, false).await?,
     };
 
     // Probe once to detect a stale cached token.

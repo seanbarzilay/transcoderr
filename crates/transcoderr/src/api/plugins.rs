@@ -105,11 +105,13 @@ pub async fn get(
     State(state): State<AppState>,
     Path(id): Path<i64>,
 ) -> Result<Json<PluginDetail>, StatusCode> {
-    let row = sqlx::query("SELECT id, name, version, kind, path, schema_json FROM plugins WHERE id = ?")
-        .bind(id)
-        .fetch_optional(&state.pool).await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
-        .ok_or(StatusCode::NOT_FOUND)?;
+    let row =
+        sqlx::query("SELECT id, name, version, kind, path, schema_json FROM plugins WHERE id = ?")
+            .bind(id)
+            .fetch_optional(&state.pool)
+            .await
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+            .ok_or(StatusCode::NOT_FOUND)?;
 
     let path_str: Option<String> = row.get(4);
     let path_str = path_str.unwrap_or_default();
@@ -118,34 +120,27 @@ pub async fn get(
     let schema_str: String = row.get(5);
     let schema: serde_json::Value = serde_json::from_str(&schema_str).unwrap_or_default();
 
-    let (
-        provides_steps,
-        capabilities,
-        requires,
-        summary,
-        min_transcoderr_version,
-        runtimes,
-        deps,
-    ) = match manifest {
-        Some(m) => (
-            m.provides_steps,
-            m.capabilities,
-            m.requires,
-            m.summary,
-            m.min_transcoderr_version,
-            m.runtimes,
-            m.deps,
-        ),
-        None => (
-            vec![],
-            vec![],
-            serde_json::Value::Null,
-            None,
-            None,
-            vec![],
-            None,
-        ),
-    };
+    let (provides_steps, capabilities, requires, summary, min_transcoderr_version, runtimes, deps) =
+        match manifest {
+            Some(m) => (
+                m.provides_steps,
+                m.capabilities,
+                m.requires,
+                m.summary,
+                m.min_transcoderr_version,
+                m.runtimes,
+                m.deps,
+            ),
+            None => (
+                vec![],
+                vec![],
+                serde_json::Value::Null,
+                None,
+                None,
+                vec![],
+                None,
+            ),
+        };
 
     Ok(Json(PluginDetail {
         id: row.get(0),
@@ -165,9 +160,7 @@ pub async fn get(
     }))
 }
 
-pub async fn browse(
-    State(state): State<AppState>,
-) -> Result<Json<ListAllResult>, StatusCode> {
+pub async fn browse(State(state): State<AppState>) -> Result<Json<ListAllResult>, StatusCode> {
     let mut res = state
         .catalog_client
         .list_all(&state.pool)
@@ -224,15 +217,13 @@ pub async fn install(
         };
         let error = |code: StatusCode, msg: &str| {
             send(
-                Event::default()
-                    .event("error")
-                    .data(
-                        serde_json::json!({
-                            "status": code.as_u16(),
-                            "message": msg,
-                        })
-                        .to_string(),
-                    ),
+                Event::default().event("error").data(
+                    serde_json::json!({
+                        "status": code.as_u16(),
+                        "message": msg,
+                    })
+                    .to_string(),
+                ),
             );
         };
 
@@ -276,24 +267,33 @@ pub async fn install(
 
         // Capture the previously-installed sha (if any) so we can clean
         // up the old cache file after a successful version bump.
-        let old_sha: Option<String> = sqlx::query_scalar(
-            "SELECT tarball_sha256 FROM plugins WHERE name = ?",
-        )
-        .bind(&entry.entry.name)
-        .fetch_optional(&pool)
-        .await
-        .ok()
-        .flatten();
+        let old_sha: Option<String> =
+            sqlx::query_scalar("SELECT tarball_sha256 FROM plugins WHERE name = ?")
+                .bind(&entry.entry.name)
+                .fetch_optional(&pool)
+                .await
+                .ok()
+                .flatten();
 
         let cache_path = state
             .cfg
             .data_dir
             .join("plugins")
             .join(".tarball-cache")
-            .join(format!("{}-{}.tar.gz", entry.entry.name, entry.entry.tarball_sha256));
+            .join(format!(
+                "{}-{}.tar.gz",
+                entry.entry.name, entry.entry.tarball_sha256
+            ));
 
         status("Downloading + verifying tarball");
-        let installed = match installer::install_from_entry(&entry.entry, &plugins_dir, Some(&cache_path), None).await {
+        let installed = match installer::install_from_entry(
+            &entry.entry,
+            &plugins_dir,
+            Some(&cache_path),
+            None,
+        )
+        .await
+        {
             Ok(i) => i,
             Err(e) => {
                 error(StatusCode::UNPROCESSABLE_ENTITY, &e.to_string());
@@ -301,8 +301,8 @@ pub async fn install(
             }
         };
 
-        if let Some(deps_cmd) = read_manifest(&installed.plugin_dir.to_string_lossy())
-            .and_then(|m| m.deps)
+        if let Some(deps_cmd) =
+            read_manifest(&installed.plugin_dir.to_string_lossy()).and_then(|m| m.deps)
         {
             tracing::info!(plugin = %task_name, deps = %deps_cmd, "running plugin deps");
             status(&format!("Running deps: {deps_cmd}"));
@@ -311,27 +311,22 @@ pub async fn install(
             // a `log` event. The closure is called synchronously per
             // line by deps::run, so this is just a non-blocking send.
             let log_tx = tx.clone();
-            let res = crate::plugins::deps::run(
-                &installed.plugin_dir,
-                &deps_cmd,
-                |stream, line| {
+            let res =
+                crate::plugins::deps::run(&installed.plugin_dir, &deps_cmd, |stream, line| {
                     let _ = log_tx.send(
-                        Event::default()
-                            .event("log")
-                            .data(
-                                serde_json::json!({
-                                    "stream": match stream {
-                                        crate::plugins::deps::Stream::Stdout => "stdout",
-                                        crate::plugins::deps::Stream::Stderr => "stderr",
-                                    },
-                                    "line": line,
-                                })
-                                .to_string(),
-                            ),
+                        Event::default().event("log").data(
+                            serde_json::json!({
+                                "stream": match stream {
+                                    crate::plugins::deps::Stream::Stdout => "stdout",
+                                    crate::plugins::deps::Stream::Stderr => "stderr",
+                                },
+                                "line": line,
+                            })
+                            .to_string(),
+                        ),
                     );
-                },
-            )
-            .await;
+                })
+                .await;
             drop(log_tx);
 
             if let Err(e) = res {
@@ -360,8 +355,7 @@ pub async fn install(
             installed.name.clone(),
             (catalog_id, installed.tarball_sha256),
         );
-        if let Err(e) = crate::db::plugins::sync_discovered(&pool, &discovered, &provenance).await
-        {
+        if let Err(e) = crate::db::plugins::sync_discovered(&pool, &discovered, &provenance).await {
             error(StatusCode::INTERNAL_SERVER_ERROR, &e.to_string());
             return;
         }
@@ -393,8 +387,7 @@ pub async fn install(
         // closes naturally.
     });
 
-    Sse::new(UnboundedReceiverStream::new(rx).map(Ok))
-        .keep_alive(KeepAlive::default())
+    Sse::new(UnboundedReceiverStream::new(rx).map(Ok)).keep_alive(KeepAlive::default())
 }
 
 /// DELETE /api/plugins/:id
@@ -473,10 +466,7 @@ async fn broadcast_manifest(state: &AppState) {
         .filter_map(|p| {
             let sha = p.tarball_sha256?;
             Some(crate::worker::protocol::PluginInstall {
-                tarball_url: format!(
-                    "{}/api/worker/plugins/{}/tarball",
-                    state.public_url, p.name
-                ),
+                tarball_url: format!("{}/api/worker/plugins/{}/tarball", state.public_url, p.name),
                 name: p.name,
                 version: p.version,
                 sha256: sha,

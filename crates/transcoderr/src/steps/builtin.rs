@@ -34,7 +34,10 @@ pub fn register_all(
     ffmpeg_caps: std::sync::Arc<crate::ffmpeg_caps::FfmpegCaps>,
 ) {
     map.insert("probe".into(), Arc::new(ProbeStep));
-    map.insert("transcode".into(), Arc::new(TranscodeStep { hw: hw.clone() }));
+    map.insert(
+        "transcode".into(),
+        Arc::new(TranscodeStep { hw: hw.clone() }),
+    );
     map.insert("output".into(), Arc::new(OutputStep));
     map.insert("verify.playable".into(), Arc::new(VerifyPlayableStep));
     map.insert("remux".into(), Arc::new(RemuxStep));
@@ -49,10 +52,19 @@ pub fn register_all(
     // New plan-then-execute pipeline. Mutator steps are pure (no ffmpeg), the
     // executor materializes everything into one ffmpeg pass.
     map.insert("plan.init".into(), Arc::new(PlanInitStep));
-    map.insert("plan.input.tolerate_errors".into(), Arc::new(PlanTolerateErrorsStep));
-    map.insert("plan.streams.drop_cover_art".into(), Arc::new(PlanDropCoverArtStep));
+    map.insert(
+        "plan.input.tolerate_errors".into(),
+        Arc::new(PlanTolerateErrorsStep),
+    );
+    map.insert(
+        "plan.streams.drop_cover_art".into(),
+        Arc::new(PlanDropCoverArtStep),
+    );
     map.insert("plan.streams.drop_data".into(), Arc::new(PlanDropDataStep));
-    map.insert("plan.subs.drop_unsupported".into(), Arc::new(PlanDropUnsupportedSubsStep));
+    map.insert(
+        "plan.subs.drop_unsupported".into(),
+        Arc::new(PlanDropUnsupportedSubsStep),
+    );
     map.insert("plan.container".into(), Arc::new(PlanContainerStep));
     map.insert("plan.video.encode".into(), Arc::new(PlanVideoEncodeStep));
     map.insert("plan.video.tonemap".into(), Arc::new(PlanVideoTonemapStep));

@@ -30,26 +30,39 @@ impl ArrCache {
     /// Test-only constructor with an injectable clock.
     #[cfg(test)]
     pub fn new_with_clock(ttl: Duration, now_fn: Arc<dyn Fn() -> Instant + Send + Sync>) -> Self {
-        Self { inner: Arc::new(RwLock::new(HashMap::new())), ttl, now_fn }
+        Self {
+            inner: Arc::new(RwLock::new(HashMap::new())),
+            ttl,
+            now_fn,
+        }
     }
 
     pub fn get(&self, source_id: i64, key: &str) -> Option<serde_json::Value> {
         let now = (self.now_fn)();
         let g = self.inner.read().ok()?;
         let e = g.get(&(source_id, key.to_string()))?;
-        if e.expires_at < now { return None; }
+        if e.expires_at < now {
+            return None;
+        }
         Some(e.data.clone())
     }
 
     pub fn put(&self, source_id: i64, key: &str, data: serde_json::Value) {
         let expires_at = (self.now_fn)() + self.ttl;
-        let Ok(mut g) = self.inner.write() else { return };
-        g.insert((source_id, key.to_string()), CacheEntry { data, expires_at });
+        let Ok(mut g) = self.inner.write() else {
+            return;
+        };
+        g.insert(
+            (source_id, key.to_string()),
+            CacheEntry { data, expires_at },
+        );
     }
 
     /// Drops every entry whose source_id matches.
     pub fn invalidate(&self, source_id: i64) {
-        let Ok(mut g) = self.inner.write() else { return };
+        let Ok(mut g) = self.inner.write() else {
+            return;
+        };
         g.retain(|(sid, _), _| *sid != source_id);
     }
 }

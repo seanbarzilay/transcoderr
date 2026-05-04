@@ -86,7 +86,11 @@ impl RadarrMovie {
                 path: f.path.clone(),
                 size: f.size,
                 codec: f.media_info.as_ref().and_then(|m| m.video_codec.clone()),
-                quality: f.quality.as_ref().and_then(|q| q.quality.as_ref()).and_then(|n| n.name.clone()),
+                quality: f
+                    .quality
+                    .as_ref()
+                    .and_then(|q| q.quality.as_ref())
+                    .and_then(|n| n.name.clone()),
                 resolution: f.media_info.as_ref().and_then(|m| m.resolution.clone()),
             })
         } else {
@@ -175,7 +179,11 @@ impl SonarrSeries {
             .map(|s| SeasonSummary {
                 number: s.season_number,
                 episode_count: s.statistics.as_ref().map(|x| x.episode_count).unwrap_or(0),
-                episode_file_count: s.statistics.as_ref().map(|x| x.episode_file_count).unwrap_or(0),
+                episode_file_count: s
+                    .statistics
+                    .as_ref()
+                    .map(|x| x.episode_file_count)
+                    .unwrap_or(0),
                 monitored: s.monitored,
             })
             .collect();
@@ -227,7 +235,11 @@ impl SonarrEpisode {
                 path: f.path.clone(),
                 size: f.size,
                 codec: f.media_info.as_ref().and_then(|m| m.video_codec.clone()),
-                quality: f.quality.as_ref().and_then(|q| q.quality.as_ref()).and_then(|n| n.name.clone()),
+                quality: f
+                    .quality
+                    .as_ref()
+                    .and_then(|q| q.quality.as_ref())
+                    .and_then(|n| n.name.clone()),
                 resolution: f.media_info.as_ref().and_then(|m| m.resolution.clone()),
             })
         } else {
@@ -271,7 +283,10 @@ mod tests {
         let s = raw.into_summary("http://radarr:7878");
         assert_eq!(s.id, 7);
         assert_eq!(s.title, "Dune");
-        assert_eq!(s.poster_url.as_deref(), Some("https://image.tmdb.org/x.jpg"));
+        assert_eq!(
+            s.poster_url.as_deref(),
+            Some("https://image.tmdb.org/x.jpg")
+        );
         assert!(s.has_file);
         let f = s.file.unwrap();
         assert_eq!(f.path, "/movies/Dune.mkv");
@@ -285,7 +300,8 @@ mod tests {
     fn radarr_movie_no_file_omits_file_summary() {
         let raw: RadarrMovie = serde_json::from_value(json!({
             "id": 8, "title": "Pending", "hasFile": false, "images": []
-        })).unwrap();
+        }))
+        .unwrap();
         let s = raw.into_summary("http://radarr:7878");
         assert!(!s.has_file);
         assert!(s.file.is_none());
@@ -298,7 +314,10 @@ mod tests {
             "images": [{ "coverType": "poster", "remoteUrl": "", "url": "/MediaCover/9/poster.jpg" }]
         })).unwrap();
         let s = raw.into_summary("http://radarr:7878/");
-        assert_eq!(s.poster_url.as_deref(), Some("http://radarr:7878/MediaCover/9/poster.jpg"));
+        assert_eq!(
+            s.poster_url.as_deref(),
+            Some("http://radarr:7878/MediaCover/9/poster.jpg")
+        );
     }
 
     #[test]
@@ -313,7 +332,10 @@ mod tests {
         assert_eq!(s.season_count, 3);
         assert_eq!(s.episode_count, 30);
         assert_eq!(s.episode_file_count, 25);
-        assert_eq!(s.poster_url.as_deref(), Some("https://artworks.thetvdb.com/p.jpg"));
+        assert_eq!(
+            s.poster_url.as_deref(),
+            Some("https://artworks.thetvdb.com/p.jpg")
+        );
     }
 
     #[test]
@@ -331,7 +353,8 @@ mod tests {
                 { "seasonNumber": 2, "monitored": false,
                   "statistics": { "episodeCount": 10, "episodeFileCount": 5 } }
             ]
-        })).unwrap();
+        }))
+        .unwrap();
         let d = raw.into_detail("http://sonarr:8989");
         assert_eq!(d.fanart_url.as_deref(), Some("https://f"));
         assert_eq!(d.seasons.len(), 2);
@@ -350,7 +373,8 @@ mod tests {
                 "mediaInfo": { "videoCodec": "h264", "resolution": "1920x1080" },
                 "quality": { "quality": { "name": "WEBDL-1080p" } }
             }
-        })).unwrap();
+        }))
+        .unwrap();
         let s = raw.into_summary();
         assert_eq!(s.id, 100);
         assert_eq!(s.season_number, 1);

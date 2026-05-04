@@ -107,7 +107,11 @@ mod tests {
     #[tokio::test]
     async fn unknown_runtime_is_not_available() {
         let checker = RuntimeChecker::default();
-        assert!(!checker.is_available("definitely-not-a-real-binary-12345abcxyz").await);
+        assert!(
+            !checker
+                .is_available("definitely-not-a-real-binary-12345abcxyz")
+                .await
+        );
     }
 
     #[tokio::test]
@@ -135,7 +139,10 @@ mod tests {
         let checker = RuntimeChecker::default();
         // Prime the cache with a missing one.
         checker.is_available("definitely-fake-555").await;
-        assert_eq!(checker.cache.read().await.get("definitely-fake-555"), Some(&false));
+        assert_eq!(
+            checker.cache.read().await.get("definitely-fake-555"),
+            Some(&false)
+        );
 
         // Manually flip the cached value (something the prod code never
         // does, but proves we're hitting the cache).

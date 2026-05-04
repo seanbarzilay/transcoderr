@@ -10,7 +10,9 @@ async fn telegram_posts_to_send_message() {
     tokio::spawn(async move {
         let (mut s, _) = listener.accept().await.unwrap();
         let mut buf = vec![0u8; 4096];
-        let n = tokio::io::AsyncReadExt::read(&mut s, &mut buf).await.unwrap();
+        let n = tokio::io::AsyncReadExt::read(&mut s, &mut buf)
+            .await
+            .unwrap();
         *recv.lock().await = String::from_utf8_lossy(&buf[..n]).to_string();
         let _ = tokio::io::AsyncWriteExt::write_all(
             &mut s,
@@ -31,7 +33,16 @@ async fn telegram_posts_to_send_message() {
     n.send("hello from transcoderr", &json!({})).await.unwrap();
 
     let body = received.lock().await.clone();
-    assert!(body.contains("/botTEST_TOKEN/sendMessage"), "wrong path: {body}");
-    assert!(body.contains("\"chat_id\":\"12345\""), "missing chat_id: {body}");
-    assert!(body.contains("\"text\":\"hello from transcoderr\""), "missing text: {body}");
+    assert!(
+        body.contains("/botTEST_TOKEN/sendMessage"),
+        "wrong path: {body}"
+    );
+    assert!(
+        body.contains("\"chat_id\":\"12345\""),
+        "missing chat_id: {body}"
+    );
+    assert!(
+        body.contains("\"text\":\"hello from transcoderr\""),
+        "missing text: {body}"
+    );
 }

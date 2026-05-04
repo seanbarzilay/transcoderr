@@ -17,12 +17,16 @@ impl DeviceRegistry {
                 Arc::new(Semaphore::new(d.max_concurrent as usize)),
             );
         }
-        Self { by_key: Arc::new(map) }
+        Self {
+            by_key: Arc::new(map),
+        }
     }
 
     /// Build an empty registry (no devices).
     pub fn empty() -> Self {
-        Self { by_key: Arc::new(HashMap::new()) }
+        Self {
+            by_key: Arc::new(HashMap::new()),
+        }
     }
 
     /// Acquire from the first available preferred accel.

@@ -1,4 +1,4 @@
-use crate::{db, http::AppState, http::auth_extract, http::dedup::DedupCache};
+use crate::{db, http::auth_extract, http::dedup::DedupCache, http::AppState};
 use axum::{
     extract::State,
     http::{HeaderMap, StatusCode},
@@ -33,8 +33,8 @@ pub async fn handle(
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
         .ok_or(StatusCode::UNAUTHORIZED)?;
 
-    let payload: RadarrPayload = serde_json::from_value(raw.0.clone())
-        .map_err(|_| StatusCode::BAD_REQUEST)?;
+    let payload: RadarrPayload =
+        serde_json::from_value(raw.0.clone()).map_err(|_| StatusCode::BAD_REQUEST)?;
     let event = match payload.event_type.as_str() {
         "Download" | "MovieFileImported" => "downloaded",
         _ => return Ok(StatusCode::ACCEPTED),

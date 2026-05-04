@@ -11,7 +11,12 @@ async fn plugin_catalogs_crud() {
     // The migration seeds one official catalog. List should show it.
     let list1: Vec<serde_json::Value> = client
         .get(format!("{}/api/plugin-catalogs", app.url))
-        .send().await.unwrap().json().await.unwrap();
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
     assert_eq!(list1.len(), 1);
     assert_eq!(list1[0]["name"], "transcoderr official");
 
@@ -24,25 +29,39 @@ async fn plugin_catalogs_crud() {
             "auth_header": "Bearer xyz",
             "priority": 5,
         }))
-        .send().await.unwrap().json().await.unwrap();
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
     let id = resp["id"].as_i64().unwrap();
 
     // List now has two.
     let list2: Vec<serde_json::Value> = client
         .get(format!("{}/api/plugin-catalogs", app.url))
-        .send().await.unwrap().json().await.unwrap();
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
     assert_eq!(list2.len(), 2);
 
     // Delete returns 204.
     let resp = client
         .delete(format!("{}/api/plugin-catalogs/{id}", app.url))
-        .send().await.unwrap();
+        .send()
+        .await
+        .unwrap();
     assert_eq!(resp.status(), 204);
 
     // Deleting again returns 404.
     let resp = client
         .delete(format!("{}/api/plugin-catalogs/{id}", app.url))
-        .send().await.unwrap();
+        .send()
+        .await
+        .unwrap();
     assert_eq!(resp.status(), 404);
 }
 
@@ -58,13 +77,22 @@ async fn browse_returns_entries_and_errors_per_catalog() {
     // doesn't try to fetch from the real internet.
     let list1: Vec<serde_json::Value> = client
         .get(format!("{}/api/plugin-catalogs", app.url))
-        .send().await.unwrap().json().await.unwrap();
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
     let seed_id = list1[0]["id"].as_i64().unwrap();
-    client.delete(format!("{}/api/plugin-catalogs/{seed_id}", app.url))
-        .send().await.unwrap();
+    client
+        .delete(format!("{}/api/plugin-catalogs/{seed_id}", app.url))
+        .send()
+        .await
+        .unwrap();
 
     let server_ok = MockServer::start().await;
-    Mock::given(method("GET")).and(path("/index.json"))
+    Mock::given(method("GET"))
+        .and(path("/index.json"))
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({
             "schema_version": 1,
             "plugins": [{
@@ -77,18 +105,27 @@ async fn browse_returns_entries_and_errors_per_catalog() {
                 "provides_steps": ["size.report.before"]
             }]
         })))
-        .mount(&server_ok).await;
+        .mount(&server_ok)
+        .await;
 
-    client.post(format!("{}/api/plugin-catalogs", app.url))
+    client
+        .post(format!("{}/api/plugin-catalogs", app.url))
         .json(&json!({
             "name": "ok",
             "url": format!("{}/index.json", server_ok.uri()),
         }))
-        .send().await.unwrap();
+        .send()
+        .await
+        .unwrap();
 
     let body: serde_json::Value = client
         .get(format!("{}/api/plugin-catalog-entries", app.url))
-        .send().await.unwrap().json().await.unwrap();
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
     let entries = body["entries"].as_array().unwrap();
     assert_eq!(entries.len(), 1);
     assert_eq!(entries[0]["name"], "size-report");
@@ -113,28 +150,37 @@ async fn install_then_uninstall_round_trip() {
     {
         let mut tar = tar::Builder::new(&mut gz);
         let mut hdr = tar::Header::new_gnu();
-        hdr.set_path("demo/").unwrap(); hdr.set_mode(0o755); hdr.set_size(0); hdr.set_cksum();
+        hdr.set_path("demo/").unwrap();
+        hdr.set_mode(0o755);
+        hdr.set_size(0);
+        hdr.set_cksum();
         tar.append(&hdr, std::io::empty()).unwrap();
         let body = manifest.as_bytes();
         let mut hdr = tar::Header::new_gnu();
         hdr.set_path("demo/manifest.toml").unwrap();
-        hdr.set_mode(0o644); hdr.set_size(body.len() as u64); hdr.set_cksum();
+        hdr.set_mode(0o644);
+        hdr.set_size(body.len() as u64);
+        hdr.set_cksum();
         tar.append(&hdr, body).unwrap();
         let run = b"#!/bin/sh\nread A\nread B\necho '{\"event\":\"result\",\"status\":\"ok\",\"outputs\":{}}'\n";
         let mut hdr = tar::Header::new_gnu();
         hdr.set_path("demo/bin/run").unwrap();
-        hdr.set_mode(0o755); hdr.set_size(run.len() as u64); hdr.set_cksum();
+        hdr.set_mode(0o755);
+        hdr.set_size(run.len() as u64);
+        hdr.set_cksum();
         tar.append(&hdr, &run[..]).unwrap();
         tar.finish().unwrap();
     }
     let bytes = gz.finish().unwrap();
-    let mut h = Sha256::new(); h.update(&bytes);
+    let mut h = Sha256::new();
+    h.update(&bytes);
     let sha: String = h.finalize().iter().map(|b| format!("{b:02x}")).collect();
 
     // Mock catalog hosting the tarball.
     let server = MockServer::start().await;
     let url = server.uri();
-    Mock::given(method("GET")).and(path("/index.json"))
+    Mock::given(method("GET"))
+        .and(path("/index.json"))
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({
             "schema_version": 1,
             "plugins": [{
@@ -147,22 +193,38 @@ async fn install_then_uninstall_round_trip() {
                 "provides_steps": ["demo.do"]
             }]
         })))
-        .mount(&server).await;
-    Mock::given(method("GET")).and(path("/demo.tar.gz"))
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/demo.tar.gz"))
         .respond_with(ResponseTemplate::new(200).set_body_bytes(bytes))
-        .mount(&server).await;
+        .mount(&server)
+        .await;
 
     // Replace the seed catalog with this mock.
     let list: Vec<serde_json::Value> = client
         .get(format!("{}/api/plugin-catalogs", app.url))
-        .send().await.unwrap().json().await.unwrap();
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
     let seed_id = list[0]["id"].as_i64().unwrap();
-    client.delete(format!("{}/api/plugin-catalogs/{seed_id}", app.url))
-        .send().await.unwrap();
+    client
+        .delete(format!("{}/api/plugin-catalogs/{seed_id}", app.url))
+        .send()
+        .await
+        .unwrap();
     let create: serde_json::Value = client
         .post(format!("{}/api/plugin-catalogs", app.url))
         .json(&json!({"name": "mock", "url": format!("{url}/index.json")}))
-        .send().await.unwrap().json().await.unwrap();
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
     let cid = create["id"].as_i64().unwrap();
 
     // Install via the API. Endpoint returns SSE; drive it to the terminal
@@ -182,7 +244,12 @@ async fn install_then_uninstall_round_trip() {
     // render.
     let plugins: Vec<serde_json::Value> = client
         .get(format!("{}/api/plugins", app.url))
-        .send().await.unwrap().json().await.unwrap();
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
     assert_eq!(plugins.len(), 1);
     assert_eq!(plugins[0]["name"], "demo");
     assert_eq!(
@@ -199,12 +266,19 @@ async fn install_then_uninstall_round_trip() {
     // Uninstall via the API.
     let resp = client
         .delete(format!("{}/api/plugins/{pid}", app.url))
-        .send().await.unwrap();
+        .send()
+        .await
+        .unwrap();
     assert_eq!(resp.status(), 204);
 
     let plugins_after: Vec<serde_json::Value> = client
         .get(format!("{}/api/plugins", app.url))
-        .send().await.unwrap().json().await.unwrap();
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
     assert!(plugins_after.is_empty());
 }
 
@@ -222,7 +296,8 @@ async fn install_refuses_when_declared_runtime_is_missing() {
 
     let server = MockServer::start().await;
     let url = server.uri();
-    Mock::given(method("GET")).and(path("/index.json"))
+    Mock::given(method("GET"))
+        .and(path("/index.json"))
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({
             "schema_version": 1,
             "plugins": [{
@@ -236,25 +311,44 @@ async fn install_refuses_when_declared_runtime_is_missing() {
                 "runtimes": ["definitely-not-a-real-binary-12345abcxyz"]
             }]
         })))
-        .mount(&server).await;
+        .mount(&server)
+        .await;
 
     // Replace the seed catalog with the mock.
     let list: Vec<serde_json::Value> = client
         .get(format!("{}/api/plugin-catalogs", app.url))
-        .send().await.unwrap().json().await.unwrap();
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
     let seed_id = list[0]["id"].as_i64().unwrap();
-    client.delete(format!("{}/api/plugin-catalogs/{seed_id}", app.url))
-        .send().await.unwrap();
+    client
+        .delete(format!("{}/api/plugin-catalogs/{seed_id}", app.url))
+        .send()
+        .await
+        .unwrap();
     let create: serde_json::Value = client
         .post(format!("{}/api/plugin-catalogs", app.url))
         .json(&json!({"name": "mock", "url": format!("{url}/index.json")}))
-        .send().await.unwrap().json().await.unwrap();
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
     let cid = create["id"].as_i64().unwrap();
 
     // Browse surfaces the missing runtime per entry.
     let body: serde_json::Value = client
         .get(format!("{}/api/plugin-catalog-entries", app.url))
-        .send().await.unwrap().json().await.unwrap();
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
     let entries = body["entries"].as_array().unwrap();
     assert_eq!(entries.len(), 1);
     let missing = entries[0]["missing_runtimes"].as_array().unwrap();
@@ -264,7 +358,10 @@ async fn install_refuses_when_declared_runtime_is_missing() {
     // Install refuses with a 422 error event in the SSE stream.
     let err = common::install_via_sse(
         &client,
-        &format!("{}/api/plugin-catalog-entries/{cid}/needs-fake/install", app.url),
+        &format!(
+            "{}/api/plugin-catalog-entries/{cid}/needs-fake/install",
+            app.url
+        ),
     )
     .await
     .expect_err("install must fail when a declared runtime is missing");
@@ -278,7 +375,12 @@ async fn install_refuses_when_declared_runtime_is_missing() {
     // No plugin row landed.
     let plugins: Vec<serde_json::Value> = client
         .get(format!("{}/api/plugins", app.url))
-        .send().await.unwrap().json().await.unwrap();
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
     assert!(plugins.is_empty(), "no plugin should be installed");
 }
 
@@ -310,27 +412,35 @@ async fn install_refuses_when_deps_command_exits_non_zero() {
         let mut tar = tar::Builder::new(&mut gz);
         let mut hdr = tar::Header::new_gnu();
         hdr.set_path("broken-deps/").unwrap();
-        hdr.set_mode(0o755); hdr.set_size(0); hdr.set_cksum();
+        hdr.set_mode(0o755);
+        hdr.set_size(0);
+        hdr.set_cksum();
         tar.append(&hdr, std::io::empty()).unwrap();
         let body = manifest.as_bytes();
         let mut hdr = tar::Header::new_gnu();
         hdr.set_path("broken-deps/manifest.toml").unwrap();
-        hdr.set_mode(0o644); hdr.set_size(body.len() as u64); hdr.set_cksum();
+        hdr.set_mode(0o644);
+        hdr.set_size(body.len() as u64);
+        hdr.set_cksum();
         tar.append(&hdr, body).unwrap();
         let run = b"#!/bin/sh\necho ok\n";
         let mut hdr = tar::Header::new_gnu();
         hdr.set_path("broken-deps/bin/run").unwrap();
-        hdr.set_mode(0o755); hdr.set_size(run.len() as u64); hdr.set_cksum();
+        hdr.set_mode(0o755);
+        hdr.set_size(run.len() as u64);
+        hdr.set_cksum();
         tar.append(&hdr, &run[..]).unwrap();
         tar.finish().unwrap();
     }
     let bytes = gz.finish().unwrap();
-    let mut h = Sha256::new(); h.update(&bytes);
+    let mut h = Sha256::new();
+    h.update(&bytes);
     let sha: String = h.finalize().iter().map(|b| format!("{b:02x}")).collect();
 
     let server = MockServer::start().await;
     let url = server.uri();
-    Mock::given(method("GET")).and(path("/index.json"))
+    Mock::given(method("GET"))
+        .and(path("/index.json"))
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({
             "schema_version": 1,
             "plugins": [{
@@ -344,28 +454,47 @@ async fn install_refuses_when_deps_command_exits_non_zero() {
                 "deps": "false"
             }]
         })))
-        .mount(&server).await;
-    Mock::given(method("GET")).and(path("/broken-deps.tar.gz"))
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/broken-deps.tar.gz"))
         .respond_with(ResponseTemplate::new(200).set_body_bytes(bytes))
-        .mount(&server).await;
+        .mount(&server)
+        .await;
 
     // Replace the seed catalog with the mock.
     let list: Vec<serde_json::Value> = client
         .get(format!("{}/api/plugin-catalogs", app.url))
-        .send().await.unwrap().json().await.unwrap();
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
     let seed_id = list[0]["id"].as_i64().unwrap();
-    client.delete(format!("{}/api/plugin-catalogs/{seed_id}", app.url))
-        .send().await.unwrap();
+    client
+        .delete(format!("{}/api/plugin-catalogs/{seed_id}", app.url))
+        .send()
+        .await
+        .unwrap();
     let create: serde_json::Value = client
         .post(format!("{}/api/plugin-catalogs", app.url))
         .json(&json!({"name": "mock", "url": format!("{url}/index.json")}))
-        .send().await.unwrap().json().await.unwrap();
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
     let cid = create["id"].as_i64().unwrap();
 
     // Install refuses with a 422 error event in the SSE stream.
     let err = common::install_via_sse(
         &client,
-        &format!("{}/api/plugin-catalog-entries/{cid}/broken-deps/install", app.url),
+        &format!(
+            "{}/api/plugin-catalog-entries/{cid}/broken-deps/install",
+            app.url
+        ),
     )
     .await
     .expect_err("install must fail when deps exit non-zero");
@@ -385,6 +514,11 @@ async fn install_refuses_when_deps_command_exits_non_zero() {
     // No plugin row landed.
     let plugins: Vec<serde_json::Value> = client
         .get(format!("{}/api/plugins", app.url))
-        .send().await.unwrap().json().await.unwrap();
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
     assert!(plugins.is_empty(), "no plugin should be installed");
 }

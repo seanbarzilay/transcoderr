@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "../../api/client";
+import { errorMessage } from "../../lib/errors";
 
 interface Props {
   /// URL-base the operator will paste into the worker config (e.g.
@@ -26,7 +27,7 @@ export default function AddWorkerForm({ coordinatorUrlGuess, onClose }: Props) {
       setCreated({ id: resp.id, token: resp.secret_token, name });
       qc.invalidateQueries({ queryKey: ["workers"] });
     },
-    onError: (e: any) => setError(e?.message ?? "create failed"),
+    onError: (e: unknown) => setError(errorMessage(e, "create failed")),
   });
 
   const configToml =

@@ -21,7 +21,9 @@ pub(crate) fn metadata_path_for(input: &str, _ctx: &Context) -> String {
 
 #[async_trait]
 impl Step for ProbeStep {
-    fn name(&self) -> &'static str { "probe" }
+    fn name(&self) -> &'static str {
+        "probe"
+    }
 
     async fn execute(
         &self,

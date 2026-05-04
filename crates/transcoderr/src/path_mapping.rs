@@ -69,7 +69,7 @@ impl PathMappings {
                 to: strip_trailing_slash(r.to),
             })
             .collect();
-        rules.sort_by(|a, b| b.from.len().cmp(&a.from.len()));
+        rules.sort_by_key(|rule| std::cmp::Reverse(rule.from.len()));
         Self { rules }
     }
 
@@ -157,7 +157,10 @@ mod tests {
     use serde_json::json;
 
     fn rule(from: &str, to: &str) -> PathMapping {
-        PathMapping { from: from.into(), to: to.into() }
+        PathMapping {
+            from: from.into(),
+            to: to.into(),
+        }
     }
 
     #[test]
@@ -237,9 +240,16 @@ mod tests {
         });
         m.apply(&mut v, Direction::CoordToWorker);
         assert_eq!(v["file"]["path"], json!("/data/X.mkv"));
-        assert_eq!(v["steps"]["tx"]["output_path"], json!("/data/X.transcoded.mkv"));
+        assert_eq!(
+            v["steps"]["tx"]["output_path"],
+            json!("/data/X.transcoded.mkv")
+        );
         assert_eq!(v["extras"][0], json!("/data/A"));
-        assert_eq!(v["extras"][1], json!("/other/B"), "non-matching prefix untouched");
+        assert_eq!(
+            v["extras"][1],
+            json!("/other/B"),
+            "non-matching prefix untouched"
+        );
         assert_eq!(v["extras"][2]["nested"], json!("/data/C"));
     }
 
@@ -262,8 +272,10 @@ mod tests {
     #[test]
     fn trailing_slash_normalisation() {
         // from = "/mnt/movies/" must behave identically to "/mnt/movies".
-        let with_slash = PathMappings::from_rules(vec![rule("/mnt/movies/", "/data/media/movies/")]);
-        let without_slash = PathMappings::from_rules(vec![rule("/mnt/movies", "/data/media/movies")]);
+        let with_slash =
+            PathMappings::from_rules(vec![rule("/mnt/movies/", "/data/media/movies/")]);
+        let without_slash =
+            PathMappings::from_rules(vec![rule("/mnt/movies", "/data/media/movies")]);
 
         let input = json!({"path": "/mnt/movies/X.mkv"});
 

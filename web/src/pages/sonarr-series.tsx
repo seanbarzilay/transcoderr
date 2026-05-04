@@ -1,9 +1,9 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useParams, useSearchParams, Link } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { api } from "../api/client";
 import TranscodeButton from "../components/transcode-button";
-import { formatBytes } from "../components/detail-panel";
+import { formatBytes } from "../lib/format";
 import type { EpisodeSummary } from "../types-arr";
 
 export default function SonarrSeries() {
@@ -24,22 +24,19 @@ export default function SonarrSeries() {
   const [activeSeason, setActiveSeason] = useState<number | null>(null);
   const [codec, setCodec] = useState("");
   const [resolution, setResolution] = useState("");
-  useEffect(() => {
-    if (activeSeason != null) return;
-    const seasons = detail.data?.seasons ?? [];
-    const firstReal = seasons.find((s) => s.number > 0) ?? seasons[0];
-    if (firstReal) setActiveSeason(firstReal.number);
-  }, [detail.data, activeSeason]);
+  const seasons = detail.data?.seasons ?? [];
+  const defaultSeason = seasons.find((s) => s.number > 0) ?? seasons[0];
+  const selectedSeason = activeSeason ?? defaultSeason?.number ?? null;
 
   const episodes = useQuery({
-    queryKey: ["arr.episodes", sourceId, seriesIdNum, activeSeason, codec, resolution],
+    queryKey: ["arr.episodes", sourceId, seriesIdNum, selectedSeason, codec, resolution],
     queryFn: () =>
       api.arr.episodes(sourceId!, seriesIdNum!, {
-        season: activeSeason ?? undefined,
+        season: selectedSeason ?? undefined,
         codec: codec || undefined,
         resolution: resolution || undefined,
       }),
-    enabled: sourceId != null && seriesIdNum != null && activeSeason != null,
+    enabled: sourceId != null && seriesIdNum != null && selectedSeason != null,
     staleTime: 5 * 60_000,
   });
 
@@ -83,7 +80,7 @@ export default function SonarrSeries() {
                 key={s.number}
                 type="button"
                 className={
-                  "season-tab" + (activeSeason === s.number ? " is-active" : "")
+                  "season-tab" + (selectedSeason === s.number ? " is-active" : "")
                 }
                 onClick={() => setActiveSeason(s.number)}
               >

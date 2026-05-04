@@ -42,9 +42,7 @@ async fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
     match cli.cmd {
         Cmd::Serve { config } => {
-            let cfg = std::sync::Arc::new(
-                transcoderr::config::Config::from_path(&config)?,
-            );
+            let cfg = std::sync::Arc::new(transcoderr::config::Config::from_path(&config)?);
             let pool = transcoderr::db::open(&cfg.data_dir).await?;
 
             // Probe hardware capabilities at boot.
@@ -64,15 +62,19 @@ async fn main() -> anyhow::Result<()> {
             // page lists what was discovered. Without this the UI is
             // permanently empty even though the in-memory step registry
             // happily dispatches the steps.
-            transcoderr::db::plugins::sync_discovered(&pool, &discovered, &std::collections::HashMap::new()).await?;
+            transcoderr::db::plugins::sync_discovered(
+                &pool,
+                &discovered,
+                &std::collections::HashMap::new(),
+            )
+            .await?;
 
             // Diagnostic warning: a manually-installed plugin whose
             // declared runtimes aren't on $PATH will register fine but
             // fail at first dispatch. Surfacing this at boot makes the
             // failure mode debuggable from the server log.
-            let runtime_checker = std::sync::Arc::new(
-                transcoderr::plugins::runtime::RuntimeChecker::default(),
-            );
+            let runtime_checker =
+                std::sync::Arc::new(transcoderr::plugins::runtime::RuntimeChecker::default());
             for d in &discovered {
                 let missing = runtime_checker.missing(&d.manifest.runtimes).await;
                 if !missing.is_empty() {
@@ -94,7 +96,9 @@ async fn main() -> anyhow::Result<()> {
             for d in &discovered {
                 if let Some(deps) = &d.manifest.deps {
                     tracing::info!(plugin = %d.manifest.name, "running plugin deps");
-                    if let Err(e) = transcoderr::plugins::deps::run(&d.manifest_dir, deps, |_, _| {}).await {
+                    if let Err(e) =
+                        transcoderr::plugins::deps::run(&d.manifest_dir, deps, |_, _| {}).await
+                    {
                         tracing::warn!(
                             plugin = %d.manifest.name,
                             error = %e,
@@ -103,20 +107,15 @@ async fn main() -> anyhow::Result<()> {
                     }
                 }
             }
-            let ffmpeg_caps = std::sync::Arc::new(
-                transcoderr::ffmpeg_caps::FfmpegCaps::probe().await,
-            );
+            let ffmpeg_caps =
+                std::sync::Arc::new(transcoderr::ffmpeg_caps::FfmpegCaps::probe().await);
             tracing::info!(
                 libplacebo = ffmpeg_caps.has_libplacebo,
                 "ffmpeg caps probed",
             );
 
-            transcoderr::worker::local::register_local_worker(
-                &pool,
-                &local_hw_caps,
-                &discovered,
-            )
-            .await?;
+            transcoderr::worker::local::register_local_worker(&pool, &local_hw_caps, &discovered)
+                .await?;
 
             transcoderr::steps::registry::init(
                 pool.clone(),
@@ -130,15 +129,14 @@ async fn main() -> anyhow::Result<()> {
 
             let bus = transcoderr::bus::Bus::default();
             let cancellations = transcoderr::cancellation::JobCancellations::new();
-            transcoderr::worker::local::spawn_local_heartbeat(pool.clone());
+            let _local_heartbeat = transcoderr::worker::local::spawn_local_heartbeat(pool.clone());
 
             // Bind the HTTP listener early so we can resolve the
             // public URL and assemble `AppState` *before* spawning the
             // worker pool. The pool's worker uses the dispatcher in
             // `AppState` (Piece 3) to route remote-eligible steps, so
             // it has to be passed an already-built `AppState`.
-            let listener =
-                tokio::net::TcpListener::bind(&cfg.bind).await?;
+            let listener = tokio::net::TcpListener::bind(&cfg.bind).await?;
             let addr = listener.local_addr()?;
             let public_url = transcoderr::public_url::resolve(addr);
             tracing::info!(
@@ -190,7 +188,9 @@ async fn main() -> anyhow::Result<()> {
                 cancellations: cancellations.clone(),
                 public_url: public_url_arc,
                 arr_cache,
-                catalog_client: std::sync::Arc::new(transcoderr::plugins::catalog::CatalogClient::default()),
+                catalog_client: std::sync::Arc::new(
+                    transcoderr::plugins::catalog::CatalogClient::default(),
+                ),
                 runtime_checker: runtime_checker.clone(),
                 connections: transcoderr::worker::connections::Connections::new(),
             };
@@ -208,13 +208,14 @@ async fn main() -> anyhow::Result<()> {
             // invocations on each GPU, so this only affects how many
             // runs proceed in parallel — not how many ffmpegs hit one
             // GPU.
-            let max_concurrent: usize = transcoderr::db::settings::get(&pool, "runs.max_concurrent")
-                .await
-                .ok()
-                .flatten()
-                .and_then(|s| s.parse().ok())
-                .filter(|n: &usize| *n >= 1)
-                .unwrap_or(1);
+            let max_concurrent: usize =
+                transcoderr::db::settings::get(&pool, "runs.max_concurrent")
+                    .await
+                    .ok()
+                    .flatten()
+                    .and_then(|s| s.parse().ok())
+                    .filter(|n: &usize| *n >= 1)
+                    .unwrap_or(1);
             tracing::info!(max_concurrent, "spawning run loops");
 
             let (tx, _) = tokio::sync::watch::channel(false);
@@ -235,7 +236,10 @@ async fn main() -> anyhow::Result<()> {
             });
 
             let retention_rx = tx.subscribe();
-            tokio::spawn(transcoderr::retention::run_periodic(pool.clone(), retention_rx));
+            tokio::spawn(transcoderr::retention::run_periodic(
+                pool.clone(),
+                retention_rx,
+            ));
 
             ready.mark_ready().await;
 
@@ -243,19 +247,19 @@ async fn main() -> anyhow::Result<()> {
 
             transcoderr::api::workers::spawn_idle_sweep(state.clone()).await;
 
-            let dedup_window_secs: u64 = transcoderr::db::settings::get(&state.pool, "dedup.window_seconds")
-                .await
-                .ok()
-                .flatten()
-                .and_then(|s| s.parse().ok())
-                .unwrap_or(300);
-            let app = transcoderr::http::router(state, std::time::Duration::from_secs(dedup_window_secs));
+            let dedup_window_secs: u64 =
+                transcoderr::db::settings::get(&state.pool, "dedup.window_seconds")
+                    .await
+                    .ok()
+                    .flatten()
+                    .and_then(|s| s.parse().ok())
+                    .unwrap_or(300);
+            let app =
+                transcoderr::http::router(state, std::time::Duration::from_secs(dedup_window_secs));
 
-            let serve = axum::serve(listener, app).with_graceful_shutdown(
-                async move {
-                    let _ = tokio::signal::ctrl_c().await;
-                },
-            );
+            let serve = axum::serve(listener, app).with_graceful_shutdown(async move {
+                let _ = tokio::signal::ctrl_c().await;
+            });
             let serve_task = tokio::spawn(async move { serve.await });
             let _ = tokio::signal::ctrl_c().await;
             tracing::info!("ctrl-c, shutting down");
@@ -264,8 +268,6 @@ async fn main() -> anyhow::Result<()> {
             let _ = worker_task.await;
             Ok(())
         }
-        Cmd::Worker { config } => {
-            transcoderr::worker::daemon::run(config).await
-        }
+        Cmd::Worker { config } => transcoderr::worker::daemon::run(config).await,
     }
 }

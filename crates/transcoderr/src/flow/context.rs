@@ -36,7 +36,10 @@ pub struct FileMeta {
 impl Context {
     pub fn for_file(path: impl Into<String>) -> Self {
         Self {
-            file: FileMeta { path: path.into(), size_bytes: None },
+            file: FileMeta {
+                path: path.into(),
+                size_bytes: None,
+            },
             ..Default::default()
         }
     }

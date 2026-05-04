@@ -28,24 +28,31 @@ fn build_size_report_tarball() -> (Vec<u8>, String) {
         let mut tar = tar::Builder::new(&mut gz);
         let mut hdr = tar::Header::new_gnu();
         hdr.set_path("size-report/").unwrap();
-        hdr.set_mode(0o755); hdr.set_size(0); hdr.set_cksum();
+        hdr.set_mode(0o755);
+        hdr.set_size(0);
+        hdr.set_cksum();
         tar.append(&hdr, std::io::empty()).unwrap();
 
         let body = manifest.as_bytes();
         let mut hdr = tar::Header::new_gnu();
         hdr.set_path("size-report/manifest.toml").unwrap();
-        hdr.set_mode(0o644); hdr.set_size(body.len() as u64); hdr.set_cksum();
+        hdr.set_mode(0o644);
+        hdr.set_size(body.len() as u64);
+        hdr.set_cksum();
         tar.append(&hdr, body).unwrap();
 
         let body = run_script.as_bytes();
         let mut hdr = tar::Header::new_gnu();
         hdr.set_path("size-report/bin/run").unwrap();
-        hdr.set_mode(0o755); hdr.set_size(body.len() as u64); hdr.set_cksum();
+        hdr.set_mode(0o755);
+        hdr.set_size(body.len() as u64);
+        hdr.set_cksum();
         tar.append(&hdr, body).unwrap();
         tar.finish().unwrap();
     }
     let bytes = gz.finish().unwrap();
-    let mut h = Sha256::new(); h.update(&bytes);
+    let mut h = Sha256::new();
+    h.update(&bytes);
     let sha: String = h.finalize().iter().map(|b| format!("{b:02x}")).collect();
     (bytes, sha)
 }
@@ -59,7 +66,8 @@ async fn install_size_report_then_run_uses_steps() {
     let (bytes, sha) = build_size_report_tarball();
     let server = MockServer::start().await;
     let url = server.uri();
-    Mock::given(method("GET")).and(path("/index.json"))
+    Mock::given(method("GET"))
+        .and(path("/index.json"))
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({
             "schema_version": 1,
             "plugins": [{
@@ -72,22 +80,38 @@ async fn install_size_report_then_run_uses_steps() {
                 "provides_steps": ["size.report.before", "size.report.after"]
             }]
         })))
-        .mount(&server).await;
-    Mock::given(method("GET")).and(path("/sr.tar.gz"))
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/sr.tar.gz"))
         .respond_with(ResponseTemplate::new(200).set_body_bytes(bytes))
-        .mount(&server).await;
+        .mount(&server)
+        .await;
 
     // Replace the seed catalog with the mock.
     let list: Vec<serde_json::Value> = client
         .get(format!("{}/api/plugin-catalogs", app.url))
-        .send().await.unwrap().json().await.unwrap();
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
     let seed_id = list[0]["id"].as_i64().unwrap();
-    client.delete(format!("{}/api/plugin-catalogs/{seed_id}", app.url))
-        .send().await.unwrap();
+    client
+        .delete(format!("{}/api/plugin-catalogs/{seed_id}", app.url))
+        .send()
+        .await
+        .unwrap();
     let resp: serde_json::Value = client
         .post(format!("{}/api/plugin-catalogs", app.url))
         .json(&json!({"name": "mock", "url": format!("{url}/index.json")}))
-        .send().await.unwrap().json().await.unwrap();
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
     let cid = resp["id"].as_i64().unwrap();
 
     // Install. Endpoint streams SSE; drive it to completion before
@@ -95,7 +119,10 @@ async fn install_size_report_then_run_uses_steps() {
     // have happened yet by the time we resolve below.
     let installed = common::install_via_sse(
         &client,
-        &format!("{}/api/plugin-catalog-entries/{cid}/size-report/install", app.url),
+        &format!(
+            "{}/api/plugin-catalog-entries/{cid}/size-report/install",
+            app.url
+        ),
     )
     .await
     .expect("install must succeed");
@@ -108,27 +135,42 @@ async fn install_size_report_then_run_uses_steps() {
 
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("Movie.mkv");
-    std::fs::File::create(&path).unwrap().write_all(&vec![0u8; 1000]).unwrap();
+    std::fs::File::create(&path)
+        .unwrap()
+        .write_all(&vec![0u8; 1000])
+        .unwrap();
     let mut ctx = Context::for_file(path.to_string_lossy().to_string());
 
-    let before_step = registry::resolve("size.report.before").await
+    let before_step = registry::resolve("size.report.before")
+        .await
         .expect("size.report.before in registry post-install");
-    before_step.execute(&BTreeMap::new(), &mut ctx, &mut |_: StepProgress| {})
-        .await.unwrap();
+    before_step
+        .execute(&BTreeMap::new(), &mut ctx, &mut |_: StepProgress| {})
+        .await
+        .unwrap();
 
     // Simulate a transcode that shrunk the file to 600 bytes.
-    std::fs::File::create(&path).unwrap().write_all(&vec![0u8; 600]).unwrap();
+    std::fs::File::create(&path)
+        .unwrap()
+        .write_all(&vec![0u8; 600])
+        .unwrap();
 
     let after_step = registry::resolve("size.report.after").await.unwrap();
-    after_step.execute(&BTreeMap::new(), &mut ctx, &mut |_: StepProgress| {})
-        .await.unwrap();
+    after_step
+        .execute(&BTreeMap::new(), &mut ctx, &mut |_: StepProgress| {})
+        .await
+        .unwrap();
 
-    let report = ctx.steps.get("size_report").expect("size_report key written");
+    let report = ctx
+        .steps
+        .get("size_report")
+        .expect("size_report key written");
     assert_eq!(report["before_bytes"], 1000);
     assert_eq!(report["after_bytes"], 600);
     assert_eq!(report["saved_bytes"], 400);
     assert!(
         (report["ratio_pct"].as_f64().unwrap() - 40.0).abs() < 0.01,
-        "ratio_pct = {:?}", report["ratio_pct"]
+        "ratio_pct = {:?}",
+        report["ratio_pct"]
     );
 }

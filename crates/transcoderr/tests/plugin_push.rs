@@ -15,26 +15,34 @@ use std::time::Duration;
 use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 use tokio_tungstenite::tungstenite::http::header::AUTHORIZATION;
 use tokio_tungstenite::tungstenite::Message as WsMessage;
-use transcoderr::worker::protocol::{
-    Envelope, Message, PluginManifestEntry, Register,
-};
+use transcoderr::worker::protocol::{Envelope, Message, PluginManifestEntry, Register};
 
-type Ws = tokio_tungstenite::WebSocketStream<
-    tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>,
->;
+type Ws =
+    tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>;
 
 async fn mint_token(client: &reqwest::Client, base: &str, name: &str) -> (i64, String) {
     let resp: serde_json::Value = client
         .post(format!("{base}/api/workers"))
         .json(&json!({"name": name}))
-        .send().await.unwrap()
-        .json().await.unwrap();
-    (resp["id"].as_i64().unwrap(), resp["secret_token"].as_str().unwrap().to_string())
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    (
+        resp["id"].as_i64().unwrap(),
+        resp["secret_token"].as_str().unwrap().to_string(),
+    )
 }
 
 async fn ws_connect(base_ws: &str, token: &str) -> Ws {
-    let mut req = format!("{base_ws}/api/worker/connect").as_str().into_client_request().unwrap();
-    req.headers_mut().insert(AUTHORIZATION, format!("Bearer {token}").parse().unwrap());
+    let mut req = format!("{base_ws}/api/worker/connect")
+        .as_str()
+        .into_client_request()
+        .unwrap();
+    req.headers_mut()
+        .insert(AUTHORIZATION, format!("Bearer {token}").parse().unwrap());
     let (ws, _) = tokio_tungstenite::connect_async(req).await.unwrap();
     ws
 }
@@ -80,7 +88,9 @@ async fn seed_plugin(app: &common::TestApp, name: &str, sha: &str, body: &[u8]) 
     .bind(name)
     .bind(format!("{}/plugins/{name}", app.data_dir.display()))
     .bind(sha)
-    .execute(&app.pool).await.unwrap();
+    .execute(&app.pool)
+    .await
+    .unwrap();
 
     let cache = app.data_dir.join("plugins").join(".tarball-cache");
     std::fs::create_dir_all(&cache).unwrap();
@@ -95,7 +105,8 @@ async fn wait_for_plugin_sync(ws: &mut Ws, deadline: Duration) -> Option<Envelop
                 return env;
             }
         }
-    }).await;
+    })
+    .await;
     res.ok()
 }
 
@@ -112,7 +123,9 @@ async fn tarball_endpoint_serves_cached_file() {
     let resp = client
         .get(format!("{}/api/worker/plugins/p1/tarball", app.url))
         .bearer_auth(&token)
-        .send().await.unwrap();
+        .send()
+        .await
+        .unwrap();
     assert_eq!(resp.status(), 200);
     let bytes = resp.bytes().await.unwrap();
     assert_eq!(&bytes[..], body);
@@ -126,7 +139,9 @@ async fn tarball_endpoint_rejects_missing_token() {
     let client = reqwest::Client::new();
     let resp = client
         .get(format!("{}/api/worker/plugins/p1/tarball", app.url))
-        .send().await.unwrap();
+        .send()
+        .await
+        .unwrap();
     assert_eq!(resp.status(), 401);
 }
 
@@ -139,7 +154,9 @@ async fn tarball_endpoint_404_for_unknown_plugin() {
     let resp = client
         .get(format!("{}/api/worker/plugins/nope/tarball", app.url))
         .bearer_auth(&token)
-        .send().await.unwrap();
+        .send()
+        .await
+        .unwrap();
     assert_eq!(resp.status(), 404);
 }
 
@@ -161,7 +178,9 @@ async fn register_ack_carries_plugin_manifest() {
     assert_eq!(plugin_install.len(), 1);
     assert_eq!(plugin_install[0].name, "size-report");
     assert_eq!(plugin_install[0].sha256, "deadbeef");
-    assert!(plugin_install[0].tarball_url.contains("/api/worker/plugins/size-report/tarball"));
+    assert!(plugin_install[0]
+        .tarball_url
+        .contains("/api/worker/plugins/size-report/tarball"));
 }
 
 #[tokio::test]
@@ -201,7 +220,9 @@ async fn plugin_uninstall_broadcasts_plugin_sync_without_it() {
 
     // Remove the row + cache file directly, then re-broadcast.
     sqlx::query("DELETE FROM plugins WHERE name = 'going-away'")
-        .execute(&app.pool).await.unwrap();
+        .execute(&app.pool)
+        .await
+        .unwrap();
     let cache = app.data_dir.join("plugins").join(".tarball-cache");
     let _ = std::fs::remove_file(cache.join("going-away-yyy.tar.gz"));
     transcoderr::api::plugins::broadcast_manifest_for_test(&app.state).await;

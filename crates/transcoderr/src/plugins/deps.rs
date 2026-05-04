@@ -148,13 +148,9 @@ mod tests {
         let dir = tempdir().unwrap();
         let lines = std::sync::Arc::new(std::sync::Mutex::new(Vec::<(Stream, String)>::new()));
         let lines_clone = lines.clone();
-        run(
-            dir.path(),
-            "echo a; echo b >&2; echo c",
-            move |s, line| {
-                lines_clone.lock().unwrap().push((s, line.to_string()));
-            },
-        )
+        run(dir.path(), "echo a; echo b >&2; echo c", move |s, line| {
+            lines_clone.lock().unwrap().push((s, line.to_string()));
+        })
         .await
         .unwrap();
         let captured = lines.lock().unwrap().clone();

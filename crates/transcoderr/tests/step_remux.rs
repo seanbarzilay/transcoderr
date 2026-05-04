@@ -15,7 +15,9 @@ async fn remux_changes_container_only() {
     with.insert("container".into(), json!("mp4"));
     let mut cb = |_: StepProgress| {};
     RemuxStep.execute(&with, &mut ctx, &mut cb).await.unwrap();
-    let out = ctx.steps.get("transcode").unwrap()["output_path"].as_str().unwrap();
+    let out = ctx.steps.get("transcode").unwrap()["output_path"]
+        .as_str()
+        .unwrap();
     // staging::next_io produces names like "<original>.tcr-NN.tmp.<ext>"
     assert!(out.ends_with(".tmp.mp4"), "got {out}");
     assert!(out.contains(".tcr-"), "got {out}");

@@ -24,8 +24,12 @@ pub struct WebhookConfig {
     pub ignore_errors: bool,
 }
 
-fn default_method() -> String { "POST".into() }
-fn default_timeout_seconds() -> u64 { 30 }
+fn default_method() -> String {
+    "POST".into()
+}
+fn default_timeout_seconds() -> u64 {
+    30
+}
 
 impl WebhookConfig {
     /// Deserialize the step's `with:` map into a typed config. Returns a
@@ -33,8 +37,7 @@ impl WebhookConfig {
     /// fails fast.
     pub fn from_with(with: &BTreeMap<String, Value>) -> anyhow::Result<Self> {
         let v = Value::Object(with.clone().into_iter().collect());
-        serde_json::from_value(v)
-            .map_err(|e| anyhow::anyhow!("webhook: invalid `with`: {e}"))
+        serde_json::from_value(v).map_err(|e| anyhow::anyhow!("webhook: invalid `with`: {e}"))
     }
 }
 
@@ -87,7 +90,11 @@ impl WebhookConfig {
         let timeout_seconds = self.timeout_seconds.clamp(1, 300);
 
         Ok(RenderedRequest {
-            url, method, headers, body, timeout_seconds,
+            url,
+            method,
+            headers,
+            body,
+            timeout_seconds,
             ignore_errors: self.ignore_errors,
         })
     }
@@ -99,7 +106,9 @@ pub struct WebhookStep;
 
 #[async_trait]
 impl super::Step for WebhookStep {
-    fn name(&self) -> &'static str { "webhook" }
+    fn name(&self) -> &'static str {
+        "webhook"
+    }
 
     async fn execute(
         &self,
@@ -110,9 +119,10 @@ impl super::Step for WebhookStep {
         let cfg = WebhookConfig::from_with(with)?;
         let req = cfg.render(ctx)?;
 
-        on_progress(super::StepProgress::Log(
-            format!("webhook: {} {}", req.method, req.url),
-        ));
+        on_progress(super::StepProgress::Log(format!(
+            "webhook: {} {}",
+            req.method, req.url
+        )));
 
         let client = reqwest::Client::builder()
             .timeout(std::time::Duration::from_secs(req.timeout_seconds))
@@ -153,7 +163,10 @@ impl super::Step for WebhookStep {
         // Non-2xx: capture (and truncate) the body for diagnosis.
         let body = resp.text().await.unwrap_or_default();
         let truncated: String = body.chars().take(ERROR_BODY_TRUNCATE_BYTES).collect();
-        let msg = format!("webhook: {} {} -> {status}: {truncated}", req.method, req.url);
+        let msg = format!(
+            "webhook: {} {} -> {status}: {truncated}",
+            req.method, req.url
+        );
 
         if req.ignore_errors {
             tracing::warn!(status = %status, url = %req.url, body = %truncated, "webhook ignored non-2xx");
@@ -198,7 +211,8 @@ mod tests {
             "body": "{}",
             "timeout_seconds": 5,
             "ignore_errors": true
-        })).unwrap();
+        }))
+        .unwrap();
         assert_eq!(c.method, "PUT");
         assert_eq!(c.headers.get("X-A").unwrap(), "1");
         assert_eq!(c.body.as_deref(), Some("{}"));
@@ -209,15 +223,17 @@ mod tests {
     #[test]
     fn missing_url_is_error() {
         let err = cfg(json!({})).unwrap_err();
-        assert!(err.to_string().contains("missing field `url`"),
-                "got: {}", err);
+        assert!(
+            err.to_string().contains("missing field `url`"),
+            "got: {}",
+            err
+        );
     }
 
     #[test]
     fn unknown_field_is_error() {
         let err = cfg(json!({"url": "https://x", "urls": "typo"})).unwrap_err();
-        assert!(err.to_string().contains("unknown field"),
-                "got: {}", err);
+        assert!(err.to_string().contains("unknown field"), "got: {}", err);
     }
 
     use crate::flow::Context;
@@ -231,14 +247,18 @@ mod tests {
         // SAFETY: unique key, not used by other tests.
         unsafe { std::env::set_var("TCR_WEBHOOK_TEST_TOKEN", "abc") };
         let ctx = Context::for_file("/movies/Foo.mkv");
-        let r = render(json!({
-            "url": "https://api.test/{{ file.path }}",
-            "headers": {
-                "Authorization": "Bearer {{ env.TCR_WEBHOOK_TEST_TOKEN }}",
-                "X-Path": "{{ file.path }}"
-            },
-            "body": "p={{ file.path }}"
-        }), &ctx).unwrap();
+        let r = render(
+            json!({
+                "url": "https://api.test/{{ file.path }}",
+                "headers": {
+                    "Authorization": "Bearer {{ env.TCR_WEBHOOK_TEST_TOKEN }}",
+                    "X-Path": "{{ file.path }}"
+                },
+                "body": "p={{ file.path }}"
+            }),
+            &ctx,
+        )
+        .unwrap();
         assert_eq!(r.url, "https://api.test//movies/Foo.mkv");
         assert_eq!(r.headers.get("Authorization").unwrap(), "Bearer abc");
         assert_eq!(r.headers.get("X-Path").unwrap(), "/movies/Foo.mkv");
@@ -249,18 +269,26 @@ mod tests {
     #[test]
     fn body_forbidden_for_get() {
         let ctx = Context::for_file("/x");
-        let err = render(json!({
-            "url": "https://x.test", "method": "GET", "body": "no"
-        }), &ctx).unwrap_err();
+        let err = render(
+            json!({
+                "url": "https://x.test", "method": "GET", "body": "no"
+            }),
+            &ctx,
+        )
+        .unwrap_err();
         assert!(err.to_string().contains("body not allowed"), "got: {}", err);
     }
 
     #[test]
     fn body_forbidden_for_delete() {
         let ctx = Context::for_file("/x");
-        let err = render(json!({
-            "url": "https://x.test", "method": "DELETE", "body": "no"
-        }), &ctx).unwrap_err();
+        let err = render(
+            json!({
+                "url": "https://x.test", "method": "DELETE", "body": "no"
+            }),
+            &ctx,
+        )
+        .unwrap_err();
         assert!(err.to_string().contains("body not allowed"), "got: {}", err);
     }
 
@@ -295,7 +323,11 @@ mod tests {
     #[test]
     fn clamps_timeout() {
         let ctx = Context::for_file("/x");
-        let r = render(json!({"url": "https://x.test", "timeout_seconds": 9999}), &ctx).unwrap();
+        let r = render(
+            json!({"url": "https://x.test", "timeout_seconds": 9999}),
+            &ctx,
+        )
+        .unwrap();
         assert_eq!(r.timeout_seconds, 300);
         let r = render(json!({"url": "https://x.test", "timeout_seconds": 0}), &ctx).unwrap();
         assert_eq!(r.timeout_seconds, 1);

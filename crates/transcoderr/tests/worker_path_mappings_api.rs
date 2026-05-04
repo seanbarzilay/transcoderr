@@ -43,7 +43,9 @@ async fn put_path_mappings_echoes_canonical_rules() {
     let rules = body["rules"].as_array().unwrap();
     assert_eq!(rules.len(), 2);
     // Trailing slashes stripped on save (canonicalised before echo).
-    assert!(rules.iter().any(|r| r["from"].as_str() == Some("/mnt/movies")));
+    assert!(rules
+        .iter()
+        .any(|r| r["from"].as_str() == Some("/mnt/movies")));
     assert!(rules.iter().any(|r| r["from"].as_str() == Some("/mnt/tv")));
 }
 
@@ -148,7 +150,9 @@ async fn put_round_trips_via_get() {
         .iter()
         .find(|w| w["id"].as_i64() == Some(id))
         .expect("worker row");
-    let rules = row["path_mappings"].as_array().expect("path_mappings present");
+    let rules = row["path_mappings"]
+        .as_array()
+        .expect("path_mappings present");
     assert_eq!(rules.len(), 1);
     assert_eq!(rules[0]["from"].as_str().unwrap(), "/mnt/movies");
     assert_eq!(rules[0]["to"].as_str().unwrap(), "/data/media/movies");
@@ -197,6 +201,8 @@ async fn put_empty_rules_clears_to_null_in_get() {
         .iter()
         .find(|w| w["id"].as_i64() == Some(id))
         .expect("worker row");
-    assert!(row["path_mappings"].is_null(),
-        "empty rules → DB NULL → JSON null");
+    assert!(
+        row["path_mappings"].is_null(),
+        "empty rules → DB NULL → JSON null"
+    );
 }

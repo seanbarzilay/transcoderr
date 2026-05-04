@@ -6,9 +6,22 @@ pub mod sse;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "topic", content = "data")]
 pub enum Event {
-    JobState { id: i64, status: String, label: Option<String> },
-    RunEvent { job_id: i64, step_id: Option<String>, worker_id: Option<i64>, kind: String, payload: serde_json::Value },
-    Queue    { pending: i64, running: i64 },
+    JobState {
+        id: i64,
+        status: String,
+        label: Option<String>,
+    },
+    RunEvent {
+        job_id: i64,
+        step_id: Option<String>,
+        worker_id: Option<i64>,
+        kind: String,
+        payload: serde_json::Value,
+    },
+    Queue {
+        pending: i64,
+        running: i64,
+    },
 }
 
 #[derive(Clone)]

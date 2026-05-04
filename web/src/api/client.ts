@@ -1,3 +1,5 @@
+import type { JsonObject } from "../types";
+
 const base = "/api";
 
 async function req<T>(path: string, init: RequestInit = {}): Promise<T> {
@@ -17,7 +19,7 @@ export const api = {
     get:    (id: number) => req<import("../types").FlowDetail>(`/flows/${id}`),
     create: (body: { name: string; yaml: string }) => req<{ id: number }>("/flows", { method: "POST", body: JSON.stringify(body) }),
     update: (id: number, body: { yaml: string; enabled?: boolean }) => req<void>(`/flows/${id}`, { method: "PUT", body: JSON.stringify(body) }),
-    parse:  (yaml: string) => req<{ ok: boolean; error?: string; parsed?: any }>("/flows/parse", { method: "POST", body: JSON.stringify(yaml) }),
+    parse:  (yaml: string) => req<{ ok: boolean; error?: string; parsed?: unknown }>("/flows/parse", { method: "POST", body: JSON.stringify(yaml) }),
   },
   runs: {
     list:   (params?: { status?: string; flow_id?: number; limit?: number; offset?: number }) => {
@@ -30,8 +32,8 @@ export const api = {
   },
   sources: {
     list:   () => req<import("../types").Source[]>("/sources"),
-    create: (body: any) => req<{id: number}>("/sources", { method: "POST", body: JSON.stringify(body) }),
-    update: (id: number, body: any) => req<void>(`/sources/${id}`, { method: "PUT", body: JSON.stringify(body) }),
+    create: (body: JsonObject) => req<{id: number}>("/sources", { method: "POST", body: JSON.stringify(body) }),
+    update: (id: number, body: JsonObject) => req<void>(`/sources/${id}`, { method: "PUT", body: JSON.stringify(body) }),
     delete: (id: number) => req<void>(`/sources/${id}`, { method: "DELETE" }),
   },
   plugins: {
@@ -54,7 +56,7 @@ export const api = {
      *  - error:  { status, message }        — terminal failure
      */
     installStream: async function* (catalogId: number, name: string):
-      AsyncGenerator<{ event: string; data: any }, void, unknown>
+      AsyncGenerator<{ event: string; data: unknown }, void, unknown>
     {
       const url = `${base}/plugin-catalog-entries/${catalogId}/${encodeURIComponent(name)}/install`;
       const r = await fetch(url, { method: "POST", credentials: "same-origin" });
@@ -78,7 +80,7 @@ export const api = {
             else if (line.startsWith("data:")) dataLines.push(line.slice(5).trim());
           }
           if (dataLines.length === 0) continue;
-          let data: any = null;
+          let data: unknown;
           try { data = JSON.parse(dataLines.join("\n")); } catch { data = dataLines.join("\n"); }
           yield { event, data };
         }
@@ -94,18 +96,18 @@ export const api = {
   },
   notifiers: {
     list:   () => req<import("../types").Notifier[]>("/notifiers"),
-    create: (body: any) => req<{id: number}>("/notifiers", { method: "POST", body: JSON.stringify(body) }),
-    update: (id: number, body: any) => req<void>(`/notifiers/${id}`, { method: "PUT", body: JSON.stringify(body) }),
+    create: (body: JsonObject) => req<{id: number}>("/notifiers", { method: "POST", body: JSON.stringify(body) }),
+    update: (id: number, body: JsonObject) => req<void>(`/notifiers/${id}`, { method: "PUT", body: JSON.stringify(body) }),
     delete: (id: number) => req<void>(`/notifiers/${id}`, { method: "DELETE" }),
     test:   (id: number) => req<void>(`/notifiers/${id}/test`, { method: "POST" }),
   },
   settings: {
     get:   () => req<Record<string,string>>("/settings"),
-    patch: (body: Record<string, any>) => req<void>("/settings", { method: "PATCH", body: JSON.stringify(body) }),
+    patch: (body: Record<string, unknown>) => req<void>("/settings", { method: "PATCH", body: JSON.stringify(body) }),
   },
   version: () => req<{ version: string }>("/version"),
-  dryRun: (body: { yaml: string; file_path: string; probe?: any }) =>
-    req<{ steps: any[]; probe: any }>("/dry-run", { method: "POST", body: JSON.stringify(body) }),
+  dryRun: (body: { yaml: string; file_path: string; probe?: unknown }) =>
+    req<{ steps: Array<{ kind: string; use_or_label: string }>; probe: unknown }>("/dry-run", { method: "POST", body: JSON.stringify(body) }),
   auth: {
     me:     () => req<{ auth_required: boolean; authed: boolean }>("/auth/me"),
     login:  (password: string) => req<void>("/auth/login", { method: "POST", body: JSON.stringify({ password }) }),

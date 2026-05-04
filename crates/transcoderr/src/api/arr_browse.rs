@@ -46,7 +46,11 @@ pub(super) async fn browseable_source(
     })?;
     let cfg: serde_json::Value =
         serde_json::from_str(&row.config_json).unwrap_or(serde_json::Value::Null);
-    if cfg.get("arr_notification_id").and_then(|v| v.as_i64()).is_none() {
+    if cfg
+        .get("arr_notification_id")
+        .and_then(|v| v.as_i64())
+        .is_none()
+    {
         return Err((
             StatusCode::BAD_REQUEST,
             Json(ApiError::new(
@@ -92,7 +96,7 @@ pub(super) fn arr_call_error(source_id: i64, e: anyhow::Error) -> (StatusCode, J
     tracing::error!(source_id, error = ?e, "*arr proxy call failed");
     (
         StatusCode::BAD_GATEWAY,
-        Json(ApiError::new("arr.upstream", &format!("{e}"))),
+        Json(ApiError::new("arr.upstream", format!("{e}"))),
     )
 }
 
@@ -156,8 +160,8 @@ pub async fn movies(
     let trimmed: Vec<transcoderr_api_types::MovieSummary> = if let Some(v) = cached {
         serde_json::from_value(v).unwrap_or_default()
     } else {
-        let client = arr::Client::new(&base_url, &api_key)
-            .map_err(|e| arr_call_error(source_id, e))?;
+        let client =
+            arr::Client::new(&base_url, &api_key).map_err(|e| arr_call_error(source_id, e))?;
         let movies = client
             .list_movies()
             .await
@@ -185,7 +189,8 @@ pub async fn movies(
         m.file.as_ref().and_then(|f| f.resolution.clone())
     });
 
-    let page = filter_sort_paginate_movies(trimmed, &params, available_codecs, available_resolutions);
+    let page =
+        filter_sort_paginate_movies(trimmed, &params, available_codecs, available_resolutions);
     Ok(Json(page))
 }
 
@@ -220,8 +225,8 @@ fn filter_sort_paginate_movies(
         });
     }
     match params.sort.as_deref().unwrap_or("title") {
-        "year" => items.sort_by(|a, b| b.year.unwrap_or(0).cmp(&a.year.unwrap_or(0))),
-        _ => items.sort_by(|a, b| a.title.to_lowercase().cmp(&b.title.to_lowercase())),
+        "year" => items.sort_by_key(|item| std::cmp::Reverse(item.year.unwrap_or(0))),
+        _ => items.sort_by_key(|item| item.title.to_lowercase()),
     }
     let total = items.len() as i64;
     let limit = params.limit.unwrap_or(48).clamp(1, 200);
@@ -269,8 +274,8 @@ pub async fn series(
     let trimmed: Vec<transcoderr_api_types::SeriesSummary> = if let Some(v) = cached {
         serde_json::from_value(v).unwrap_or_default()
     } else {
-        let client = arr::Client::new(&base_url, &api_key)
-            .map_err(|e| arr_call_error(source_id, e))?;
+        let client =
+            arr::Client::new(&base_url, &api_key).map_err(|e| arr_call_error(source_id, e))?;
         let raw = client
             .list_series()
             .await
@@ -290,23 +295,25 @@ pub async fn series(
         // written into `episodes:{id}` to warm the series-detail page.
         use futures::stream::StreamExt;
         let ids: Vec<i64> = trimmed.iter().map(|s| s.id).collect();
-        let results: Vec<(i64, anyhow::Result<Vec<transcoderr_api_types::EpisodeSummary>>)> =
-            futures::stream::iter(ids)
-                .map(|id| {
-                    let c = client.clone();
-                    async move {
-                        let r = c.list_episodes(id).await.map(|raws| {
-                            raws.into_iter()
-                                .map(|e| e.into_summary())
-                                .filter(|e| e.has_file)
-                                .collect::<Vec<_>>()
-                        });
-                        (id, r)
-                    }
-                })
-                .buffer_unordered(SERIES_EPISODE_FETCH_CONCURRENCY)
-                .collect()
-                .await;
+        let results: Vec<(
+            i64,
+            anyhow::Result<Vec<transcoderr_api_types::EpisodeSummary>>,
+        )> = futures::stream::iter(ids)
+            .map(|id| {
+                let c = client.clone();
+                async move {
+                    let r = c.list_episodes(id).await.map(|raws| {
+                        raws.into_iter()
+                            .map(|e| e.into_summary())
+                            .filter(|e| e.has_file)
+                            .collect::<Vec<_>>()
+                    });
+                    (id, r)
+                }
+            })
+            .buffer_unordered(SERIES_EPISODE_FETCH_CONCURRENCY)
+            .collect()
+            .await;
 
         let mut by_id: std::collections::HashMap<i64, Vec<transcoderr_api_types::EpisodeSummary>> =
             std::collections::HashMap::new();
@@ -399,8 +406,8 @@ fn filter_sort_paginate_series(
         items.retain(|s| s.resolutions.iter().any(|x| x.to_lowercase() == needle));
     }
     match params.sort.as_deref().unwrap_or("title") {
-        "year" => items.sort_by(|a, b| b.year.unwrap_or(0).cmp(&a.year.unwrap_or(0))),
-        _ => items.sort_by(|a, b| a.title.to_lowercase().cmp(&b.title.to_lowercase())),
+        "year" => items.sort_by_key(|item| std::cmp::Reverse(item.year.unwrap_or(0))),
+        _ => items.sort_by_key(|item| item.title.to_lowercase()),
     }
     let total = items.len() as i64;
     let limit = params.limit.unwrap_or(48).clamp(1, 200);
@@ -442,8 +449,7 @@ pub async fn series_get(
             return Ok(Json(detail));
         }
     }
-    let client = arr::Client::new(&base_url, &api_key)
-        .map_err(|e| arr_call_error(source_id, e))?;
+    let client = arr::Client::new(&base_url, &api_key).map_err(|e| arr_call_error(source_id, e))?;
     let raw = client
         .get_series(series_id)
         .await
@@ -484,8 +490,8 @@ pub async fn episodes(
         if let Some(v) = state.arr_cache.get(source_id, &key) {
             serde_json::from_value(v).unwrap_or_default()
         } else {
-            let client = arr::Client::new(&base_url, &api_key)
-                .map_err(|e| arr_call_error(source_id, e))?;
+            let client =
+                arr::Client::new(&base_url, &api_key).map_err(|e| arr_call_error(source_id, e))?;
             let raw = client
                 .list_episodes(series_id)
                 .await
@@ -612,7 +618,7 @@ pub async fn transcode(
             StatusCode::CONFLICT,
             Json(ApiError::new(
                 "no_enabled_flows",
-                &format!("no enabled flows match kind {:?}", kind),
+                format!("no enabled flows match kind {:?}", kind),
             )),
         ));
     }

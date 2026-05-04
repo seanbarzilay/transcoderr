@@ -1,6 +1,8 @@
 import { useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "../../api/client";
+import { errorMessage } from "../../lib/errors";
+import type { JsonObject } from "../../types";
 
 const AUTO_KINDS = ["radarr", "sonarr", "lidarr"] as const;
 
@@ -31,7 +33,7 @@ export default function AddSourceForm({ onCreated }: Props) {
   const isAutoProvision = isAutoKind(kind);
 
   const create = useMutation({
-    mutationFn: (body: any) => api.sources.create(body),
+    mutationFn: (body: JsonObject) => api.sources.create(body),
     onSuccess: (resp) => {
       setName("");
       setBaseUrl("");
@@ -42,8 +44,8 @@ export default function AddSourceForm({ onCreated }: Props) {
       qc.invalidateQueries({ queryKey: ["sources"] });
       onCreated?.(resp.id);
     },
-    onError: (e: any) => {
-      setFormError(e?.message ?? String(e));
+    onError: (e: unknown) => {
+      setFormError(errorMessage(e));
     },
   });
 
@@ -57,11 +59,15 @@ export default function AddSourceForm({ onCreated }: Props) {
         secret_token: "",
       });
     } else {
-      let parsed: any;
+      let parsed: JsonObject;
       try {
         parsed = JSON.parse(config || "{}");
-      } catch (e: any) {
-        setFormError(`Invalid config JSON: ${e?.message ?? e}`);
+        if (parsed == null || typeof parsed !== "object" || Array.isArray(parsed)) {
+          setFormError("Invalid config JSON: expected an object");
+          return;
+        }
+      } catch (e: unknown) {
+        setFormError(`Invalid config JSON: ${errorMessage(e)}`);
         return;
       }
       create.mutate({

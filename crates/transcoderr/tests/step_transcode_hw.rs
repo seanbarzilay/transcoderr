@@ -27,7 +27,10 @@ async fn cpu_path_when_no_hw_preferred() {
     let mut cb = |e: StepProgress| events.push(e);
     step.execute(&with, &mut ctx, &mut cb).await.unwrap();
     let out = ctx.steps["transcode"]["output_path"].as_str().unwrap();
-    assert!(std::path::Path::new(out).exists(), "output file should exist");
+    assert!(
+        std::path::Path::new(out).exists(),
+        "output file should exist"
+    );
     assert!(
         ctx.steps["transcode"]["hw"].is_null(),
         "hw should be null when no hw block given"
@@ -62,7 +65,10 @@ async fn fallback_to_cpu_when_no_gpu_slot() {
     with.insert("codec".into(), json!("x264"));
     with.insert("crf".into(), json!(30));
     with.insert("preset".into(), json!("ultrafast"));
-    with.insert("hw".into(), json!({ "prefer": ["nvenc"], "fallback": "cpu" }));
+    with.insert(
+        "hw".into(),
+        json!({ "prefer": ["nvenc"], "fallback": "cpu" }),
+    );
 
     let mut events = vec![];
     let mut cb = |e: StepProgress| events.push(e);
@@ -72,17 +78,22 @@ async fn fallback_to_cpu_when_no_gpu_slot() {
         "should have produced output via CPU fallback"
     );
     // Verify hw_unavailable marker was emitted.
-    let has_hw_unavailable = events.iter().any(|e| matches!(
-        e,
-        StepProgress::Marker { kind, .. } if kind == "hw_unavailable"
-    ));
+    let has_hw_unavailable = events.iter().any(|e| {
+        matches!(
+            e,
+            StepProgress::Marker { kind, .. } if kind == "hw_unavailable"
+        )
+    });
     assert!(has_hw_unavailable, "expected hw_unavailable marker event");
 }
 
 /// Drive through the engine and assert hw_unavailable appears in run_events.
 #[tokio::test]
 async fn engine_records_hw_unavailable_event() {
-    use transcoderr::{db, flow::{parse_flow, Engine}};
+    use transcoderr::{
+        db,
+        flow::{parse_flow, Engine},
+    };
 
     let dir = tempdir().unwrap();
     let pool = db::open(dir.path()).await.unwrap();
@@ -103,16 +114,21 @@ async fn engine_records_hw_unavailable_event() {
     let _hold = reg.acquire_preferred(&[Accel::Nvenc]).await.unwrap();
 
     // Init step registry with this registry so transcode step is aware of it.
-    transcoderr::steps::registry::init(pool.clone(), reg, std::sync::Arc::new(transcoderr::ffmpeg_caps::FfmpegCaps::default()), vec![]).await;
+    transcoderr::steps::registry::init(
+        pool.clone(),
+        reg,
+        std::sync::Arc::new(transcoderr::ffmpeg_caps::FfmpegCaps::default()),
+        vec![],
+    )
+    .await;
 
     // Make a source file.
     let src = dir.path().join("in.mkv");
     make_testsrc_mkv(&src, 1).await.unwrap();
 
-    let yaml = format!(
-        r#"
+    let yaml = r#"
 name: hw_test
-triggers: [{{ radarr: [downloaded] }}]
+triggers: [{ radarr: [downloaded] }]
 steps:
   - id: transcode
     use: transcode
@@ -124,19 +140,26 @@ steps:
         prefer: [nvenc]
         fallback: cpu
 "#
-    );
+    .to_string();
     let flow = parse_flow(&yaml).unwrap();
-    let flow_id = db::flows::insert(&pool, "hw_test", &yaml, &flow).await.unwrap();
-    let job_id = db::jobs::insert(
-        &pool, flow_id, 1, "radarr",
-        src.to_str().unwrap(), "{}",
-    ).await.unwrap();
+    let flow_id = db::flows::insert(&pool, "hw_test", &yaml, &flow)
+        .await
+        .unwrap();
+    let job_id = db::jobs::insert(&pool, flow_id, 1, "radarr", src.to_str().unwrap(), "{}")
+        .await
+        .unwrap();
     let _ = db::jobs::claim_next(&pool).await.unwrap().unwrap();
 
     let ctx = Context::for_file(src.to_str().unwrap());
     let bus = transcoderr::bus::Bus::default();
-    let outcome = Engine::new(pool.clone(), bus, dir.path().to_path_buf()).run(&flow, job_id, ctx).await.unwrap();
-    assert_eq!(outcome.status, "completed", "job should complete via CPU fallback");
+    let outcome = Engine::new(pool.clone(), bus, dir.path().to_path_buf())
+        .run(&flow, job_id, ctx)
+        .await
+        .unwrap();
+    assert_eq!(
+        outcome.status, "completed",
+        "job should complete via CPU fallback"
+    );
 
     // Allow spawned db writes to flush.
     tokio::time::sleep(std::time::Duration::from_millis(100)).await;

@@ -30,7 +30,9 @@ impl Step for StripTracksStep {
         "strip.tracks"
     }
 
-    fn executor(&self) -> crate::steps::Executor { crate::steps::Executor::Any }
+    fn executor(&self) -> crate::steps::Executor {
+        crate::steps::Executor::Any
+    }
 
     async fn execute(
         &self,
@@ -82,7 +84,10 @@ impl Step for StripTracksStep {
         if drop_unsupported_subs {
             let probe = ctx.probe.as_ref();
             let mut kept = 0usize;
-            if let Some(streams) = probe.and_then(|p| p.get("streams")).and_then(|s| s.as_array()) {
+            if let Some(streams) = probe
+                .and_then(|p| p.get("streams"))
+                .and_then(|s| s.as_array())
+            {
                 for s in streams {
                     if s.get("codec_type").and_then(|v| v.as_str()) != Some("subtitle") {
                         continue;
@@ -119,8 +124,16 @@ impl Step for StripTracksStep {
             .stderr(Stdio::null());
         on_progress(StepProgress::Log(format!(
             "strip tracks: keep audio {langs:?}{}{}",
-            if remove_cover_art { " +remove-cover-art" } else { "" },
-            if drop_unsupported_subs { " +drop-unsupported-subs" } else { "" },
+            if remove_cover_art {
+                " +remove-cover-art"
+            } else {
+                ""
+            },
+            if drop_unsupported_subs {
+                " +drop-unsupported-subs"
+            } else {
+                ""
+            },
         )));
         let status = cmd.status().await?;
         if !status.success() {

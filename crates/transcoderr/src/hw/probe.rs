@@ -15,8 +15,10 @@ const HW_ENCODERS: &[(&str, Accel)] = &[
 ];
 
 pub async fn probe() -> HwCaps {
-    let mut caps = HwCaps::default();
-    caps.probed_at = chrono::Utc::now().timestamp();
+    let mut caps = HwCaps {
+        probed_at: chrono::Utc::now().timestamp(),
+        ..Default::default()
+    };
 
     // Get ffmpeg version string.
     if let Ok(o) = Command::new("ffmpeg")
@@ -88,7 +90,7 @@ pub async fn probe() -> HwCaps {
 
 fn default_concurrency(accel: &Accel) -> u32 {
     match accel {
-        Accel::Nvenc => 3,         // consumer-card session limit
+        Accel::Nvenc => 3, // consumer-card session limit
         Accel::Qsv => 8,
         Accel::Vaapi => 8,
         Accel::VideoToolbox => 4,

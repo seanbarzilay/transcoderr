@@ -37,21 +37,21 @@ pub struct ConnectionContext {
 pub async fn build_register_envelope(ctx: &ConnectionContext) -> Envelope {
     use crate::worker::protocol::{PluginManifestEntry, Register};
 
-    let plugin_manifest: Vec<PluginManifestEntry> =
-        match crate::plugins::discover(&ctx.plugins_dir) {
-            Ok(found) => found
-                .into_iter()
-                .map(|d| PluginManifestEntry {
-                    name: d.manifest.name.clone(),
-                    version: d.manifest.version.clone(),
-                    sha256: None,
-                })
-                .collect(),
-            Err(e) => {
-                tracing::warn!(error = ?e, "register: plugin discovery failed; reporting empty manifest");
-                Vec::new()
-            }
-        };
+    let plugin_manifest: Vec<PluginManifestEntry> = match crate::plugins::discover(&ctx.plugins_dir)
+    {
+        Ok(found) => found
+            .into_iter()
+            .map(|d| PluginManifestEntry {
+                name: d.manifest.name.clone(),
+                version: d.manifest.version.clone(),
+                sha256: None,
+            })
+            .collect(),
+        Err(e) => {
+            tracing::warn!(error = ?e, "register: plugin discovery failed; reporting empty manifest");
+            Vec::new()
+        }
+    };
     let available_steps = crate::steps::registry::list_step_names().await;
 
     Envelope {
@@ -69,11 +69,7 @@ pub async fn build_register_envelope(ctx: &ConnectionContext) -> Envelope {
 /// Run the worker connection loop. Never returns. On every disconnect
 /// (clean or error), waits for the current backoff and retries. On a
 /// clean close (`Ok(())` from `connect_once`), the backoff resets.
-pub async fn run(
-    url: String,
-    token: String,
-    ctx: ConnectionContext,
-) -> ! {
+pub async fn run(url: String, token: String, ctx: ConnectionContext) -> ! {
     let mut backoff = BACKOFF_INITIAL;
 
     loop {
@@ -93,16 +89,10 @@ pub async fn run(
     }
 }
 
-async fn connect_once(
-    url: &str,
-    token: &str,
-    ctx: &ConnectionContext,
-) -> anyhow::Result<()> {
+async fn connect_once(url: &str, token: &str, ctx: &ConnectionContext) -> anyhow::Result<()> {
     let mut req = url.into_client_request()?;
-    req.headers_mut().insert(
-        AUTHORIZATION,
-        format!("Bearer {token}").parse()?,
-    );
+    req.headers_mut()
+        .insert(AUTHORIZATION, format!("Bearer {token}").parse()?);
 
     let (ws, _resp) = tokio_tungstenite::connect_async(req).await?;
     tracing::info!(url, "worker WS connected");
@@ -111,8 +101,7 @@ async fn connect_once(
     // Outbound mpsc → sender task → WS sink. Heartbeats and step
     // results both go through this channel so the receive loop
     // never blocks on the WS sink.
-    let (outbound_tx, mut outbound_rx) =
-        tokio::sync::mpsc::channel::<Envelope>(32);
+    let (outbound_tx, mut outbound_rx) = tokio::sync::mpsc::channel::<Envelope>(32);
     let sender_task = tokio::spawn(async move {
         while let Some(env) = outbound_rx.recv().await {
             match serde_json::to_string(&env) {
@@ -139,9 +128,7 @@ async fn connect_once(
     // fresh token at dispatch start; the receive loop's StepCancel
     // arm fires it. Lives for the connection's lifetime.
     let step_cancellations: std::sync::Arc<
-        tokio::sync::RwLock<
-            std::collections::HashMap<String, tokio_util::sync::CancellationToken>,
-        >,
+        tokio::sync::RwLock<std::collections::HashMap<String, tokio_util::sync::CancellationToken>>,
     > = std::sync::Arc::new(tokio::sync::RwLock::new(std::collections::HashMap::new()));
 
     // Sync worker: drain the slot whenever notified, run plugin_sync::sync,
@@ -368,8 +355,7 @@ pub async fn probe_token(url: &str, token: &str) -> ProbeOutcome {
             ProbeOutcome::Ok
         }
         Err(tokio_tungstenite::tungstenite::Error::Http(resp))
-            if resp.status()
-                == tokio_tungstenite::tungstenite::http::StatusCode::UNAUTHORIZED =>
+            if resp.status() == tokio_tungstenite::tungstenite::http::StatusCode::UNAUTHORIZED =>
         {
             ProbeOutcome::Unauthorized
         }

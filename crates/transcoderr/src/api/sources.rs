@@ -3,11 +3,17 @@ use crate::arr;
 use crate::db;
 use crate::http::AppState;
 use axum::Extension;
-use axum::{extract::{Path, State}, http::StatusCode, Json};
+use axum::{
+    extract::{Path, State},
+    http::StatusCode,
+    Json,
+};
 use rand::RngCore;
 use sqlx::Row;
-use transcoderr_api_types::{CreatedIdResp as CreateResp, CreateSourceReq, SourceSummary, UpdateSourceReq};
 use tracing;
+use transcoderr_api_types::{
+    CreateSourceReq, CreatedIdResp as CreateResp, SourceSummary, UpdateSourceReq,
+};
 
 /// Returns a copy of `config` with `api_key` masked to `"***"` when
 /// `redact` is true. Mirrors the secret-redaction policy applied to
@@ -29,21 +35,27 @@ pub async fn list(
     State(state): State<AppState>,
     Extension(auth): Extension<AuthSource>,
 ) -> Result<Json<Vec<SourceSummary>>, StatusCode> {
-    let rows = sqlx::query("SELECT id, kind, name, config_json, secret_token FROM sources ORDER BY name")
-        .fetch_all(&state.pool).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let rows =
+        sqlx::query("SELECT id, kind, name, config_json, secret_token FROM sources ORDER BY name")
+            .fetch_all(&state.pool)
+            .await
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     let redact = auth == AuthSource::Token;
-    let out = rows.into_iter().map(|r| {
-        let config_str: String = r.get(3);
-        let secret: String = r.get(4);
-        let cfg: serde_json::Value = serde_json::from_str(&config_str).unwrap_or_default();
-        SourceSummary {
-            id: r.get(0),
-            kind: r.get(1),
-            name: r.get(2),
-            config: redact_config(&cfg, redact),
-            secret_token: if redact { "***".into() } else { secret },
-        }
-    }).collect();
+    let out = rows
+        .into_iter()
+        .map(|r| {
+            let config_str: String = r.get(3);
+            let secret: String = r.get(4);
+            let cfg: serde_json::Value = serde_json::from_str(&config_str).unwrap_or_default();
+            SourceSummary {
+                id: r.get(0),
+                kind: r.get(1),
+                name: r.get(2),
+                config: redact_config(&cfg, redact),
+                secret_token: if redact { "***".into() } else { secret },
+            }
+        })
+        .collect();
     Ok(Json(out))
 }
 
@@ -74,12 +86,18 @@ pub async fn create(
         // endpoint — which authenticates by looking up (kind, secret_token)
         // in the DB. If the row doesn't yet exist, the test 401s and the
         // *arr fails creation. Insert first, rollback on *arr failure.
-        let id = db::sources::insert(&state.pool, &req.kind, &req.name, &req.config, &secret_token)
-            .await
-            .map_err(|e| {
-                tracing::error!(kind = %req.kind, error = ?e, "failed to persist source row");
-                StatusCode::INTERNAL_SERVER_ERROR
-            })?;
+        let id = db::sources::insert(
+            &state.pool,
+            &req.kind,
+            &req.name,
+            &req.config,
+            &secret_token,
+        )
+        .await
+        .map_err(|e| {
+            tracing::error!(kind = %req.kind, error = ?e, "failed to persist source row");
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
 
         let webhook_url = format!("{}/webhook/{}", state.public_url, req.kind);
         let client = match arr::Client::new(base_url, api_key) {
@@ -110,7 +128,9 @@ pub async fn create(
         };
 
         // Stamp the *arr-assigned notification id into config_json.
-        if let Err(e) = db::sources::update_arr_notification_id(&state.pool, id, notification.id).await {
+        if let Err(e) =
+            db::sources::update_arr_notification_id(&state.pool, id, notification.id).await
+        {
             tracing::error!(source_id = id, notification_id = notification.id, error = ?e,
                 "failed to stamp arr_notification_id; *arr webhook is provisioned but local row is out of sync — boot reconciler will recover");
             return Err(StatusCode::INTERNAL_SERVER_ERROR);
@@ -119,9 +139,15 @@ pub async fn create(
     }
 
     // Manual path: generic / webhook / etc.
-    let id = db::sources::insert(&state.pool, &req.kind, &req.name, &req.config, &req.secret_token)
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let id = db::sources::insert(
+        &state.pool,
+        &req.kind,
+        &req.name,
+        &req.config,
+        &req.secret_token,
+    )
+    .await
+    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     Ok(Json(CreateResp { id }))
 }
 
@@ -130,10 +156,13 @@ pub async fn get(
     Extension(auth): Extension<AuthSource>,
     Path(id): Path<i64>,
 ) -> Result<Json<SourceSummary>, StatusCode> {
-    let row = sqlx::query("SELECT id, kind, name, config_json, secret_token FROM sources WHERE id = ?")
-        .bind(id).fetch_optional(&state.pool).await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
-        .ok_or(StatusCode::NOT_FOUND)?;
+    let row =
+        sqlx::query("SELECT id, kind, name, config_json, secret_token FROM sources WHERE id = ?")
+            .bind(id)
+            .fetch_optional(&state.pool)
+            .await
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+            .ok_or(StatusCode::NOT_FOUND)?;
     let config_str: String = row.get(3);
     let secret: String = row.get(4);
     let redact = auth == AuthSource::Token;
@@ -158,8 +187,7 @@ pub async fn update(
         Err(_) => return Err(StatusCode::INTERNAL_SERVER_ERROR),
     };
 
-    let old_cfg: serde_json::Value =
-        serde_json::from_str(&row.config_json).unwrap_or_default();
+    let old_cfg: serde_json::Value = serde_json::from_str(&row.config_json).unwrap_or_default();
     let mut new_cfg = match req.config {
         Some(ref c) => c.clone(),
         None => old_cfg.clone(),
@@ -246,15 +274,13 @@ pub async fn update(
     // shared password, regenerated only on create. Manual rows (radarr/sonarr/
     // lidarr kind without an arr_notification_id, or non-arr kinds) accept
     // explicit secret_token updates; the "***" sentinel is preserved.
-    let auto_provisioned =
-        arr_kind.is_some() && old_cfg.get("arr_notification_id").is_some();
+    let auto_provisioned = arr_kind.is_some() && old_cfg.get("arr_notification_id").is_some();
     let new_secret = match (auto_provisioned, req.secret_token.as_deref()) {
         (true, _) => row.secret_token.clone(),
         (false, Some(s)) if s != "***" => s.to_string(),
         _ => row.secret_token.clone(),
     };
-    let cfg_str = serde_json::to_string(&new_cfg)
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let cfg_str = serde_json::to_string(&new_cfg).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     sqlx::query("UPDATE sources SET name = ?, config_json = ?, secret_token = ? WHERE id = ?")
         .bind(&new_name)
         .bind(&cfg_str)
@@ -276,8 +302,7 @@ pub async fn delete(
         Err(_) => return Err(StatusCode::INTERNAL_SERVER_ERROR),
     };
 
-    let cfg: serde_json::Value =
-        serde_json::from_str(&row.config_json).unwrap_or_default();
+    let cfg: serde_json::Value = serde_json::from_str(&row.config_json).unwrap_or_default();
     let arr_kind = arr::Kind::parse(&row.kind);
     let notification_id = cfg.get("arr_notification_id").and_then(|v| v.as_i64());
 
@@ -287,7 +312,9 @@ pub async fn delete(
         if !base_url.is_empty() && !api_key.is_empty() {
             match arr::Client::new(base_url, api_key) {
                 Ok(client) => match client.delete_notification(notification_id).await {
-                    Ok(()) => tracing::info!(source_id = id, notification_id, "deleted *arr webhook"),
+                    Ok(()) => {
+                        tracing::info!(source_id = id, notification_id, "deleted *arr webhook")
+                    }
                     Err(e) => tracing::warn!(source_id = id, notification_id, error = %e,
                         "failed to delete *arr webhook; proceeding with local delete"),
                 },
@@ -329,10 +356,7 @@ pub async fn delete(
     Ok(StatusCode::NO_CONTENT)
 }
 
-pub async fn test_fire(
-    State(_state): State<AppState>,
-    Path(_id): Path<i64>,
-) -> StatusCode {
+pub async fn test_fire(State(_state): State<AppState>, Path(_id): Path<i64>) -> StatusCode {
     // Stub: real SSE-driven test fire wired in Task 5
     StatusCode::NO_CONTENT
 }

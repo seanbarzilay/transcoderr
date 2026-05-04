@@ -5,6 +5,7 @@
 mod common;
 
 use serde_json::json;
+use serial_test::serial;
 use wiremock::matchers::{method, path, query_param};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
@@ -39,12 +40,17 @@ async fn create_auto_provisioned_source(
             "config": { "base_url": arr.uri(), "api_key": "k" },
             "secret_token": ""
         }))
-        .send().await.unwrap()
-        .json().await.unwrap();
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
     resp["id"].as_i64().unwrap()
 }
 
 #[tokio::test]
+#[serial]
 async fn browse_movies_returns_trimmed_payload() {
     let arr = MockServer::start().await;
     let app = common::boot().await;
@@ -70,8 +76,12 @@ async fn browse_movies_returns_trimmed_payload() {
     let r: serde_json::Value = client
         .get(format!("{}/api/sources/{}/movies", app.url, source_id))
         .bearer_auth(&token)
-        .send().await.unwrap()
-        .json().await.unwrap();
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
     assert_eq!(r["total"], 1, "hasFile=false items must be filtered out");
     let items = r["items"].as_array().unwrap();
     assert_eq!(items.len(), 1);
@@ -83,6 +93,7 @@ async fn browse_movies_returns_trimmed_payload() {
 }
 
 #[tokio::test]
+#[serial]
 async fn browse_movies_search_filters_server_side() {
     let arr = MockServer::start().await;
     let app = common::boot().await;
@@ -104,15 +115,23 @@ async fn browse_movies_search_filters_server_side() {
     let token = auth_token(&app).await;
     let client = reqwest::Client::new();
     let r: serde_json::Value = client
-        .get(format!("{}/api/sources/{}/movies?search=eat", app.url, source_id))
+        .get(format!(
+            "{}/api/sources/{}/movies?search=eat",
+            app.url, source_id
+        ))
         .bearer_auth(&token)
-        .send().await.unwrap()
-        .json().await.unwrap();
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
     assert_eq!(r["total"], 1);
     assert_eq!(r["items"][0]["title"], "Heat");
 }
 
 #[tokio::test]
+#[serial]
 async fn browse_movies_pagination() {
     let arr = MockServer::start().await;
     let app = common::boot().await;
@@ -132,10 +151,17 @@ async fn browse_movies_pagination() {
     let token = auth_token(&app).await;
     let client = reqwest::Client::new();
     let r: serde_json::Value = client
-        .get(format!("{}/api/sources/{}/movies?page=2&limit=10", app.url, source_id))
+        .get(format!(
+            "{}/api/sources/{}/movies?page=2&limit=10",
+            app.url, source_id
+        ))
         .bearer_auth(&token)
-        .send().await.unwrap()
-        .json().await.unwrap();
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
     assert_eq!(r["total"], 25);
     assert_eq!(r["page"], 2);
     assert_eq!(r["limit"], 10);
@@ -145,6 +171,7 @@ async fn browse_movies_pagination() {
 }
 
 #[tokio::test]
+#[serial]
 async fn browse_series_returns_trimmed_payload() {
     let arr = MockServer::start().await;
     let app = common::boot().await;
@@ -164,14 +191,19 @@ async fn browse_series_returns_trimmed_payload() {
     let r: serde_json::Value = client
         .get(format!("{}/api/sources/{}/series", app.url, source_id))
         .bearer_auth(&token)
-        .send().await.unwrap()
-        .json().await.unwrap();
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
     assert_eq!(r["items"][0]["title"], "Foundation");
     assert_eq!(r["items"][0]["season_count"], 2);
     assert_eq!(r["items"][0]["episode_file_count"], 18);
 }
 
 #[tokio::test]
+#[serial]
 async fn browse_episodes_filters_by_season() {
     let arr = MockServer::start().await;
     let app = common::boot().await;
@@ -190,16 +222,24 @@ async fn browse_episodes_filters_by_season() {
     let token = auth_token(&app).await;
     let client = reqwest::Client::new();
     let r: serde_json::Value = client
-        .get(format!("{}/api/sources/{}/series/10/episodes?season=2", app.url, source_id))
+        .get(format!(
+            "{}/api/sources/{}/series/10/episodes?season=2",
+            app.url, source_id
+        ))
         .bearer_auth(&token)
-        .send().await.unwrap()
-        .json().await.unwrap();
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
     let items = r["items"].as_array().unwrap();
     assert_eq!(items.len(), 1);
     assert_eq!(items[0]["title"], "S2E1");
 }
 
 #[tokio::test]
+#[serial]
 async fn browse_movies_codec_and_resolution_filters() {
     let arr = MockServer::start().await;
     let app = common::boot().await;
@@ -228,22 +268,41 @@ async fn browse_movies_codec_and_resolution_filters() {
     let r: serde_json::Value = client
         .get(format!("{}/api/sources/{}/movies", app.url, source_id))
         .bearer_auth(&token)
-        .send().await.unwrap()
-        .json().await.unwrap();
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
     assert_eq!(r["total"], 3);
-    let codecs: Vec<&str> = r["available_codecs"].as_array().unwrap()
-        .iter().map(|v| v.as_str().unwrap()).collect();
+    let codecs: Vec<&str> = r["available_codecs"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|v| v.as_str().unwrap())
+        .collect();
     assert_eq!(codecs, vec!["h264", "x265"]); // sorted, distinct
-    let resolutions: Vec<&str> = r["available_resolutions"].as_array().unwrap()
-        .iter().map(|v| v.as_str().unwrap()).collect();
+    let resolutions: Vec<&str> = r["available_resolutions"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|v| v.as_str().unwrap())
+        .collect();
     assert_eq!(resolutions, vec!["1920x1080", "3840x2160"]);
 
     // codec=h264 narrows to 2 movies.
     let r: serde_json::Value = client
-        .get(format!("{}/api/sources/{}/movies?codec=h264", app.url, source_id))
+        .get(format!(
+            "{}/api/sources/{}/movies?codec=h264",
+            app.url, source_id
+        ))
         .bearer_auth(&token)
-        .send().await.unwrap()
-        .json().await.unwrap();
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
     assert_eq!(r["total"], 2);
     // available_* still reflects the WHOLE library, not the filtered view.
     assert_eq!(r["available_codecs"].as_array().unwrap().len(), 2);
@@ -255,13 +314,18 @@ async fn browse_movies_codec_and_resolution_filters() {
             app.url, source_id
         ))
         .bearer_auth(&token)
-        .send().await.unwrap()
-        .json().await.unwrap();
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
     assert_eq!(r["total"], 1);
     assert_eq!(r["items"][0]["title"], "C 4K H264");
 }
 
 #[tokio::test]
+#[serial]
 async fn browse_series_aggregates_codecs_and_filters() {
     // The series list page fans out per-series episode fetches so it
     // can show codec/resolution badges and filter on them. This test
@@ -314,34 +378,69 @@ async fn browse_series_aggregates_codecs_and_filters() {
     let r: serde_json::Value = client
         .get(format!("{}/api/sources/{}/series", app.url, source_id))
         .bearer_auth(&token)
-        .send().await.unwrap()
-        .json().await.unwrap();
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
     assert_eq!(r["total"], 2, "got {r}");
-    let codecs: Vec<&str> = r["available_codecs"].as_array().unwrap()
-        .iter().map(|v| v.as_str().unwrap()).collect();
+    let codecs: Vec<&str> = r["available_codecs"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|v| v.as_str().unwrap())
+        .collect();
     assert_eq!(codecs, vec!["h264", "hevc"]);
-    let resolutions: Vec<&str> = r["available_resolutions"].as_array().unwrap()
-        .iter().map(|v| v.as_str().unwrap()).collect();
+    let resolutions: Vec<&str> = r["available_resolutions"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|v| v.as_str().unwrap())
+        .collect();
     assert_eq!(resolutions, vec!["1920x1080", "3840x2160"]);
 
     // Each series carries its own per-series codec set.
-    let alpha = r["items"].as_array().unwrap().iter()
-        .find(|s| s["title"] == "Alpha").unwrap();
-    let alpha_codecs: Vec<&str> = alpha["codecs"].as_array().unwrap()
-        .iter().map(|v| v.as_str().unwrap()).collect();
+    let alpha = r["items"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|s| s["title"] == "Alpha")
+        .unwrap();
+    let alpha_codecs: Vec<&str> = alpha["codecs"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|v| v.as_str().unwrap())
+        .collect();
     assert_eq!(alpha_codecs, vec!["h264", "hevc"]);
-    let bravo = r["items"].as_array().unwrap().iter()
-        .find(|s| s["title"] == "Bravo").unwrap();
-    let bravo_codecs: Vec<&str> = bravo["codecs"].as_array().unwrap()
-        .iter().map(|v| v.as_str().unwrap()).collect();
+    let bravo = r["items"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|s| s["title"] == "Bravo")
+        .unwrap();
+    let bravo_codecs: Vec<&str> = bravo["codecs"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|v| v.as_str().unwrap())
+        .collect();
     assert_eq!(bravo_codecs, vec!["h264"]);
 
     // codec=hevc → only Alpha (which has at least one hevc episode).
     let r: serde_json::Value = client
-        .get(format!("{}/api/sources/{}/series?codec=hevc", app.url, source_id))
+        .get(format!(
+            "{}/api/sources/{}/series?codec=hevc",
+            app.url, source_id
+        ))
         .bearer_auth(&token)
-        .send().await.unwrap()
-        .json().await.unwrap();
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
     assert_eq!(r["total"], 1);
     assert_eq!(r["items"][0]["title"], "Alpha");
     // available_* still reflects the WHOLE library, not the filtered view.
@@ -351,15 +450,23 @@ async fn browse_series_aggregates_codecs_and_filters() {
     // episode endpoint serves without another round-trip. Verify by
     // counting recorded *arr requests: only one /api/v3/episode call
     // per series for the whole sequence above.
-    let ep1_calls = arr.received_requests().await.unwrap()
+    let ep1_calls = arr
+        .received_requests()
+        .await
+        .unwrap()
         .iter()
-        .filter(|r| r.url.path() == "/api/v3/episode"
-                 && r.url.query().unwrap_or("").contains("seriesId=1"))
+        .filter(|r| {
+            r.url.path() == "/api/v3/episode" && r.url.query().unwrap_or("").contains("seriesId=1")
+        })
         .count();
-    assert_eq!(ep1_calls, 1, "warm episodes cache should make a single call per series");
+    assert_eq!(
+        ep1_calls, 1,
+        "warm episodes cache should make a single call per series"
+    );
 }
 
 #[tokio::test]
+#[serial]
 async fn browse_filters_out_undownloaded_items() {
     // Movies, series, and episodes the *arr knows about but hasn't
     // imported a file for must NOT appear in the browse results — the
@@ -383,8 +490,12 @@ async fn browse_filters_out_undownloaded_items() {
     let r: serde_json::Value = client
         .get(format!("{}/api/sources/{}/movies", app.url, radarr_id))
         .bearer_auth(&token)
-        .send().await.unwrap()
-        .json().await.unwrap();
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
     assert_eq!(r["total"], 1);
     let items = r["items"].as_array().unwrap();
     assert_eq!(items.len(), 1);
@@ -406,8 +517,12 @@ async fn browse_filters_out_undownloaded_items() {
     let r: serde_json::Value = client
         .get(format!("{}/api/sources/{}/series", app.url, sonarr_id))
         .bearer_auth(&token)
-        .send().await.unwrap()
-        .json().await.unwrap();
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
     let items = r["items"].as_array().unwrap();
     assert_eq!(items.len(), 1);
     assert_eq!(items[0]["title"], "Has files");
@@ -423,16 +538,24 @@ async fn browse_filters_out_undownloaded_items() {
         .mount(&sonarr)
         .await;
     let r: serde_json::Value = client
-        .get(format!("{}/api/sources/{}/series/1/episodes", app.url, sonarr_id))
+        .get(format!(
+            "{}/api/sources/{}/series/1/episodes",
+            app.url, sonarr_id
+        ))
         .bearer_auth(&token)
-        .send().await.unwrap()
-        .json().await.unwrap();
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
     let items = r["items"].as_array().unwrap();
     assert_eq!(items.len(), 1);
     assert_eq!(items[0]["title"], "Aired");
 }
 
 #[tokio::test]
+#[serial]
 async fn browse_rejects_non_auto_provisioned_source() {
     let app = common::boot().await;
     // Create a manual (legacy v0.9.x-shape) webhook-kind source: empty config.
@@ -445,20 +568,27 @@ async fn browse_rejects_non_auto_provisioned_source() {
             "kind": "webhook", "name": "manual",
             "config": {}, "secret_token": "tok"
         }))
-        .send().await.unwrap()
-        .json().await.unwrap();
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
     let id = resp["id"].as_i64().unwrap();
 
     let r = client
         .get(format!("{}/api/sources/{}/movies", app.url, id))
         .bearer_auth(&token)
-        .send().await.unwrap();
+        .send()
+        .await
+        .unwrap();
     assert_eq!(r.status(), 400);
     let body: serde_json::Value = r.json().await.unwrap();
     assert_eq!(body["code"], "source.not_browseable");
 }
 
 #[tokio::test]
+#[serial]
 async fn browse_surfaces_arr_error() {
     let arr = MockServer::start().await;
     let app = common::boot().await;
@@ -473,7 +603,9 @@ async fn browse_surfaces_arr_error() {
     let r = client
         .get(format!("{}/api/sources/{}/movies", app.url, source_id))
         .bearer_auth(&token)
-        .send().await.unwrap();
+        .send()
+        .await
+        .unwrap();
     assert_eq!(r.status(), 502);
     let body: serde_json::Value = r.json().await.unwrap();
     assert_eq!(body["code"], "arr.upstream");
@@ -482,9 +614,7 @@ async fn browse_surfaces_arr_error() {
 }
 
 async fn seed_radarr_flow(pool: &sqlx::SqlitePool, name: &str, enabled: bool) -> i64 {
-    let yaml = format!(
-        "name: {name}\ntriggers:\n  - radarr: [downloaded]\nsteps: []\n"
-    );
+    let yaml = format!("name: {name}\ntriggers:\n  - radarr: [downloaded]\nsteps: []\n");
     // Trigger serializes as a single-key map with lowercase key (see
     // crates/transcoderr/src/flow/model.rs Trigger::serialize), and Flow
     // has a top-level `steps` field — no `plan` wrapper.
@@ -497,20 +627,20 @@ async fn seed_radarr_flow(pool: &sqlx::SqlitePool, name: &str, enabled: bool) ->
     let enabled_int = if enabled { 1 } else { 0 };
     sqlx::query_scalar::<_, i64>(
         "INSERT INTO flows (name, enabled, yaml_source, parsed_json, version, updated_at) \
-         VALUES (?, ?, ?, ?, 1, ?) RETURNING id"
+         VALUES (?, ?, ?, ?, 1, ?) RETURNING id",
     )
     .bind(name)
     .bind(enabled_int)
     .bind(&yaml)
     .bind(parsed.to_string())
     .bind(now)
-    .fetch_one(pool).await.unwrap()
+    .fetch_one(pool)
+    .await
+    .unwrap()
 }
 
 async fn seed_sonarr_flow(pool: &sqlx::SqlitePool, name: &str) -> i64 {
-    let yaml = format!(
-        "name: {name}\ntriggers:\n  - sonarr: [downloaded]\nsteps: []\n"
-    );
+    let yaml = format!("name: {name}\ntriggers:\n  - sonarr: [downloaded]\nsteps: []\n");
     let parsed = serde_json::json!({
         "name": name,
         "triggers": [{ "sonarr": ["downloaded"] }],
@@ -519,16 +649,19 @@ async fn seed_sonarr_flow(pool: &sqlx::SqlitePool, name: &str) -> i64 {
     let now = transcoderr::db::now_unix();
     sqlx::query_scalar::<_, i64>(
         "INSERT INTO flows (name, enabled, yaml_source, parsed_json, version, updated_at) \
-         VALUES (?, 1, ?, ?, 1, ?) RETURNING id"
+         VALUES (?, 1, ?, ?, 1, ?) RETURNING id",
     )
     .bind(name)
     .bind(&yaml)
     .bind(parsed.to_string())
     .bind(now)
-    .fetch_one(pool).await.unwrap()
+    .fetch_one(pool)
+    .await
+    .unwrap()
 }
 
 #[tokio::test]
+#[serial]
 async fn transcode_endpoint_fans_out_across_enabled_flows() {
     let arr = MockServer::start().await;
     let app = common::boot().await;
@@ -548,20 +681,34 @@ async fn transcode_endpoint_fans_out_across_enabled_flows() {
             "title": "Dune",
             "movie_id": 7
         }))
-        .send().await.unwrap()
-        .json().await.unwrap();
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
     let runs = r["runs"].as_array().unwrap();
-    assert_eq!(runs.len(), 2, "expected fan-out across 2 enabled radarr flows");
-    let flow_ids: Vec<i64> = runs.iter().map(|x| x["flow_id"].as_i64().unwrap()).collect();
+    assert_eq!(
+        runs.len(),
+        2,
+        "expected fan-out across 2 enabled radarr flows"
+    );
+    let flow_ids: Vec<i64> = runs
+        .iter()
+        .map(|x| x["flow_id"].as_i64().unwrap())
+        .collect();
     assert!(flow_ids.contains(&f1));
     assert!(flow_ids.contains(&f2));
     // Disabled and sonarr-only flows did NOT enqueue jobs.
     let cnt: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM jobs")
-        .fetch_one(&app.pool).await.unwrap();
+        .fetch_one(&app.pool)
+        .await
+        .unwrap();
     assert_eq!(cnt, 2);
 }
 
 #[tokio::test]
+#[serial]
 async fn transcode_returns_409_when_no_matching_flows() {
     let arr = MockServer::start().await;
     let app = common::boot().await;
@@ -576,13 +723,16 @@ async fn transcode_returns_409_when_no_matching_flows() {
             "file_path": "/movies/Dune.mkv",
             "title": "Dune"
         }))
-        .send().await.unwrap();
+        .send()
+        .await
+        .unwrap();
     assert_eq!(r.status(), 409);
     let body: serde_json::Value = r.json().await.unwrap();
     assert_eq!(body["code"], "no_enabled_flows");
 }
 
 #[tokio::test]
+#[serial]
 async fn transcode_synthesized_payload_shape_radarr() {
     let arr = MockServer::start().await;
     let app = common::boot().await;
@@ -598,11 +748,17 @@ async fn transcode_synthesized_payload_shape_radarr() {
             "title": "Dune",
             "movie_id": 7
         }))
-        .send().await.unwrap()
-        .json().await.unwrap();
-    let payload: String = sqlx::query_scalar(
-        "SELECT trigger_payload_json FROM jobs ORDER BY id DESC LIMIT 1"
-    ).fetch_one(&app.pool).await.unwrap();
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let payload: String =
+        sqlx::query_scalar("SELECT trigger_payload_json FROM jobs ORDER BY id DESC LIMIT 1")
+            .fetch_one(&app.pool)
+            .await
+            .unwrap();
     let v: serde_json::Value = serde_json::from_str(&payload).unwrap();
     assert_eq!(v["eventType"], "Manual");
     assert_eq!(v["movie"]["id"], 7);
@@ -612,6 +768,7 @@ async fn transcode_synthesized_payload_shape_radarr() {
 }
 
 #[tokio::test]
+#[serial]
 async fn transcode_synthesized_payload_shape_sonarr() {
     let arr = MockServer::start().await;
     let app = common::boot().await;
@@ -627,11 +784,17 @@ async fn transcode_synthesized_payload_shape_sonarr() {
             "title": "Foundation",
             "series_id": 1, "episode_id": 100
         }))
-        .send().await.unwrap()
-        .json().await.unwrap();
-    let payload: String = sqlx::query_scalar(
-        "SELECT trigger_payload_json FROM jobs ORDER BY id DESC LIMIT 1"
-    ).fetch_one(&app.pool).await.unwrap();
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let payload: String =
+        sqlx::query_scalar("SELECT trigger_payload_json FROM jobs ORDER BY id DESC LIMIT 1")
+            .fetch_one(&app.pool)
+            .await
+            .unwrap();
     let v: serde_json::Value = serde_json::from_str(&payload).unwrap();
     assert_eq!(v["eventType"], "Manual");
     assert_eq!(v["series"]["id"], 1);

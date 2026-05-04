@@ -47,11 +47,7 @@ pub fn next_io(ctx: &Context, ext: &str) -> (PathBuf, PathBuf) {
 /// Persist the new staged output path into the context and tick the chain counter.
 /// `extras` is merged into `ctx.steps["transcode"]` so callers can record fields like
 /// `codec`, `hw`, `added_audio_index`, etc. without overwriting `output_path`.
-pub fn record_output(
-    ctx: &mut Context,
-    output_path: &std::path::Path,
-    extras: serde_json::Value,
-) {
+pub fn record_output(ctx: &mut Context, output_path: &std::path::Path, extras: serde_json::Value) {
     // Read the previous staged path BEFORE overwriting ctx.steps["transcode"],
     // so we can delete it once the new step has superseded it. Without this,
     // every transformer step in a chain leaves a `.tcr-NN.tmp.*` orphan next
@@ -141,7 +137,11 @@ mod tests {
     #[test]
     fn current_input_returns_chain_head_when_present() {
         let mut ctx = Context::for_file("/m/Dune.iso");
-        record_output(&mut ctx, std::path::Path::new("/m/Dune.iso.tcr-00.tmp.m2ts"), json!({}));
+        record_output(
+            &mut ctx,
+            std::path::Path::new("/m/Dune.iso.tcr-00.tmp.m2ts"),
+            json!({}),
+        );
         assert_eq!(current_input(&ctx), "/m/Dune.iso.tcr-00.tmp.m2ts");
     }
 }

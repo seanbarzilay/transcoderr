@@ -22,7 +22,7 @@ use tokio_util::io::ReaderStream;
 /// - 200 + `application/x-gzip` body — the cached tarball
 /// - 401 — missing/invalid Bearer
 /// - 404 — plugin not found in `db::plugins WHERE enabled=1`, or the
-///         cache file is missing on disk
+///   cache file is missing on disk
 /// - 500 — DB error
 pub async fn tarball(
     State(state): State<AppState>,

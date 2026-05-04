@@ -9,7 +9,10 @@ pub struct DedupCache {
 
 impl DedupCache {
     pub fn new(window: Duration) -> Self {
-        Self { inner: Mutex::new(HashMap::new()), window }
+        Self {
+            inner: Mutex::new(HashMap::new()),
+            window,
+        }
     }
 
     /// Returns true if NEW (not a recent duplicate).

@@ -1,7 +1,11 @@
 use crate::api::auth::{redact_catalog_row, unredact_catalog_row, AuthSource};
 use crate::db::plugin_catalogs;
 use crate::http::AppState;
-use axum::{extract::{Path, State}, http::StatusCode, Extension, Json};
+use axum::{
+    extract::{Path, State},
+    http::StatusCode,
+    Extension, Json,
+};
 use serde::Deserialize;
 use serde_json::json;
 
@@ -19,21 +23,27 @@ pub async fn list(
     State(state): State<AppState>,
     Extension(auth): Extension<AuthSource>,
 ) -> Result<Json<Vec<serde_json::Value>>, StatusCode> {
-    let rows = plugin_catalogs::list(&state.pool).await
+    let rows = plugin_catalogs::list(&state.pool)
+        .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    let out: Vec<_> = rows.into_iter().map(|r| {
-        let mut v = json!({
-            "id": r.id,
-            "name": r.name,
-            "url": r.url,
-            "auth_header": r.auth_header,
-            "priority": r.priority,
-            "last_fetched_at": r.last_fetched_at,
-            "last_error": r.last_error,
-        });
-        if auth == AuthSource::Token { redact_catalog_row(&mut v); }
-        v
-    }).collect();
+    let out: Vec<_> = rows
+        .into_iter()
+        .map(|r| {
+            let mut v = json!({
+                "id": r.id,
+                "name": r.name,
+                "url": r.url,
+                "auth_header": r.auth_header,
+                "priority": r.priority,
+                "last_fetched_at": r.last_fetched_at,
+                "last_error": r.last_error,
+            });
+            if auth == AuthSource::Token {
+                redact_catalog_row(&mut v);
+            }
+            v
+        })
+        .collect();
     Ok(Json(out))
 }
 
@@ -47,7 +57,9 @@ pub async fn create(
         &req.url,
         req.auth_header.as_deref(),
         req.priority.unwrap_or(0),
-    ).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    )
+    .await
+    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     Ok(Json(json!({"id": id})))
 }
 
@@ -55,7 +67,8 @@ pub async fn delete(
     State(state): State<AppState>,
     Path(id): Path<i64>,
 ) -> Result<StatusCode, StatusCode> {
-    let removed = plugin_catalogs::delete(&state.pool, id).await
+    let removed = plugin_catalogs::delete(&state.pool, id)
+        .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     if removed == 0 {
         return Err(StatusCode::NOT_FOUND);

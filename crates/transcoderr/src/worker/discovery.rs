@@ -120,7 +120,12 @@ fn parse_service_info(info: &ServiceInfo) -> Option<DiscoveredCoordinator> {
     // matching the pattern from Task 1's coordinator-side helper.
     let enroll_path = props.get("enroll")?.val_str().to_string();
     let ws_path = props.get("ws")?.val_str().to_string();
-    Some(DiscoveredCoordinator { addr, port, enroll_path, ws_path })
+    Some(DiscoveredCoordinator {
+        addr,
+        port,
+        enroll_path,
+        ws_path,
+    })
 }
 
 #[cfg(test)]

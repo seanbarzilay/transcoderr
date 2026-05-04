@@ -63,6 +63,12 @@ jobs:
           # Share the cache across PRs — saves ~2 min of cold compile.
           shared-key: rust-tests
       - if: needs.changes.outputs.rust == 'true'
+        name: Check formatting
+        run: cargo fmt --check
+      - if: needs.changes.outputs.rust == 'true'
+        name: Run clippy
+        run: cargo clippy --workspace --locked --all-targets -- -D warnings
+      - if: needs.changes.outputs.rust == 'true'
         name: Run tests
         run: cargo test --workspace --locked --all-targets --no-fail-fast
 
@@ -84,6 +90,9 @@ jobs:
       - if: needs.changes.outputs.web == 'true'
         name: Install
         run: npm --prefix web ci
+      - if: needs.changes.outputs.web == 'true'
+        name: Lint
+        run: npm --prefix web run lint
       - if: needs.changes.outputs.web == 'true'
         name: Build
         run: npm --prefix web run build

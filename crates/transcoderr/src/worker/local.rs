@@ -49,16 +49,11 @@ pub async fn register_local_worker(
             sha256: None,
         })
         .collect();
-    let plugin_manifest_json =
-        serde_json::to_string(&manifest).unwrap_or_else(|_| "[]".into());
+    let plugin_manifest_json = serde_json::to_string(&manifest).unwrap_or_else(|_| "[]".into());
 
-    if let Err(e) = db::workers::record_register(
-        pool,
-        LOCAL_WORKER_ID,
-        &hw_caps_json,
-        &plugin_manifest_json,
-    )
-    .await
+    if let Err(e) =
+        db::workers::record_register(pool, LOCAL_WORKER_ID, &hw_caps_json, &plugin_manifest_json)
+            .await
     {
         tracing::warn!(error = ?e, "local worker register failed; UI may show stale row");
     }
@@ -69,7 +64,7 @@ pub async fn register_local_worker(
 /// the seeded `local` row regardless of `enabled`. This is what makes
 /// the UI distinguish "operator turned it off" (enabled=false, fresh
 /// last_seen) from "the daemon is dead" (enabled=true, stale last_seen).
-pub fn spawn_local_heartbeat(pool: SqlitePool) {
+pub fn spawn_local_heartbeat(pool: SqlitePool) -> tokio::task::JoinHandle<()> {
     tokio::spawn(async move {
         let mut ticker = tokio::time::interval(HEARTBEAT_INTERVAL);
         ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
@@ -82,17 +77,16 @@ pub fn spawn_local_heartbeat(pool: SqlitePool) {
                 tracing::warn!(error = ?e, "local heartbeat failed");
             }
         }
-    });
+    })
 }
 
 /// True if the local worker row is enabled. Defaults to `true` on DB
 /// error so transient sqlite hiccups don't stall the pool.
 pub async fn is_enabled(pool: &SqlitePool) -> bool {
-    let row: Result<(i64,), _> =
-        sqlx::query_as("SELECT enabled FROM workers WHERE id = ?")
-            .bind(LOCAL_WORKER_ID)
-            .fetch_one(pool)
-            .await;
+    let row: Result<(i64,), _> = sqlx::query_as("SELECT enabled FROM workers WHERE id = ?")
+        .bind(LOCAL_WORKER_ID)
+        .fetch_one(pool)
+        .await;
     match row {
         Ok((flag,)) => flag != 0,
         Err(e) => {
@@ -119,10 +113,14 @@ mod tests {
         // Seeded enabled=1.
         assert!(is_enabled(&pool).await);
 
-        db::workers::set_enabled(&pool, LOCAL_WORKER_ID, false).await.unwrap();
+        db::workers::set_enabled(&pool, LOCAL_WORKER_ID, false)
+            .await
+            .unwrap();
         assert!(!is_enabled(&pool).await);
 
-        db::workers::set_enabled(&pool, LOCAL_WORKER_ID, true).await.unwrap();
+        db::workers::set_enabled(&pool, LOCAL_WORKER_ID, true)
+            .await
+            .unwrap();
         assert!(is_enabled(&pool).await);
     }
 

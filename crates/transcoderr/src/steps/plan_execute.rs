@@ -3,7 +3,7 @@
 //! file in the new "plan-then-execute" pipeline.
 
 use crate::ffmpeg::FfmpegEvent;
-use crate::flow::plan::{require_plan, VideoMode, TonemapEngine};
+use crate::flow::plan::{require_plan, TonemapEngine, VideoMode};
 use crate::flow::{staging, Context};
 use crate::hw::{devices::Accel, semaphores::DeviceRegistry};
 use crate::steps::{Step, StepProgress};
@@ -37,9 +37,13 @@ pub struct PlanExecuteStep {
 
 #[async_trait]
 impl Step for PlanExecuteStep {
-    fn name(&self) -> &'static str { "plan.execute" }
+    fn name(&self) -> &'static str {
+        "plan.execute"
+    }
 
-    fn executor(&self) -> crate::steps::Executor { crate::steps::Executor::Any }
+    fn executor(&self) -> crate::steps::Executor {
+        crate::steps::Executor::Any
+    }
 
     async fn execute(
         &self,
@@ -101,24 +105,29 @@ impl Step for PlanExecuteStep {
             }
         }
 
-        let cmd = build_command(&src, &dest, &plan, &probe, acquired_key.as_deref(), &self.ffmpeg_caps)?;
+        let cmd = build_command(
+            &src,
+            &dest,
+            &plan,
+            &probe,
+            acquired_key.as_deref(),
+            &self.ffmpeg_caps,
+        )?;
 
         let mut emitted_any_pct = false;
-        let result = crate::ffmpeg::run_with_live_events(
-            cmd,
-            duration_sec,
-            ctx.cancel.as_ref(),
-            |ev| match ev {
-                FfmpegEvent::Pct(p) => {
-                    emitted_any_pct = true;
-                    on_progress(StepProgress::Pct(p));
+        let result =
+            crate::ffmpeg::run_with_live_events(cmd, duration_sec, ctx.cancel.as_ref(), |ev| {
+                match ev {
+                    FfmpegEvent::Pct(p) => {
+                        emitted_any_pct = true;
+                        on_progress(StepProgress::Pct(p));
+                    }
+                    FfmpegEvent::Line(l) => {
+                        on_progress(StepProgress::Log(format!("ffmpeg: {l}")));
+                    }
                 }
-                FfmpegEvent::Line(l) => {
-                    on_progress(StepProgress::Log(format!("ffmpeg: {l}")));
-                }
-            },
-        )
-        .await;
+            })
+            .await;
 
         // Free the GPU permit before any potential CPU fallback.
         drop(hw_permit);
@@ -128,11 +137,7 @@ impl Step for PlanExecuteStep {
                 if !emitted_any_pct {
                     on_progress(StepProgress::Pct(100.0));
                 }
-                staging::record_output(
-                    ctx,
-                    &dest,
-                    json!({ "hw": acquired_key }),
-                );
+                staging::record_output(ctx, &dest, json!({ "hw": acquired_key }));
                 Ok(())
             }
             Ok(status) => {
@@ -143,7 +148,8 @@ impl Step for PlanExecuteStep {
                         payload: json!({ "device": acquired_key }),
                     });
                     let _ = std::fs::remove_file(&dest);
-                    let cpu_cmd = build_command(&src, &dest, &plan, &probe, None, &self.ffmpeg_caps)?;
+                    let cpu_cmd =
+                        build_command(&src, &dest, &plan, &probe, None, &self.ffmpeg_caps)?;
                     let cpu_status = crate::ffmpeg::run_with_live_events(
                         cpu_cmd,
                         duration_sec,
@@ -318,8 +324,15 @@ fn detect_10bit(probe: &Value) -> bool {
         if s.get("codec_type").and_then(|v| v.as_str()) != Some("video") {
             continue;
         }
-        let pix_fmt = s.get("pix_fmt").and_then(|v| v.as_str()).unwrap_or("").to_lowercase();
-        let bps = s.get("bits_per_raw_sample").and_then(|v| v.as_str()).unwrap_or("");
+        let pix_fmt = s
+            .get("pix_fmt")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_lowercase();
+        let bps = s
+            .get("bits_per_raw_sample")
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
         return bps == "10"
             || pix_fmt.contains("p010")
             || pix_fmt.contains("yuv420p10")

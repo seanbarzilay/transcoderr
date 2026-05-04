@@ -28,10 +28,7 @@ pub struct Diff {
 /// means we don't know the local sha (e.g. a side-loaded plugin that
 /// never went through `install_from_entry`); we treat such entries as
 /// "needs replace" if the manifest mentions the name.
-pub fn compute_diff(
-    installed: &[(String, Option<String>)],
-    manifest: &[PluginInstall],
-) -> Diff {
+pub fn compute_diff(installed: &[(String, Option<String>)], manifest: &[PluginInstall]) -> Diff {
     let manifest_names: std::collections::HashSet<&str> =
         manifest.iter().map(|m| m.name.as_str()).collect();
 
@@ -45,14 +42,17 @@ pub fn compute_diff(
         .iter()
         .filter(|m| {
             // Already installed with matching sha → skip.
-            !installed.iter().any(|(name, sha)| {
-                name == &m.name && sha.as_deref() == Some(m.sha256.as_str())
-            })
+            !installed
+                .iter()
+                .any(|(name, sha)| name == &m.name && sha.as_deref() == Some(m.sha256.as_str()))
         })
         .cloned()
         .collect();
 
-    Diff { to_install, to_remove }
+    Diff {
+        to_install,
+        to_remove,
+    }
 }
 
 /// Run a full mirror sync against the coordinator's manifest.
@@ -62,11 +62,7 @@ pub fn compute_diff(
 /// distinguish "everything succeeded" from "something failed" —
 /// failures land in the worker's logs, and the next `PluginSync`
 /// or reconnect retries.
-pub async fn sync(
-    plugins_dir: &Path,
-    manifest: Vec<PluginInstall>,
-    coordinator_token: &str,
-) {
+pub async fn sync(plugins_dir: &Path, manifest: Vec<PluginInstall>, coordinator_token: &str) {
     // 1. Discover currently-installed plugins.
     let installed = match crate::plugins::discover(plugins_dir) {
         Ok(d) => d
@@ -96,7 +92,9 @@ pub async fn sync(
     for name in &diff.to_remove {
         match uninstaller::uninstall_by_name(plugins_dir, name) {
             Ok(_) => tracing::info!(name = %name, "plugin_sync: uninstalled"),
-            Err(e) => tracing::warn!(name = %name, error = ?e, "plugin_sync: uninstall failed; skipping"),
+            Err(e) => {
+                tracing::warn!(name = %name, error = ?e, "plugin_sync: uninstall failed; skipping")
+            }
         }
     }
 
@@ -192,7 +190,13 @@ mod tests {
     #[test]
     fn diff_empty_to_empty_is_empty() {
         let d = compute_diff(&[], &[]);
-        assert_eq!(d, Diff { to_install: vec![], to_remove: vec![] });
+        assert_eq!(
+            d,
+            Diff {
+                to_install: vec![],
+                to_remove: vec![]
+            }
+        );
     }
 
     #[test]
@@ -218,7 +222,10 @@ mod tests {
         let m = vec![pi("a", "bbb")];
         let d = compute_diff(&installed, &m);
         assert_eq!(d.to_install, vec![pi("a", "bbb")]);
-        assert!(d.to_remove.is_empty(), "version bump uses install path's atomic swap, not remove+install");
+        assert!(
+            d.to_remove.is_empty(),
+            "version bump uses install path's atomic swap, not remove+install"
+        );
     }
 
     #[test]

@@ -30,12 +30,16 @@ mod tests {
     #[test]
     fn parses_minimal_config() {
         let mut f = NamedTempFile::new().unwrap();
-        writeln!(f, r#"
+        writeln!(
+            f,
+            r#"
 bind = "127.0.0.1:8080"
 data_dir = "/tmp/tcr"
 [radarr]
 bearer_token = "abc123"
-        "#).unwrap();
+        "#
+        )
+        .unwrap();
         let cfg = Config::from_path(f.path()).unwrap();
         assert_eq!(cfg.bind, "127.0.0.1:8080");
         assert_eq!(cfg.radarr.bearer_token, "abc123");

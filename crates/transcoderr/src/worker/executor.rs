@@ -10,9 +10,7 @@
 
 use crate::flow::Context;
 use crate::steps::{registry, StepProgress};
-use crate::worker::protocol::{
-    Envelope, Message, StepComplete, StepDispatch, StepProgressMsg,
-};
+use crate::worker::protocol::{Envelope, Message, StepComplete, StepDispatch, StepProgressMsg};
 use std::collections::BTreeMap;
 use tokio::sync::mpsc;
 
@@ -24,12 +22,16 @@ pub async fn handle_step_dispatch(
     correlation_id: String,
     dispatch: StepDispatch,
     step_cancellations: std::sync::Arc<
-        tokio::sync::RwLock<
-            std::collections::HashMap<String, tokio_util::sync::CancellationToken>,
-        >,
+        tokio::sync::RwLock<std::collections::HashMap<String, tokio_util::sync::CancellationToken>>,
     >,
 ) {
-    let StepDispatch { job_id, step_id, use_, with, ctx_snapshot } = dispatch;
+    let StepDispatch {
+        job_id,
+        step_id,
+        use_,
+        with,
+        ctx_snapshot,
+    } = dispatch;
 
     // 1. Parse the context.
     let mut ctx = match Context::from_snapshot(&ctx_snapshot) {
@@ -98,14 +100,8 @@ pub async fn handle_step_dispatch(
         let step_id = step_id_for_cb.clone();
         tokio::spawn(async move {
             let (kind, payload) = match ev {
-                StepProgress::Pct(p) => (
-                    "progress".to_string(),
-                    serde_json::json!({ "pct": p }),
-                ),
-                StepProgress::Log(l) => (
-                    "log".to_string(),
-                    serde_json::json!({ "msg": l }),
-                ),
+                StepProgress::Pct(p) => ("progress".to_string(), serde_json::json!({ "pct": p })),
+                StepProgress::Log(l) => ("log".to_string(), serde_json::json!({ "msg": l })),
                 StepProgress::Marker { kind, payload } => (kind, payload),
             };
             let env = Envelope {
@@ -142,16 +138,7 @@ pub async fn handle_step_dispatch(
     match result {
         Ok(()) => {
             let snap = Some(ctx.to_snapshot());
-            send_complete(
-                &tx,
-                &correlation_id,
-                job_id,
-                &step_id,
-                "ok",
-                None,
-                snap,
-            )
-            .await;
+            send_complete(&tx, &correlation_id, job_id, &step_id, "ok", None, snap).await;
         }
         Err(e) => {
             send_complete(

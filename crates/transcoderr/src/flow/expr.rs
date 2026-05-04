@@ -6,7 +6,9 @@ pub fn eval_bool(expr: &str, ctx: &Context) -> anyhow::Result<bool> {
     let program = Program::compile(expr).map_err(|e| anyhow::anyhow!("compile: {e:?}"))?;
     let mut cel = CelCtx::default();
     bind_context(&mut cel, ctx);
-    let v = program.execute(&cel).map_err(|e| anyhow::anyhow!("exec: {e:?}"))?;
+    let v = program
+        .execute(&cel)
+        .map_err(|e| anyhow::anyhow!("exec: {e:?}"))?;
     Ok(matches!(v, CelValue::Bool(true)))
 }
 
@@ -27,7 +29,9 @@ pub fn eval_string_template(template: &str, ctx: &Context) -> anyhow::Result<Str
             let program = Program::compile(expr).map_err(|e| anyhow::anyhow!("compile: {e:?}"))?;
             let mut cel = CelCtx::default();
             bind_context(&mut cel, ctx);
-            let v = program.execute(&cel).map_err(|e| anyhow::anyhow!("exec: {e:?}"))?;
+            let v = program
+                .execute(&cel)
+                .map_err(|e| anyhow::anyhow!("exec: {e:?}"))?;
             out.push_str(&format_cel(&v));
             i = after + end + 2;
         } else {

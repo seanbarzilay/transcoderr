@@ -41,18 +41,26 @@ impl Jellyfin {
             .ok_or_else(|| anyhow::anyhow!("jellyfin: missing api_key"))?
             .to_string();
         let path_mappings = parse_path_mappings(&cfg["path_mappings"])?;
-        Ok(Self { url, api_key, path_mappings })
+        Ok(Self {
+            url,
+            api_key,
+            path_mappings,
+        })
     }
 }
 
 fn parse_path_mappings(v: &Value) -> anyhow::Result<Vec<PathMapping>> {
-    let Some(arr) = v.as_array() else { return Ok(vec![]); };
+    let Some(arr) = v.as_array() else {
+        return Ok(vec![]);
+    };
     arr.iter()
         .map(|m| {
-            let from = m["from"].as_str()
+            let from = m["from"]
+                .as_str()
                 .ok_or_else(|| anyhow::anyhow!("jellyfin: path_mappings entry missing 'from'"))?
                 .to_string();
-            let to = m["to"].as_str()
+            let to = m["to"]
+                .as_str()
                 .ok_or_else(|| anyhow::anyhow!("jellyfin: path_mappings entry missing 'to'"))?
                 .to_string();
             Ok(PathMapping { from, to })
@@ -141,8 +149,14 @@ mod tests {
     #[test]
     fn rewrite_path_uses_first_matching_prefix() {
         let mappings = vec![
-            PathMapping { from: "/mnt/tv".into(),     to: "/media/tv".into() },
-            PathMapping { from: "/mnt/movies".into(), to: "/media/movies".into() },
+            PathMapping {
+                from: "/mnt/tv".into(),
+                to: "/media/tv".into(),
+            },
+            PathMapping {
+                from: "/mnt/movies".into(),
+                to: "/media/movies".into(),
+            },
         ];
         assert_eq!(
             rewrite_path("/mnt/tv/Show/S01E01.mkv", &mappings),
@@ -266,10 +280,7 @@ mod tests {
         }))
         .unwrap();
 
-        let err = jf
-            .send("x", &json!({"file": "/x.mkv"}))
-            .await
-            .unwrap_err();
+        let err = jf.send("x", &json!({"file": "/x.mkv"})).await.unwrap_err();
         assert!(err.to_string().contains("401"));
     }
 

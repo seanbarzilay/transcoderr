@@ -5,8 +5,8 @@ use std::path::{Path, PathBuf};
 pub struct Manifest {
     pub name: String,
     pub version: String,
-    pub kind: String,                // "subprocess" or "builtin"
-    pub entrypoint: Option<String>,  // required for subprocess
+    pub kind: String,               // "subprocess" or "builtin"
+    pub entrypoint: Option<String>, // required for subprocess
     pub provides_steps: Vec<String>,
     #[serde(default)]
     pub requires: serde_json::Value,
@@ -81,7 +81,11 @@ pub fn load_from_dir(dir: &Path) -> anyhow::Result<DiscoveredPlugin> {
     } else {
         serde_json::json!({})
     };
-    Ok(DiscoveredPlugin { manifest, manifest_dir: dir.to_path_buf(), schema })
+    Ok(DiscoveredPlugin {
+        manifest,
+        manifest_dir: dir.to_path_buf(),
+        schema,
+    })
 }
 
 #[cfg(test)]

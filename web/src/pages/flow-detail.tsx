@@ -6,25 +6,28 @@ import YamlEditor from "../components/yaml-editor";
 import FlowMirror from "../components/flow-mirror";
 import { useMediaQuery } from "../lib/use-media-query";
 
+type ParseResult = { ok: boolean; error?: string; parsed?: unknown };
+type DryRunResult = { steps: Array<{ kind: string; use_or_label: string }>; probe: unknown };
+
 export default function FlowDetail() {
   const { id } = useParams();
   const qc = useQueryClient();
   const idNum = Number(id);
   const flow = useQuery({ queryKey: ["flow", idNum], queryFn: () => api.flows.get(idNum) });
-  const [yaml, setYaml] = useState<string>("");
+  const [yamlDraft, setYamlDraft] = useState<{ flowId: number; yaml: string } | null>(null);
   const [tab, setTab] = useState<"editor" | "test">("editor");
-  const [parseResult, setParseResult] = useState<any>(null);
+  const [parseResult, setParseResult] = useState<ParseResult | null>(null);
   const [filePath, setFilePath] = useState("");
-  const [dryResult, setDryResult] = useState<any>(null);
+  const [dryResult, setDryResult] = useState<DryRunResult | null>(null);
   // CodeMirror-on-mobile is unusable (no pinch-zoom, scrollwheel
   // capture conflicts with page scroll). Below 1024px we hide the
   // editor entirely and show a read-only YAML view so the page is at
   // least browsable from a phone.
   const isNarrow = useMediaQuery("(max-width: 1023px)");
-
-  useEffect(() => {
-    if (flow.data && yaml === "") setYaml(flow.data.yaml_source);
-  }, [flow.data]);
+  const yaml = yamlDraft?.flowId === idNum
+    ? yamlDraft.yaml
+    : flow.data?.yaml_source ?? "";
+  const setYaml = (next: string) => setYamlDraft({ flowId: idNum, yaml: next });
 
   useEffect(() => {
     const t = setTimeout(async () => {
@@ -132,7 +135,7 @@ export default function FlowDetail() {
           </div>
           {dryResult && (
             <ol style={{ paddingLeft: 18, margin: 0 }}>
-              {dryResult.steps.map((s: any, i: number) => (
+              {dryResult.steps.map((s, i) => (
                 <li key={i} style={{ marginBottom: 4 }}>
                   <span className="label" style={{ marginRight: 8 }}>
                     {s.kind}

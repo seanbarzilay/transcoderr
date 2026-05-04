@@ -30,7 +30,13 @@ impl Worker {
         data_dir: PathBuf,
         cancellations: JobCancellations,
     ) -> Self {
-        Self { pool, bus, data_dir, cancellations, state: None }
+        Self {
+            pool,
+            bus,
+            data_dir,
+            cancellations,
+            state: None,
+        }
     }
 
     /// Production worker wired with `AppState` so the engine's
@@ -54,16 +60,21 @@ impl Worker {
     pub async fn tick(&self) -> anyhow::Result<bool> {
         self.broadcast_queue_snapshot().await;
 
-        let Some(job) = db::jobs::claim_next(&self.pool).await? else { return Ok(false); };
+        let Some(job) = db::jobs::claim_next(&self.pool).await? else {
+            return Ok(false);
+        };
 
         // Job just transitioned pending → running; refresh the snapshot so the
         // Dashboard's "Running" tile reflects the change immediately.
         self.broadcast_queue_snapshot().await;
         // Load flow.
-        let flow_row: Option<(String, String, String)> = sqlx::query_as(
-            "SELECT name, yaml_source, parsed_json FROM flows WHERE id = ?"
-        ).bind(job.flow_id).fetch_optional(&self.pool).await?;
-        let (flow_name, _, parsed_json) = flow_row.ok_or_else(|| anyhow::anyhow!("flow {} missing", job.flow_id))?;
+        let flow_row: Option<(String, String, String)> =
+            sqlx::query_as("SELECT name, yaml_source, parsed_json FROM flows WHERE id = ?")
+                .bind(job.flow_id)
+                .fetch_optional(&self.pool)
+                .await?;
+        let (flow_name, _, parsed_json) =
+            flow_row.ok_or_else(|| anyhow::anyhow!("flow {} missing", job.flow_id))?;
         let flow: Flow = serde_json::from_str(&parsed_json)?;
 
         // Mint a cancellation token for this job and propagate it through the
@@ -111,26 +122,27 @@ impl Worker {
     /// Prometheus queue gauge. Called whenever the queue state changes (worker
     /// tick start, claim, finish) so the Dashboard tiles track in real time.
     async fn broadcast_queue_snapshot(&self) {
-        let pending: i64 = sqlx::query_scalar(
-            "SELECT COUNT(*) FROM jobs WHERE status = 'pending'",
-        )
-        .fetch_one(&self.pool)
-        .await
-        .unwrap_or(0);
-        let running: i64 = sqlx::query_scalar(
-            "SELECT COUNT(*) FROM jobs WHERE status = 'running'",
-        )
-        .fetch_one(&self.pool)
-        .await
-        .unwrap_or(0);
+        let pending: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM jobs WHERE status = 'pending'")
+            .fetch_one(&self.pool)
+            .await
+            .unwrap_or(0);
+        let running: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM jobs WHERE status = 'running'")
+            .fetch_one(&self.pool)
+            .await
+            .unwrap_or(0);
         crate::metrics::set_queue_depth(pending);
-        let _ = self.bus.tx.send(crate::bus::Event::Queue { pending, running });
+        let _ = self
+            .bus
+            .tx
+            .send(crate::bus::Event::Queue { pending, running });
     }
 
     pub async fn run_loop(&self, shutdown: tokio::sync::watch::Receiver<bool>) {
         let mut shutdown = shutdown;
         loop {
-            if *shutdown.borrow() { return; }
+            if *shutdown.borrow() {
+                return;
+            }
 
             // Per-worker enable toggle (Piece 2). When the operator
             // disables the local worker, the in-flight job (if any)

@@ -14,11 +14,11 @@ pub trait Notifier: Send + Sync {
 
 pub fn build(kind: &str, config: &Value) -> anyhow::Result<Box<dyn Notifier>> {
     match kind {
-        "discord"  => Ok(Box::new(discord::Discord::new(config)?)),
+        "discord" => Ok(Box::new(discord::Discord::new(config)?)),
         "jellyfin" => Ok(Box::new(jellyfin::Jellyfin::new(config)?)),
-        "ntfy"     => Ok(Box::new(ntfy::Ntfy::new(config)?)),
+        "ntfy" => Ok(Box::new(ntfy::Ntfy::new(config)?)),
         "telegram" => Ok(Box::new(telegram::Telegram::new(config)?)),
-        "webhook"  => Ok(Box::new(webhook::WebhookNotifier::new(config)?)),
-        other     => anyhow::bail!("unknown notifier kind {other}"),
+        "webhook" => Ok(Box::new(webhook::WebhookNotifier::new(config)?)),
+        other => anyhow::bail!("unknown notifier kind {other}"),
     }
 }

@@ -27,42 +27,58 @@ async fn run(with: Value, ctx: &mut Context) -> anyhow::Result<()> {
 #[tokio::test]
 async fn success_2xx_step_ok() {
     let server = MockServer::start().await;
-    Mock::given(method("POST")).and(path("/notify"))
+    Mock::given(method("POST"))
+        .and(path("/notify"))
         .respond_with(ResponseTemplate::new(200))
-        .mount(&server).await;
+        .mount(&server)
+        .await;
 
     let mut ctx = Context::for_file("/m/x.mkv");
     run(json!({"url": format!("{}/notify", server.uri())}), &mut ctx)
-        .await.unwrap();
+        .await
+        .unwrap();
 }
 
 #[tokio::test]
 async fn non_2xx_step_fails_with_truncated_body() {
     let server = MockServer::start().await;
-    Mock::given(method("POST")).and(path("/notify"))
+    Mock::given(method("POST"))
+        .and(path("/notify"))
         .respond_with(ResponseTemplate::new(500).set_body_string("internal explosion"))
-        .mount(&server).await;
+        .mount(&server)
+        .await;
 
     let mut ctx = Context::for_file("/m/x.mkv");
     let err = run(json!({"url": format!("{}/notify", server.uri())}), &mut ctx)
-        .await.unwrap_err();
+        .await
+        .unwrap_err();
     let msg = err.to_string();
     assert!(msg.contains("500"), "must include status: {msg}");
-    assert!(msg.contains("internal explosion"), "must include body: {msg}");
+    assert!(
+        msg.contains("internal explosion"),
+        "must include body: {msg}"
+    );
 }
 
 #[tokio::test]
 async fn non_2xx_with_ignore_errors_step_ok() {
     let server = MockServer::start().await;
-    Mock::given(method("POST")).and(path("/notify"))
+    Mock::given(method("POST"))
+        .and(path("/notify"))
         .respond_with(ResponseTemplate::new(500))
-        .mount(&server).await;
+        .mount(&server)
+        .await;
 
     let mut ctx = Context::for_file("/m/x.mkv");
-    run(json!({
-        "url": format!("{}/notify", server.uri()),
-        "ignore_errors": true,
-    }), &mut ctx).await.unwrap();
+    run(
+        json!({
+            "url": format!("{}/notify", server.uri()),
+            "ignore_errors": true,
+        }),
+        &mut ctx,
+    )
+    .await
+    .unwrap();
 }
 
 #[tokio::test]
@@ -70,17 +86,23 @@ async fn network_error_step_fails() {
     // Port 1 isn't listening; reqwest will get a connection refused.
     let mut ctx = Context::for_file("/m/x.mkv");
     let err = run(json!({"url": "http://127.0.0.1:1/x"}), &mut ctx)
-        .await.unwrap_err();
+        .await
+        .unwrap_err();
     assert!(err.to_string().contains("webhook:"), "got: {}", err);
 }
 
 #[tokio::test]
 async fn network_error_with_ignore_errors_ok() {
     let mut ctx = Context::for_file("/m/x.mkv");
-    run(json!({
-        "url": "http://127.0.0.1:1/x",
-        "ignore_errors": true,
-    }), &mut ctx).await.unwrap();
+    run(
+        json!({
+            "url": "http://127.0.0.1:1/x",
+            "ignore_errors": true,
+        }),
+        &mut ctx,
+    )
+    .await
+    .unwrap();
 }
 
 #[tokio::test]
@@ -94,28 +116,41 @@ async fn templated_url_headers_body_round_trip() {
         .and(body_string_contains("/movies/Foo.mkv"))
         .respond_with(ResponseTemplate::new(200))
         .expect(1)
-        .mount(&server).await;
+        .mount(&server)
+        .await;
 
     let mut ctx = Context::for_file("/movies/Foo.mkv");
-    run(json!({
-        "url": format!("{}/notify", server.uri()),
-        "headers": {"X-Source": "transcoderr"},
-        "body": "{{ file.path }}",
-    }), &mut ctx).await.unwrap();
+    run(
+        json!({
+            "url": format!("{}/notify", server.uri()),
+            "headers": {"X-Source": "transcoderr"},
+            "body": "{{ file.path }}",
+        }),
+        &mut ctx,
+    )
+    .await
+    .unwrap();
     // Mock's `expect(1)` is verified at drop.
 }
 
 #[tokio::test]
 async fn body_omitted_for_get_when_unset() {
     let server = MockServer::start().await;
-    Mock::given(method("GET")).and(path("/ping"))
+    Mock::given(method("GET"))
+        .and(path("/ping"))
         .respond_with(ResponseTemplate::new(200))
         .expect(1)
-        .mount(&server).await;
+        .mount(&server)
+        .await;
 
     let mut ctx = Context::for_file("/m/x.mkv");
-    run(json!({
-        "url": format!("{}/ping", server.uri()),
-        "method": "GET",
-    }), &mut ctx).await.unwrap();
+    run(
+        json!({
+            "url": format!("{}/ping", server.uri()),
+            "method": "GET",
+        }),
+        &mut ctx,
+    )
+    .await
+    .unwrap();
 }

@@ -14,15 +14,15 @@ pub enum Executor {
 
 pub mod audio_ensure;
 pub mod builtin;
-pub mod plan_execute;
-pub mod plan_steps;
 pub mod copy_step;
-pub mod notify;
 pub mod delete_step;
 pub mod extract_subs;
 pub mod iso_extract;
 pub mod move_step;
+pub mod notify;
 pub mod output;
+pub mod plan_execute;
+pub mod plan_steps;
 pub mod probe;
 pub mod registry;
 pub mod remux;
@@ -36,7 +36,10 @@ pub mod webhook;
 pub enum StepProgress {
     Pct(f64),
     Log(String),
-    Marker { kind: String, payload: serde_json::Value },
+    Marker {
+        kind: String,
+        payload: serde_json::Value,
+    },
 }
 
 #[async_trait]
@@ -54,7 +57,9 @@ pub trait Step: Send + Sync {
 
     /// Default: coordinator-only. Each remote-eligible built-in
     /// overrides this. See `dispatch::route` for how this is consumed.
-    fn executor(&self) -> Executor { Executor::CoordinatorOnly }
+    fn executor(&self) -> Executor {
+        Executor::CoordinatorOnly
+    }
 }
 
 /// Look up a built-in step by `use:` name.

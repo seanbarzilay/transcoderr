@@ -4,9 +4,8 @@ use tempfile::TempDir;
 use tokio::task::JoinHandle;
 use transcoderr::{
     config::{Config, RadarrConfig},
-    db,
+    db, http,
     hw::{semaphores::DeviceRegistry, HwCaps},
-    http,
     metrics::Metrics,
     ready::Readiness,
     worker::Worker,
@@ -26,8 +25,18 @@ pub struct TestApp {
     _temp: TempDir,
     _server: JoinHandle<()>,
     _worker: JoinHandle<()>,
+    _local_heartbeat: JoinHandle<()>,
     // Keep the sender alive so the worker's shutdown watch doesn't fire immediately.
     _shutdown_tx: tokio::sync::watch::Sender<bool>,
+}
+
+impl Drop for TestApp {
+    fn drop(&mut self) {
+        let _ = self._shutdown_tx.send(true);
+        self._server.abort();
+        self._worker.abort();
+        self._local_heartbeat.abort();
+    }
 }
 
 pub async fn boot() -> TestApp {
@@ -56,7 +65,9 @@ pub async fn boot() -> TestApp {
     let cfg = std::sync::Arc::new(Config {
         bind: "127.0.0.1:0".into(),
         data_dir: data_dir.clone(),
-        radarr: RadarrConfig { bearer_token: "test-token".into() },
+        radarr: RadarrConfig {
+            bearer_token: "test-token".into(),
+        },
     });
 
     let bus = transcoderr::bus::Bus::default();
@@ -65,19 +76,17 @@ pub async fn boot() -> TestApp {
     // Mirror the production boot path: register the local worker row
     // and start its heartbeat before spawning the pool. Tests rely on
     // `workers.enabled` being a real toggle the dispatcher honors.
-    transcoderr::worker::local::register_local_worker(
-        &pool,
-        &local_hw_caps,
-        &[],
-    )
-    .await
-    .unwrap();
-    transcoderr::worker::local::spawn_local_heartbeat(pool.clone());
+    transcoderr::worker::local::register_local_worker(&pool, &local_hw_caps, &[])
+        .await
+        .unwrap();
+    let local_heartbeat = transcoderr::worker::local::spawn_local_heartbeat(pool.clone());
 
     let ready = Readiness::new();
     ready.mark_ready().await;
 
-    let metrics = METRICS.get_or_init(|| Arc::new(Metrics::install().unwrap())).clone();
+    let metrics = METRICS
+        .get_or_init(|| Arc::new(Metrics::install().unwrap()))
+        .clone();
 
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
@@ -100,7 +109,9 @@ pub async fn boot() -> TestApp {
             std::time::Duration::from_secs(300),
         )),
         catalog_client: std::sync::Arc::new(transcoderr::plugins::catalog::CatalogClient::default()),
-        runtime_checker: std::sync::Arc::new(transcoderr::plugins::runtime::RuntimeChecker::default()),
+        runtime_checker: std::sync::Arc::new(
+            transcoderr::plugins::runtime::RuntimeChecker::default(),
+        ),
         connections: transcoderr::worker::connections::Connections::new(),
     };
 
@@ -121,6 +132,7 @@ pub async fn boot() -> TestApp {
         _temp: temp,
         _server: s,
         _worker: w,
+        _local_heartbeat: local_heartbeat,
         _shutdown_tx: tx,
     }
 }
@@ -132,13 +144,15 @@ pub async fn boot() -> TestApp {
 /// the install endpoint always returns 200 now; the actual outcome is in
 /// the event stream.
 #[allow(dead_code)]
-pub async fn install_via_sse(
-    client: &reqwest::Client,
-    url: &str,
-) -> Result<String, (u16, String)> {
+pub async fn install_via_sse(client: &reqwest::Client, url: &str) -> Result<String, (u16, String)> {
     use futures::StreamExt;
     let resp = client.post(url).send().await.unwrap();
-    assert_eq!(resp.status(), 200, "install endpoint must return 200 SSE; got {}", resp.status());
+    assert_eq!(
+        resp.status(),
+        200,
+        "install endpoint must return 200 SSE; got {}",
+        resp.status()
+    );
     let mut stream = resp.bytes_stream();
     let mut buf = String::new();
     while let Some(chunk) = stream.next().await {
@@ -152,12 +166,17 @@ pub async fn install_via_sse(
             let mut event = "message".to_string();
             let mut data_lines: Vec<&str> = Vec::new();
             for line in frame.lines() {
-                if let Some(v) = line.strip_prefix("event:") { event = v.trim().to_string(); }
-                else if let Some(v) = line.strip_prefix("data:") { data_lines.push(v.trim()); }
+                if let Some(v) = line.strip_prefix("event:") {
+                    event = v.trim().to_string();
+                } else if let Some(v) = line.strip_prefix("data:") {
+                    data_lines.push(v.trim());
+                }
             }
-            if data_lines.is_empty() { continue; }
-            let data: serde_json::Value = serde_json::from_str(&data_lines.join("\n"))
-                .unwrap_or(serde_json::Value::Null);
+            if data_lines.is_empty() {
+                continue;
+            }
+            let data: serde_json::Value =
+                serde_json::from_str(&data_lines.join("\n")).unwrap_or(serde_json::Value::Null);
             match event.as_str() {
                 "done" => {
                     return Ok(data["installed"].as_str().unwrap_or("").to_string());

@@ -1,9 +1,10 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "../api/client";
 import type { Worker } from "../types";
 import AddWorkerForm from "../components/forms/add-worker";
 import { PathMappingsModal } from "../components/path-mappings-modal";
+import { asRecord } from "../lib/records";
 
 const STALE_AFTER_SECS = 90;
 
@@ -31,14 +32,18 @@ function formatSeen(
   return { label: `${Math.floor(age / 60)}m ago`, status: "stale" };
 }
 
-function hwCapsSummary(caps: any): string {
+function hwCapsSummary(caps: unknown): string {
   if (!caps || typeof caps !== "object") return "—";
-  const devices = Array.isArray(caps.devices) ? caps.devices : [];
+  const rawDevices = asRecord(caps).devices;
+  const devices = Array.isArray(rawDevices) ? rawDevices : [];
   if (devices.length === 0) return "software only";
   const counts: Record<string, number> = {};
   for (const d of devices) {
-    const accel = String(d.accel ?? "?").toUpperCase();
-    counts[accel] = (counts[accel] ?? 0) + (d.max_concurrent ?? 1);
+    const device = asRecord(d);
+    const accel = String(device.accel ?? "?").toUpperCase();
+    const maxConcurrent =
+      typeof device.max_concurrent === "number" ? device.max_concurrent : 1;
+    counts[accel] = (counts[accel] ?? 0) + maxConcurrent;
   }
   return Object.entries(counts).map(([a, n]) => `${a} ×${n}`).join(", ");
 }
@@ -48,6 +53,7 @@ export default function Workers() {
   const list = useQuery({ queryKey: ["workers"], queryFn: api.workers.list });
   const [addOpen, setAddOpen] = useState(false);
   const [mappingFor, setMappingFor] = useState<{ id: number; name: string; rules: Array<{from: string; to: string}> } | null>(null);
+  const [nowTick, setNowTick] = useState<number | null>(null);
 
   const del = useMutation({
     mutationFn: (id: number) => api.workers.delete(id),
@@ -60,7 +66,14 @@ export default function Workers() {
     onSuccess: () => qc.invalidateQueries({ queryKey: ["workers"] }),
   });
 
-  const now = Math.floor(Date.now() / 1000);
+  useEffect(() => {
+    const id = window.setInterval(() => {
+      setNowTick(Math.floor(Date.now() / 1000));
+    }, 30_000);
+    return () => window.clearInterval(id);
+  }, []);
+
+  const now = nowTick ?? Math.floor((list.dataUpdatedAt || 0) / 1000);
   const coordinatorUrlGuess = window.location.origin
     .replace(/^http:/, "ws:")
     .replace(/^https:/, "wss:");

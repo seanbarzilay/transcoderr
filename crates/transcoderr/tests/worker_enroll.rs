@@ -26,9 +26,19 @@ async fn enroll_returns_token_and_inserts_row() {
     let token = body["secret_token"].as_str().unwrap();
     let ws_url = body["ws_url"].as_str().unwrap();
     assert!(id > 0, "id must be positive: {id}");
-    assert_eq!(token.len(), 64, "token must be 32-byte hex (64 chars): {token}");
-    assert!(ws_url.starts_with("ws://"), "ws_url must use ws:// scheme: {ws_url}");
-    assert!(ws_url.ends_with("/api/worker/connect"), "ws_url must point at /api/worker/connect: {ws_url}");
+    assert_eq!(
+        token.len(),
+        64,
+        "token must be 32-byte hex (64 chars): {token}"
+    );
+    assert!(
+        ws_url.starts_with("ws://"),
+        "ws_url must use ws:// scheme: {ws_url}"
+    );
+    assert!(
+        ws_url.ends_with("/api/worker/connect"),
+        "ws_url must point at /api/worker/connect: {ws_url}"
+    );
 
     // The row must exist and be `kind='remote'`.
     let row = transcoderr::db::workers::get_by_id(&app.pool, id)

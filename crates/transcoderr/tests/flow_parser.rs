@@ -21,7 +21,10 @@ steps:
 "#;
     let flow: Flow = parse_flow(yaml).unwrap();
     assert_eq!(flow.name, "reencode-x265");
-    assert_eq!(flow.triggers, vec![Trigger::Radarr(vec!["downloaded".into()])]);
+    assert_eq!(
+        flow.triggers,
+        vec![Trigger::Radarr(vec!["downloaded".into()])]
+    );
     assert_eq!(flow.steps.len(), 3);
     match &flow.steps[1] {
         Node::Step { use_, with, .. } => {

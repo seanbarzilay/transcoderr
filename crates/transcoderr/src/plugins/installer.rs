@@ -27,7 +27,9 @@ pub struct InstalledPlugin {
 
 struct StagingGuard(Option<PathBuf>);
 impl StagingGuard {
-    fn disarm(&mut self) { self.0.take(); }
+    fn disarm(&mut self) {
+        self.0.take();
+    }
 }
 impl Drop for StagingGuard {
     fn drop(&mut self) {
@@ -108,25 +110,28 @@ pub async fn install_from_entry(
         .collect();
     if top_dirs.len() != 1 {
         return Err(InstallError::Layout(format!(
-            "expected 1 top-level dir, got {}", top_dirs.len()
+            "expected 1 top-level dir, got {}",
+            top_dirs.len()
         )));
     }
     let top_dir = top_dirs.remove(0);
     let top_name = top_dir.file_name().and_then(|n| n.to_str()).unwrap_or("");
     if top_name != entry.name {
         return Err(InstallError::Layout(format!(
-            "top-level dir is {top_name:?}, expected {:?}", entry.name
+            "top-level dir is {top_name:?}, expected {:?}",
+            entry.name
         )));
     }
 
     // Verify manifest parses and name matches.
     let manifest_raw = std::fs::read_to_string(top_dir.join("manifest.toml"))
         .map_err(|e| InstallError::Manifest(format!("manifest.toml: {e}")))?;
-    let manifest: crate::plugins::manifest::Manifest = toml::from_str(&manifest_raw)
-        .map_err(|e| InstallError::Manifest(format!("parse: {e}")))?;
+    let manifest: crate::plugins::manifest::Manifest =
+        toml::from_str(&manifest_raw).map_err(|e| InstallError::Manifest(format!("parse: {e}")))?;
     if manifest.name != entry.name {
         return Err(InstallError::Manifest(format!(
-            "manifest.name is {:?}, expected {:?}", manifest.name, entry.name
+            "manifest.name is {:?}, expected {:?}",
+            manifest.name, entry.name
         )));
     }
 
@@ -172,7 +177,9 @@ pub async fn install_from_entry(
 fn hex(bytes: &[u8]) -> String {
     use std::fmt::Write;
     let mut s = String::with_capacity(bytes.len() * 2);
-    for b in bytes { let _ = write!(s, "{:02x}", b); }
+    for b in bytes {
+        let _ = write!(s, "{:02x}", b);
+    }
     s
 }
 
@@ -187,7 +194,11 @@ mod tests {
 
     /// Build a tar.gz of `<plugin_name>/manifest.toml` (+ optional bin/run)
     /// in memory and return (bytes, sha256_hex).
-    fn build_tarball(plugin_name: &str, manifest_toml: &str, with_bin_run: bool) -> (Vec<u8>, String) {
+    fn build_tarball(
+        plugin_name: &str,
+        manifest_toml: &str,
+        with_bin_run: bool,
+    ) -> (Vec<u8>, String) {
         let mut gz = GzEncoder::new(Vec::new(), Compression::default());
         {
             let mut tar = tar::Builder::new(&mut gz);
@@ -203,7 +214,8 @@ mod tests {
             // manifest.toml.
             let manifest = manifest_toml.as_bytes();
             let mut hdr = tar::Header::new_gnu();
-            hdr.set_path(format!("{plugin_name}/manifest.toml")).unwrap();
+            hdr.set_path(format!("{plugin_name}/manifest.toml"))
+                .unwrap();
             hdr.set_mode(0o644);
             hdr.set_size(manifest.len() as u64);
             hdr.set_cksum();
@@ -244,11 +256,15 @@ provides_steps = ["{name}.do"]
         let (bytes, sha) = build_tarball("hello", &manifest_for("hello"), true);
 
         let server = MockServer::start().await;
-        Mock::given(method("GET")).and(path("/hello.tar.gz"))
-            .respond_with(ResponseTemplate::new(200)
-                .set_body_bytes(bytes)
-                .insert_header("content-type", "application/gzip"))
-            .mount(&server).await;
+        Mock::given(method("GET"))
+            .and(path("/hello.tar.gz"))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .set_body_bytes(bytes)
+                    .insert_header("content-type", "application/gzip"),
+            )
+            .mount(&server)
+            .await;
 
         let plugins_dir = tempdir().unwrap();
         let entry = IndexEntry {
@@ -264,14 +280,17 @@ provides_steps = ["{name}.do"]
             runtimes: vec![],
             deps: None,
         };
-        let installed = install_from_entry(&entry, plugins_dir.path(), None, None).await.unwrap();
+        let installed = install_from_entry(&entry, plugins_dir.path(), None, None)
+            .await
+            .unwrap();
         assert_eq!(installed.name, "hello");
         assert_eq!(installed.tarball_sha256, sha);
         assert!(installed.plugin_dir.exists());
         assert!(installed.plugin_dir.join("manifest.toml").exists());
         assert!(installed.plugin_dir.join("bin/run").exists());
         // No leftover staging dir.
-        let leftovers: Vec<_> = std::fs::read_dir(plugins_dir.path()).unwrap()
+        let leftovers: Vec<_> = std::fs::read_dir(plugins_dir.path())
+            .unwrap()
             .filter_map(|e| e.ok())
             .filter(|e| e.file_name().to_string_lossy().starts_with(".tcr-"))
             .collect();
@@ -282,9 +301,11 @@ provides_steps = ["{name}.do"]
     async fn install_fails_on_sha_mismatch_and_leaves_no_staging() {
         let (bytes, _real_sha) = build_tarball("hello", &manifest_for("hello"), true);
         let server = MockServer::start().await;
-        Mock::given(method("GET")).and(path("/hello.tar.gz"))
+        Mock::given(method("GET"))
+            .and(path("/hello.tar.gz"))
             .respond_with(ResponseTemplate::new(200).set_body_bytes(bytes))
-            .mount(&server).await;
+            .mount(&server)
+            .await;
 
         let plugins_dir = tempdir().unwrap();
         let entry = IndexEntry {
@@ -292,7 +313,7 @@ provides_steps = ["{name}.do"]
             version: "0.1.0".into(),
             summary: "".into(),
             tarball_url: format!("{}/hello.tar.gz", server.uri()),
-            tarball_sha256: "0".repeat(64),  // wrong
+            tarball_sha256: "0".repeat(64), // wrong
             homepage: None,
             min_transcoderr_version: None,
             kind: "subprocess".into(),
@@ -300,12 +321,16 @@ provides_steps = ["{name}.do"]
             runtimes: vec![],
             deps: None,
         };
-        let err = install_from_entry(&entry, plugins_dir.path(), None, None).await.unwrap_err();
+        let err = install_from_entry(&entry, plugins_dir.path(), None, None)
+            .await
+            .unwrap_err();
         assert!(matches!(err, InstallError::ShaMismatch { .. }));
         // Plugin dir was not created and staging was cleaned.
         assert!(!plugins_dir.path().join("hello").exists());
-        let entries: Vec<_> = std::fs::read_dir(plugins_dir.path()).unwrap()
-            .filter_map(|e| e.ok()).collect();
+        let entries: Vec<_> = std::fs::read_dir(plugins_dir.path())
+            .unwrap()
+            .filter_map(|e| e.ok())
+            .collect();
         assert!(entries.is_empty());
     }
 
@@ -314,9 +339,11 @@ provides_steps = ["{name}.do"]
         // Tarball top-level dir is "wrong", entry says it's "hello".
         let (bytes, sha) = build_tarball("wrong", &manifest_for("wrong"), true);
         let server = MockServer::start().await;
-        Mock::given(method("GET")).and(path("/x.tar.gz"))
+        Mock::given(method("GET"))
+            .and(path("/x.tar.gz"))
             .respond_with(ResponseTemplate::new(200).set_body_bytes(bytes))
-            .mount(&server).await;
+            .mount(&server)
+            .await;
 
         let plugins_dir = tempdir().unwrap();
         let entry = IndexEntry {
@@ -332,7 +359,9 @@ provides_steps = ["{name}.do"]
             runtimes: vec![],
             deps: None,
         };
-        let err = install_from_entry(&entry, plugins_dir.path(), None, None).await.unwrap_err();
+        let err = install_from_entry(&entry, plugins_dir.path(), None, None)
+            .await
+            .unwrap_err();
         match err {
             InstallError::Layout(msg) => assert!(msg.contains("wrong"), "msg: {msg}"),
             other => panic!("expected Layout, got {other:?}"),
@@ -353,23 +382,31 @@ provides_steps = ["{name}.do"]
         {
             let mut tar = tar::Builder::new(&mut gz);
             let mut hdr = tar::Header::new_gnu();
-            hdr.set_path("hello/").unwrap(); hdr.set_mode(0o755); hdr.set_size(0); hdr.set_cksum();
+            hdr.set_path("hello/").unwrap();
+            hdr.set_mode(0o755);
+            hdr.set_size(0);
+            hdr.set_cksum();
             tar.append(&hdr, std::io::empty()).unwrap();
             let body = bad_manifest.as_bytes();
             let mut hdr = tar::Header::new_gnu();
             hdr.set_path("hello/manifest.toml").unwrap();
-            hdr.set_mode(0o644); hdr.set_size(body.len() as u64); hdr.set_cksum();
+            hdr.set_mode(0o644);
+            hdr.set_size(body.len() as u64);
+            hdr.set_cksum();
             tar.append(&hdr, body).unwrap();
             tar.finish().unwrap();
         }
         let bytes = gz.finish().unwrap();
-        let mut h = Sha256::new(); h.update(&bytes);
+        let mut h = Sha256::new();
+        h.update(&bytes);
         let sha = hex(&h.finalize());
 
         let server = MockServer::start().await;
-        Mock::given(method("GET")).and(path("/x.tar.gz"))
+        Mock::given(method("GET"))
+            .and(path("/x.tar.gz"))
             .respond_with(ResponseTemplate::new(200).set_body_bytes(bytes))
-            .mount(&server).await;
+            .mount(&server)
+            .await;
 
         let plugins_dir = tempdir().unwrap();
         let entry = IndexEntry {
@@ -378,10 +415,16 @@ provides_steps = ["{name}.do"]
             summary: "".into(),
             tarball_url: format!("{}/x.tar.gz", server.uri()),
             tarball_sha256: sha,
-            homepage: None, min_transcoderr_version: None,
-            kind: "subprocess".into(), provides_steps: vec![], runtimes: vec![], deps: None,
+            homepage: None,
+            min_transcoderr_version: None,
+            kind: "subprocess".into(),
+            provides_steps: vec![],
+            runtimes: vec![],
+            deps: None,
         };
-        let err = install_from_entry(&entry, plugins_dir.path(), None, None).await.unwrap_err();
+        let err = install_from_entry(&entry, plugins_dir.path(), None, None)
+            .await
+            .unwrap_err();
         match err {
             InstallError::Manifest(msg) => assert!(msg.contains("other")),
             other => panic!("expected Manifest, got {other:?}"),
@@ -399,9 +442,11 @@ provides_steps = ["{name}.do"]
 
         let (bytes, sha) = build_tarball("hello", &manifest_for("hello"), true);
         let server = MockServer::start().await;
-        Mock::given(method("GET")).and(path("/h.tar.gz"))
+        Mock::given(method("GET"))
+            .and(path("/h.tar.gz"))
             .respond_with(ResponseTemplate::new(200).set_body_bytes(bytes))
-            .mount(&server).await;
+            .mount(&server)
+            .await;
 
         let entry = IndexEntry {
             name: "hello".into(),
@@ -409,10 +454,16 @@ provides_steps = ["{name}.do"]
             summary: "".into(),
             tarball_url: format!("{}/h.tar.gz", server.uri()),
             tarball_sha256: sha,
-            homepage: None, min_transcoderr_version: None,
-            kind: "subprocess".into(), provides_steps: vec![], runtimes: vec![], deps: None,
+            homepage: None,
+            min_transcoderr_version: None,
+            kind: "subprocess".into(),
+            provides_steps: vec![],
+            runtimes: vec![],
+            deps: None,
         };
-        install_from_entry(&entry, plugins_dir.path(), None, None).await.unwrap();
+        install_from_entry(&entry, plugins_dir.path(), None, None)
+            .await
+            .unwrap();
 
         assert!(target.join("manifest.toml").exists());
         assert!(target.join("bin/run").exists());

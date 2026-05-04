@@ -10,9 +10,15 @@ async fn sonarr_webhook_creates_job() {
     let app = boot().await;
 
     // Insert a sonarr source.
-    db::sources::insert(&app.pool, "sonarr", "sonarr-main", &json!({}), "sonarr-token")
-        .await
-        .unwrap();
+    db::sources::insert(
+        &app.pool,
+        "sonarr",
+        "sonarr-main",
+        &json!({}),
+        "sonarr-token",
+    )
+    .await
+    .unwrap();
 
     // Seed a flow triggered by sonarr downloaded event.
     let yaml = r#"

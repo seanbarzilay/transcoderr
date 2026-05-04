@@ -1,5 +1,8 @@
 use tempfile::tempdir;
-use transcoderr::{db, flow::{parse_flow, Context, Engine}};
+use transcoderr::{
+    db,
+    flow::{parse_flow, Context, Engine},
+};
 
 #[tokio::test]
 async fn on_failure_handler_runs() {
@@ -16,10 +19,15 @@ on_failure:
 "#;
     let flow = parse_flow(yaml).unwrap();
     let flow_id = db::flows::insert(&pool, "f", yaml, &flow).await.unwrap();
-    let job_id = db::jobs::insert(&pool, flow_id, 1, "radarr", "/no/such/file.mkv", "{}").await.unwrap();
+    let job_id = db::jobs::insert(&pool, flow_id, 1, "radarr", "/no/such/file.mkv", "{}")
+        .await
+        .unwrap();
     let _ = db::jobs::claim_next(&pool).await.unwrap().unwrap();
     let bus = transcoderr::bus::Bus::default();
-    let outcome = Engine::new(pool.clone(), bus, dir.path().to_path_buf()).run(&flow, job_id, Context::for_file("/no/such/file.mkv")).await.unwrap();
+    let outcome = Engine::new(pool.clone(), bus, dir.path().to_path_buf())
+        .run(&flow, job_id, Context::for_file("/no/such/file.mkv"))
+        .await
+        .unwrap();
     assert_eq!(outcome.status, "failed");
 
     // shell step is added in Phase 2 Task 9. For now mark this test #[ignore]

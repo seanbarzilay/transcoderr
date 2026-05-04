@@ -4,8 +4,10 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "../api/client";
 import SourcePicker from "../components/source-picker";
 import PosterGrid from "../components/poster-grid";
-import DetailPanel, { FileSummaryRow, formatBytes } from "../components/detail-panel";
+import DetailPanel, { FileSummaryRow } from "../components/detail-panel";
 import TranscodeButton from "../components/transcode-button";
+import { errorMessage } from "../lib/errors";
+import { formatBytes } from "../lib/format";
 import type { MovieSummary } from "../types-arr";
 
 export default function Radarr() {
@@ -18,6 +20,7 @@ export default function Radarr() {
     const sp = new URLSearchParams(searchParams);
     sp.set("source", String(id));
     setSearchParams(sp, { replace: true });
+    setPage(1);
   };
 
   const [search, setSearch] = useState("");
@@ -29,11 +32,12 @@ export default function Radarr() {
   const [selectedId, setSelectedId] = useState<number | null>(null);
 
   useEffect(() => {
-    const t = setTimeout(() => setDebounced(search), 250);
+    const t = setTimeout(() => {
+      setDebounced(search);
+      setPage(1);
+    }, 250);
     return () => clearTimeout(t);
   }, [search]);
-
-  useEffect(() => setPage(1), [debounced, sort, codec, resolution, sourceId]);
 
   const movies = useQuery({
     queryKey: ["arr.movies", sourceId, debounced, sort, codec, resolution, page],
@@ -67,7 +71,10 @@ export default function Radarr() {
         <select
           className="source-picker"
           value={sort}
-          onChange={(e) => setSort(e.target.value as "title" | "year")}
+          onChange={(e) => {
+            setSort(e.target.value as "title" | "year");
+            setPage(1);
+          }}
         >
           <option value="title">Sort: title</option>
           <option value="year">Sort: year</option>
@@ -75,7 +82,10 @@ export default function Radarr() {
         <select
           className="source-picker"
           value={codec}
-          onChange={(e) => setCodec(e.target.value)}
+          onChange={(e) => {
+            setCodec(e.target.value);
+            setPage(1);
+          }}
         >
           <option value="">Codec: any</option>
           {(movies.data?.available_codecs ?? []).map((c) => (
@@ -87,7 +97,10 @@ export default function Radarr() {
         <select
           className="source-picker"
           value={resolution}
-          onChange={(e) => setResolution(e.target.value)}
+          onChange={(e) => {
+            setResolution(e.target.value);
+            setPage(1);
+          }}
         >
           <option value="">Resolution: any</option>
           {(movies.data?.available_resolutions ?? []).map((r) => (
@@ -115,7 +128,7 @@ export default function Radarr() {
       )}
       {movies.isError && (
         <div className="empty">
-          Couldn't load movies: {(movies.error as any)?.message ?? "unknown error"}
+          Couldn't load movies: {errorMessage(movies.error, "unknown error")}
         </div>
       )}
       {movies.isLoading && sourceId != null && (
@@ -142,7 +155,6 @@ export default function Radarr() {
           <MovieDetail
             movie={selected}
             sourceId={sourceId!}
-            onTranscoded={() => setSelectedId(null)}
           />
         )}
       </DetailPanel>
@@ -153,11 +165,9 @@ export default function Radarr() {
 function MovieDetail({
   movie,
   sourceId,
-  onTranscoded: _onTranscoded,
 }: {
   movie: MovieSummary;
   sourceId: number;
-  onTranscoded: () => void;
 }) {
   return (
     <>

@@ -31,7 +31,10 @@ pub struct AppState {
 pub fn router(state: AppState, dedup_window: Duration) -> Router {
     let dedup = Arc::new(dedup::DedupCache::new(dedup_window));
     Router::new()
-        .route("/healthz", axum::routing::get(|| async { axum::http::StatusCode::OK }))
+        .route(
+            "/healthz",
+            axum::routing::get(|| async { axum::http::StatusCode::OK }),
+        )
         .route("/readyz", axum::routing::get(readyz_handler))
         .route("/metrics", axum::routing::get(metrics_handler))
         .route("/webhook/radarr", post(webhook_radarr::handle))
@@ -45,8 +48,11 @@ pub fn router(state: AppState, dedup_window: Duration) -> Router {
 }
 
 async fn readyz_handler(State(state): State<AppState>) -> axum::http::StatusCode {
-    if state.ready.is_ready().await { axum::http::StatusCode::OK }
-    else { axum::http::StatusCode::SERVICE_UNAVAILABLE }
+    if state.ready.is_ready().await {
+        axum::http::StatusCode::OK
+    } else {
+        axum::http::StatusCode::SERVICE_UNAVAILABLE
+    }
 }
 
 async fn metrics_handler(State(state): State<AppState>) -> String {

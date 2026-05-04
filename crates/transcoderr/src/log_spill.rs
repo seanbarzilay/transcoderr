@@ -11,7 +11,9 @@ pub async fn maybe_spill(
     event_id: i64,
     payload_json: &str,
 ) -> anyhow::Result<Option<PathBuf>> {
-    if payload_json.len() <= INLINE_THRESHOLD { return Ok(None); }
+    if payload_json.len() <= INLINE_THRESHOLD {
+        return Ok(None);
+    }
     let dir = data_dir.join("logs").join(job_id.to_string());
     fs::create_dir_all(&dir).await?;
     let fname = format!("{}-{}.log", step_id.unwrap_or("unknown"), event_id);

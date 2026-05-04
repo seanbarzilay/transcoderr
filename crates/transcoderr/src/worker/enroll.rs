@@ -45,10 +45,12 @@ pub async fn discover_and_enroll(
 ) -> anyhow::Result<WorkerConfig> {
     let coord = browse(BROWSE_DEADLINE, instance_filter, with_loopback)
         .await?
-        .ok_or_else(|| anyhow::anyhow!(
-            "no coordinator found on the LAN within {BROWSE_DEADLINE:?} — \
+        .ok_or_else(|| {
+            anyhow::anyhow!(
+                "no coordinator found on the LAN within {BROWSE_DEADLINE:?} — \
              see docs/deploy.md for manual config"
-        ))?;
+            )
+        })?;
     tracing::info!(addr = %coord.addr, port = coord.port, "discovered coordinator");
 
     let name = hostname::get()
@@ -63,10 +65,7 @@ pub async fn discover_and_enroll(
     WorkerConfig::load(cfg_path).context("re-load freshly written worker.toml")
 }
 
-async fn post_enroll(
-    coord: &DiscoveredCoordinator,
-    name: &str,
-) -> anyhow::Result<EnrollResp> {
+async fn post_enroll(coord: &DiscoveredCoordinator, name: &str) -> anyhow::Result<EnrollResp> {
     let url = format!("{}{}", coord.http_url(), coord.enroll_path);
     let client = reqwest::Client::new();
     let resp = client
@@ -80,7 +79,9 @@ async fn post_enroll(
         let body = resp.text().await.unwrap_or_else(|_| "<no body>".into());
         anyhow::bail!("enroll {url} returned {status}: {body}");
     }
-    resp.json::<EnrollResp>().await.context("parse enroll response")
+    resp.json::<EnrollResp>()
+        .await
+        .context("parse enroll response")
 }
 
 /// Write a `worker.toml` at `path` with the given fields. Creates the
@@ -110,8 +111,7 @@ pub fn write_config(
         name,
     })
     .context("serialize worker.toml")?;
-    std::fs::write(path, body)
-        .with_context(|| format!("write {}", path.display()))?;
+    std::fs::write(path, body).with_context(|| format!("write {}", path.display()))?;
     Ok(())
 }
 
@@ -131,7 +131,10 @@ mod tests {
         )
         .unwrap();
         let cfg = WorkerConfig::load(&path).unwrap();
-        assert_eq!(cfg.coordinator_url, "ws://192.168.1.50:8765/api/worker/connect");
+        assert_eq!(
+            cfg.coordinator_url,
+            "ws://192.168.1.50:8765/api/worker/connect"
+        );
         assert_eq!(cfg.coordinator_token, "abcdef0123456789");
         assert_eq!(cfg.name.as_deref(), Some("fluffy-1"));
     }
