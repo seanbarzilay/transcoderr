@@ -64,59 +64,75 @@ export function PathMappingsModal({
         <div className="modal-header">
           <h3>Path mappings — {workerName}</h3>
         </div>
-        <div className="modal-body">
-          <p style={{ marginTop: 0, fontSize: "0.9em", opacity: 0.8 }}>
+        <div className="modal-body" style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
+          <p style={{ margin: 0, fontSize: "0.9em", opacity: 0.8 }}>
             Rewrite filesystem paths between coordinator and worker. Use this
             when the worker mounts the same media at a different absolute path.
             Longest matching prefix wins.
           </p>
-          {rules.length === 0 ? (
-            <p>
+          {rules.length > 0 && (
+            <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}>
+              <div
+                style={{
+                  display: "flex",
+                  gap: "0.75rem",
+                  fontSize: "0.8em",
+                  opacity: 0.6,
+                  textTransform: "uppercase",
+                  letterSpacing: "0.05em",
+                }}
+              >
+                <span style={{ flex: 1 }}>From (coordinator)</span>
+                <span style={{ flex: 1 }}>To (worker)</span>
+                <span style={{ width: "2rem" }} />
+              </div>
+              {rules.map((r, i) => (
+                <div
+                  key={i}
+                  style={{
+                    display: "flex",
+                    gap: "0.75rem",
+                    alignItems: "center",
+                  }}
+                >
+                  <input
+                    type="text"
+                    value={r.from}
+                    placeholder="/mnt/movies"
+                    onChange={(e) => setRule(i, { from: e.target.value })}
+                    style={{ flex: 1, minWidth: 0 }}
+                  />
+                  <input
+                    type="text"
+                    value={r.to}
+                    placeholder="/data/media/movies"
+                    onChange={(e) => setRule(i, { to: e.target.value })}
+                    style={{ flex: 1, minWidth: 0 }}
+                  />
+                  <button
+                    className="btn-ghost"
+                    onClick={() => removeRule(i)}
+                    title="Remove mapping"
+                    style={{ width: "2rem", padding: "0.25rem 0", flexShrink: 0 }}
+                  >
+                    ✕
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+          {rules.length === 0 && (
+            <p style={{ margin: 0, opacity: 0.6 }}>
               <em>No mappings — paths pass through unchanged.</em>
             </p>
-          ) : (
-            <table style={{ width: "100%" }}>
-              <thead>
-                <tr>
-                  <th align="left">From (coordinator)</th>
-                  <th align="left">To (worker)</th>
-                  <th></th>
-                </tr>
-              </thead>
-              <tbody>
-                {rules.map((r, i) => (
-                  <tr key={i}>
-                    <td>
-                      <input
-                        type="text"
-                        value={r.from}
-                        placeholder="/mnt/movies"
-                        onChange={(e) => setRule(i, { from: e.target.value })}
-                        style={{ width: "100%" }}
-                      />
-                    </td>
-                    <td>
-                      <input
-                        type="text"
-                        value={r.to}
-                        placeholder="/data/media/movies"
-                        onChange={(e) => setRule(i, { to: e.target.value })}
-                        style={{ width: "100%" }}
-                      />
-                    </td>
-                    <td>
-                      <button onClick={() => removeRule(i)}>✕</button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
           )}
-          <button onClick={addRule} style={{ marginTop: "0.5rem" }}>
-            + Add mapping
-          </button>
+          <div>
+            <button className="btn-ghost" onClick={addRule}>
+              + Add mapping
+            </button>
+          </div>
           {error && (
-            <p style={{ color: "var(--color-error, red)" }}>{error}</p>
+            <p style={{ margin: 0, color: "var(--color-error, red)" }}>{error}</p>
           )}
         </div>
         <div className="modal-footer">
