@@ -147,6 +147,32 @@ pub async fn sync(
             return;
         }
     };
+
+    // 5a. Run each discovered plugin's `deps` shell command (e.g.
+    //     `python3 -m venv ./venv && ./venv/bin/pip install ...`).
+    //     Mirrors the coordinator's boot-path behavior in `main.rs`:
+    //     idempotent re-runs are fine (pip install of an already-
+    //     satisfied package is a no-op), and skipping this leaves
+    //     plugins like whisper unable to start because their venv
+    //     doesn't exist on the worker host.
+    //
+    //     Failure logs warn and the plugin still registers — the
+    //     subsequent dispatch will fail with a clearer error from
+    //     bin/run than the bare "produced no result" we'd see
+    //     otherwise.
+    for d in &discovered {
+        if let Some(deps) = &d.manifest.deps {
+            tracing::info!(plugin = %d.manifest.name, "running plugin deps");
+            if let Err(e) = crate::plugins::deps::run(&d.manifest_dir, deps, |_, _| {}).await {
+                tracing::warn!(
+                    plugin = %d.manifest.name,
+                    error = %e,
+                    "plugin deps failed; dispatched steps will likely fail"
+                );
+            }
+        }
+    }
+
     crate::steps::registry::rebuild_from_discovered(discovered).await;
 }
 
