@@ -42,7 +42,10 @@ async fn audio_ensure_adds_target_track_when_missing() {
         .iter()
         .filter(|s| s["codec_type"] == "audio")
         .count();
-    assert!(audio_count >= 1, "expected at least one audio stream, got {audio_count}");
+    assert!(
+        audio_count >= 1,
+        "expected at least one audio stream, got {audio_count}"
+    );
 }
 
 #[tokio::test]

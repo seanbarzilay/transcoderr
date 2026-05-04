@@ -11,9 +11,15 @@ async fn discord_posts_to_url() {
     tokio::spawn(async move {
         let (mut s, _) = listener.accept().await.unwrap();
         let mut buf = vec![0u8; 4096];
-        let n = tokio::io::AsyncReadExt::read(&mut s, &mut buf).await.unwrap();
+        let n = tokio::io::AsyncReadExt::read(&mut s, &mut buf)
+            .await
+            .unwrap();
         *recv.lock().await = String::from_utf8_lossy(&buf[..n]).to_string();
-        let _ = tokio::io::AsyncWriteExt::write_all(&mut s, b"HTTP/1.1 204 No Content\r\nContent-Length: 0\r\n\r\n").await;
+        let _ = tokio::io::AsyncWriteExt::write_all(
+            &mut s,
+            b"HTTP/1.1 204 No Content\r\nContent-Length: 0\r\n\r\n",
+        )
+        .await;
     });
 
     let n = notifiers::build("discord", &json!({"url": format!("http://{addr}/x")})).unwrap();

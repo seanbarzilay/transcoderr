@@ -29,7 +29,7 @@ export default function SetupWizard() {
   const settings = useQuery({ queryKey: ["settings"], queryFn: api.settings.get });
 
   const [step, setStep] = useState<Step>("welcome");
-  // `open` is one-way: false → true happens once when the auto-launch
+  // `open` is one-way: false -> true happens once when the auto-launch
   // conditions are first met (no sources, no `wizard.completed` flag).
   // After that we don't re-check the gating — adding a source mid-flow
   // would otherwise flip `sources.length > 0` and yank the modal out

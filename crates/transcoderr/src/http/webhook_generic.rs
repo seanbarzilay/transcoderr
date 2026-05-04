@@ -1,4 +1,6 @@
-use crate::{db, flow::expr, flow::Context, http::AppState, http::auth_extract, http::dedup::DedupCache};
+use crate::{
+    db, flow::expr, flow::Context, http::auth_extract, http::dedup::DedupCache, http::AppState,
+};
 use axum::{
     extract::{Path, State},
     http::{HeaderMap, StatusCode},
@@ -20,8 +22,7 @@ pub async fn handle(
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
         .ok_or(StatusCode::UNAUTHORIZED)?;
 
-    let cfg: Value =
-        serde_json::from_str(&source.config_json).unwrap_or(Value::Null);
+    let cfg: Value = serde_json::from_str(&source.config_json).unwrap_or(Value::Null);
     let path_expr = cfg["path_expr"].as_str().unwrap_or("steps.payload.path");
 
     // Bind payload under steps so CEL can access it as steps.payload.*

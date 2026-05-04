@@ -20,29 +20,33 @@ use transcoderr::worker::protocol::{
     Envelope, Message, PluginManifestEntry, Register, StepComplete,
 };
 
-type Ws = tokio_tungstenite::WebSocketStream<
-    tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>,
->;
+type Ws =
+    tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>;
 
 async fn mint_token(client: &reqwest::Client, base: &str, name: &str) -> (i64, String) {
     let resp: serde_json::Value = client
         .post(format!("{base}/api/workers"))
         .json(&json!({"name": name}))
-        .send().await.unwrap()
-        .json().await.unwrap();
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
     (
         resp["id"].as_i64().expect("id"),
-        resp["secret_token"].as_str().expect("secret_token").to_string(),
+        resp["secret_token"]
+            .as_str()
+            .expect("secret_token")
+            .to_string(),
     )
 }
 
 async fn ws_connect(base_ws: &str, token: &str) -> Ws {
     let url = format!("{base_ws}/api/worker/connect");
     let mut req = url.as_str().into_client_request().unwrap();
-    req.headers_mut().insert(
-        AUTHORIZATION,
-        format!("Bearer {token}").parse().unwrap(),
-    );
+    req.headers_mut()
+        .insert(AUTHORIZATION, format!("Bearer {token}").parse().unwrap());
     let (ws, _) = tokio_tungstenite::connect_async(req).await.unwrap();
     ws
 }
@@ -90,7 +94,9 @@ async fn submit_job_with_step(
         "name: {flow_name}\ntriggers: [{{ webhook: x }}]\nsteps:\n  - use: {use_}\n    run_on: any\n"
     );
     let flow = parse_flow(&yaml).unwrap();
-    let flow_id = db::flows::insert(&app.pool, flow_name, &yaml, &flow).await.unwrap();
+    let flow_id = db::flows::insert(&app.pool, flow_name, &yaml, &flow)
+        .await
+        .unwrap();
     let job_id = db::jobs::insert(&app.pool, flow_id, 1, "webhook", file_path, "{}")
         .await
         .unwrap();
@@ -145,8 +151,7 @@ async fn round_trip_rewrites_paths_in_both_directions() {
         Message::StepDispatch(d) => d.ctx_snapshot.clone(),
         _ => unreachable!(),
     };
-    let dispatched_value: serde_json::Value =
-        serde_json::from_str(&dispatched_ctx).unwrap();
+    let dispatched_value: serde_json::Value = serde_json::from_str(&dispatched_ctx).unwrap();
     assert_eq!(
         dispatched_value["file"]["path"].as_str().unwrap(),
         "/worker/movies/X.mkv",
@@ -184,12 +189,11 @@ async fn round_trip_rewrites_paths_in_both_directions() {
     //    paths are restored.
     let start = std::time::Instant::now();
     let final_status: Option<String> = loop {
-        let status: Option<String> =
-            sqlx::query_scalar("SELECT status FROM jobs WHERE id = ?")
-                .bind(job_id)
-                .fetch_optional(&app.pool)
-                .await
-                .unwrap();
+        let status: Option<String> = sqlx::query_scalar("SELECT status FROM jobs WHERE id = ?")
+            .bind(job_id)
+            .fetch_optional(&app.pool)
+            .await
+            .unwrap();
         if let Some(ref s) = status {
             if s == "completed" {
                 break Some(s.clone());
@@ -207,13 +211,12 @@ async fn round_trip_rewrites_paths_in_both_directions() {
     );
 
     // Read the final context snapshot from the checkpoints table.
-    let snapshot: Option<String> = sqlx::query_scalar(
-        "SELECT context_snapshot_json FROM checkpoints WHERE job_id = ?",
-    )
-    .bind(job_id)
-    .fetch_optional(&app.pool)
-    .await
-    .unwrap();
+    let snapshot: Option<String> =
+        sqlx::query_scalar("SELECT context_snapshot_json FROM checkpoints WHERE job_id = ?")
+            .bind(job_id)
+            .fetch_optional(&app.pool)
+            .await
+            .unwrap();
     let snapshot = snapshot.expect("checkpoint row must exist after step completes");
     let restored: serde_json::Value = serde_json::from_str(&snapshot).unwrap();
 
@@ -223,7 +226,9 @@ async fn round_trip_rewrites_paths_in_both_directions() {
         "reverse rewrite must map /worker -> /coord on file.path"
     );
     assert_eq!(
-        restored["steps"]["transcode"]["output_path"].as_str().unwrap(),
+        restored["steps"]["transcode"]["output_path"]
+            .as_str()
+            .unwrap(),
         "/coord/movies/X.transcoded.mkv",
         "reverse rewrite must map /worker -> /coord inside ctx.steps too"
     );

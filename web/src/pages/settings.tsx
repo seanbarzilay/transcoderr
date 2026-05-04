@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "../api/client";
 import ApiTokensCard from "../components/api-tokens-card";
@@ -6,12 +6,10 @@ import ApiTokensCard from "../components/api-tokens-card";
 export default function Settings() {
   const qc = useQueryClient();
   const settings = useQuery({ queryKey: ["settings"], queryFn: api.settings.get });
-  const [draft, setDraft] = useState<Record<string, string>>({});
+  const [draftOverride, setDraftOverride] = useState<Record<string, string> | null>(null);
   const [password, setPassword] = useState("");
-
-  useEffect(() => {
-    if (settings.data) setDraft(settings.data);
-  }, [settings.data]);
+  const draft = draftOverride ?? settings.data ?? {};
+  const setDraft = (next: Record<string, string>) => setDraftOverride(next);
 
   const save = useMutation({
     mutationFn: () => {
@@ -21,6 +19,7 @@ export default function Settings() {
     },
     onSuccess: () => {
       setPassword("");
+      setDraftOverride(null);
       qc.invalidateQueries({ queryKey: ["settings"] });
     },
   });
@@ -56,7 +55,7 @@ export default function Settings() {
                 <td>
                   <input
                     value={draft[k] ?? ""}
-                    onChange={(e) => setDraft((d) => ({ ...d, [k]: e.target.value }))}
+                    onChange={(e) => setDraft({ ...draft, [k]: e.target.value })}
                     style={{ width: 360 }}
                   />
                 </td>

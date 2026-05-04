@@ -32,8 +32,12 @@ steps:
     with: { mode: replace }
 "#;
     let flow = parse_flow(yaml).unwrap();
-    db::flows::insert(&app.pool, "e2e", yaml, &flow).await.unwrap();
-    db::sources::insert(&app.pool, "radarr", "main", &serde_json::json!({}), "tok").await.unwrap();
+    db::flows::insert(&app.pool, "e2e", yaml, &flow)
+        .await
+        .unwrap();
+    db::sources::insert(&app.pool, "radarr", "main", &serde_json::json!({}), "tok")
+        .await
+        .unwrap();
     let _ = client.post(format!("{}/webhook/radarr", app.url))
         .bearer_auth("tok")
         .json(&serde_json::json!({"eventType":"Download","movieFile":{"path":movie.to_string_lossy()}}))
@@ -44,14 +48,19 @@ steps:
     let mut got_run_event = false;
     let mut got_job_state_completed = false;
     while std::time::Instant::now() < deadline {
-        match tokio::time::timeout(Duration::from_secs(2), byte_stream.next()).await {
-            Ok(Some(Ok(chunk))) => {
-                let s = String::from_utf8_lossy(&chunk);
-                if s.contains("\"topic\":\"RunEvent\"") { got_run_event = true; }
-                if s.contains("\"topic\":\"JobState\"") && s.contains("completed") { got_job_state_completed = true; }
-                if got_run_event && got_job_state_completed { break; }
+        if let Ok(Some(Ok(chunk))) =
+            tokio::time::timeout(Duration::from_secs(2), byte_stream.next()).await
+        {
+            let s = String::from_utf8_lossy(&chunk);
+            if s.contains("\"topic\":\"RunEvent\"") {
+                got_run_event = true;
             }
-            _ => {}
+            if s.contains("\"topic\":\"JobState\"") && s.contains("completed") {
+                got_job_state_completed = true;
+            }
+            if got_run_event && got_job_state_completed {
+                break;
+            }
         }
     }
     assert!(got_run_event, "no RunEvent observed");

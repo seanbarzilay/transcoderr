@@ -3,8 +3,9 @@ use clap::Parser;
 use rmcp::{
     handler::server::router::tool::ToolRouter,
     model::{Implementation, ProtocolVersion, ServerCapabilities, ServerInfo},
+    tool_handler, tool_router,
     transport::io::stdio,
-    tool_handler, tool_router, ServerHandler, ServiceExt,
+    ServerHandler, ServiceExt,
 };
 
 mod client;
@@ -53,7 +54,9 @@ impl ServerHandler for Server {
             protocol_version: ProtocolVersion::V_2025_03_26,
             capabilities: ServerCapabilities::builder().enable_tools().build(),
             server_info: Implementation::from_build_env(),
-            instructions: Some("transcoderr MCP proxy -- drives runs, flows, sources, notifiers, plugins.".into()),
+            instructions: Some(
+                "transcoderr MCP proxy -- drives runs, flows, sources, notifiers, plugins.".into(),
+            ),
         }
     }
 }
@@ -62,8 +65,9 @@ impl ServerHandler for Server {
 async fn main() -> Result<()> {
     let cli = Cli::parse();
     tracing_subscriber::fmt()
-        .with_env_filter(tracing_subscriber::EnvFilter::try_from_default_env()
-            .unwrap_or_else(|_| "info".into()))
+        .with_env_filter(
+            tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into()),
+        )
         .with_writer(std::io::stderr)
         .init();
 
@@ -73,7 +77,10 @@ async fn main() -> Result<()> {
     // require_auth).
     let api = ApiClient::new(cli.url.clone(), cli.token.clone(), cli.timeout_secs)?;
     api.probe().await.with_context(|| {
-        format!("auth probe failed against {} — check TRANSCODERR_URL and TRANSCODERR_TOKEN", cli.url)
+        format!(
+            "auth probe failed against {} — check TRANSCODERR_URL and TRANSCODERR_TOKEN",
+            cli.url
+        )
     })?;
     tracing::info!(url = %cli.url, "transcoderr-mcp starting");
     let server = Server::new(api);

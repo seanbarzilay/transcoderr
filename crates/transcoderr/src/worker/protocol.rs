@@ -211,7 +211,10 @@ mod tests {
         };
         assert_eq!(round_trip(&env), env);
         let s = serde_json::to_string(&env).unwrap();
-        assert!(s.contains(r#""type":"step_dispatch""#), "snake_case tag: {s}");
+        assert!(
+            s.contains(r#""type":"step_dispatch""#),
+            "snake_case tag: {s}"
+        );
         // The "use_" field must serialize as "use".
         assert!(s.contains(r#""use":"transcode""#), "use rename: {s}");
     }
@@ -262,14 +265,12 @@ mod tests {
         let env = Envelope {
             id: "p1".into(),
             message: Message::PluginSync(PluginSync {
-                plugins: vec![
-                    PluginInstall {
-                        name: "size-report".into(),
-                        version: "0.1.2".into(),
-                        sha256: "abc123".into(),
-                        tarball_url: "https://coord/api/worker/plugins/size-report/tarball".into(),
-                    },
-                ],
+                plugins: vec![PluginInstall {
+                    name: "size-report".into(),
+                    version: "0.1.2".into(),
+                    sha256: "abc123".into(),
+                    tarball_url: "https://coord/api/worker/plugins/size-report/tarball".into(),
+                }],
             }),
         };
         assert_eq!(round_trip(&env), env);

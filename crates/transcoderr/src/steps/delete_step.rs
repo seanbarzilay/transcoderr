@@ -8,10 +8,14 @@ pub struct DeleteStep;
 
 #[async_trait]
 impl Step for DeleteStep {
-    fn name(&self) -> &'static str { "delete" }
+    fn name(&self) -> &'static str {
+        "delete"
+    }
 
     async fn execute(
-        &self, _with: &BTreeMap<String, Value>, ctx: &mut Context,
+        &self,
+        _with: &BTreeMap<String, Value>,
+        ctx: &mut Context,
         on_progress: &mut (dyn FnMut(StepProgress) + Send),
     ) -> anyhow::Result<()> {
         let p = std::path::Path::new(&ctx.file.path);

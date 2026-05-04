@@ -1,5 +1,8 @@
 use crate::http::AppState;
-use axum::{extract::State, response::sse::{Event as SseEvent, KeepAlive, Sse}};
+use axum::{
+    extract::State,
+    response::sse::{Event as SseEvent, KeepAlive, Sse},
+};
 use futures::stream::{self, StreamExt};
 use std::convert::Infallible;
 use std::time::Duration;
@@ -14,18 +17,14 @@ pub async fn stream(
     // emits between the snapshot and our subscription. Then send a fresh Queue
     // snapshot up front so the Dashboard's tiles populate on connect rather
     // than waiting for the next worker tick.
-    let pending: i64 = sqlx::query_scalar(
-        "SELECT COUNT(*) FROM jobs WHERE status = 'pending'",
-    )
-    .fetch_one(&state.pool)
-    .await
-    .unwrap_or(0);
-    let running: i64 = sqlx::query_scalar(
-        "SELECT COUNT(*) FROM jobs WHERE status = 'running'",
-    )
-    .fetch_one(&state.pool)
-    .await
-    .unwrap_or(0);
+    let pending: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM jobs WHERE status = 'pending'")
+        .fetch_one(&state.pool)
+        .await
+        .unwrap_or(0);
+    let running: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM jobs WHERE status = 'running'")
+        .fetch_one(&state.pool)
+        .await
+        .unwrap_or(0);
     let snapshot = SseEvent::default()
         .json_data(crate::bus::Event::Queue { pending, running })
         .unwrap();

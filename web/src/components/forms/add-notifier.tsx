@@ -1,13 +1,15 @@
 import { useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "../../api/client";
-import NotifierForm, {
+import { errorMessage } from "../../lib/errors";
+import {
   KINDS,
   emptyForm,
   toConfig,
   validate,
-} from "../notifier-form";
-import type { Kind, FormValue } from "../notifier-form";
+} from "../../lib/notifier-form";
+import type { Kind, FormValue } from "../../lib/notifier-form";
+import NotifierForm from "../notifier-form";
 
 interface Props {
   /// Called with the new notifier's id after a successful create.
@@ -33,7 +35,7 @@ export default function AddNotifierForm({ onCreated }: Props) {
       qc.invalidateQueries({ queryKey: ["notifiers"] });
       onCreated?.(resp.id);
     },
-    onError: (e: any) => setError(e?.message ?? "create failed"),
+    onError: (e: unknown) => setError(errorMessage(e, "create failed")),
   });
 
   const validationError = validate(kind, value, false);

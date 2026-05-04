@@ -1,9 +1,11 @@
+export type JsonObject = Record<string, unknown>;
+
 export type FlowSummary = { id: number; name: string; enabled: boolean; version: number };
-export type FlowDetail  = FlowSummary & { yaml_source: string; parsed_json: any };
+export type FlowDetail  = FlowSummary & { yaml_source: string; parsed_json: unknown };
 export type RunRow      = { id: number; flow_id: number; status: string; created_at: number; finished_at?: number; file_path: string };
-export type RunEvent    = { id: number; job_id: number; ts: number; step_id?: string; kind: string; payload?: any; worker_id?: number; worker_name?: string };
-export type Source      = { id: number; kind: string; name: string; config?: Record<string, any>; secret_token?: string };
-export type Notifier    = { id: number; name: string; kind: string; config: any };
+export type RunEvent    = { id: number; job_id: number; ts: number; step_id?: string; kind: string; payload?: unknown; worker_id?: number; worker_name?: string };
+export type Source      = { id: number; kind: string; name: string; config?: JsonObject; secret_token?: string };
+export type Notifier    = { id: number; name: string; kind: string; config: JsonObject };
 export type Plugin = {
   id: number;
   name: string;
@@ -21,8 +23,8 @@ export type PluginDetail = {
   kind: string;
   provides_steps: string[];
   capabilities: string[];
-  requires: any;
-  schema: any;
+  requires: unknown;
+  schema: unknown;
   path: string;
   summary: string | null;
   min_transcoderr_version: string | null;
@@ -86,8 +88,8 @@ export type Worker = {
   name: string;
   kind: "local" | "remote";
   secret_token: string | null;       // "***" or null after mint
-  hw_caps: any | null;
-  plugin_manifest: any[] | null;
+  hw_caps: unknown | null;
+  plugin_manifest: unknown[] | null;
   enabled: boolean;
   last_seen_at: number | null;
   created_at: number;

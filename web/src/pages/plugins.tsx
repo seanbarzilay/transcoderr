@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { marked } from "marked";
 import { api } from "../api/client";
+import { errorMessage } from "../lib/errors";
 import type { Plugin, PluginDetail, CatalogEntry } from "../types";
 import InstallLogModal from "../components/install-log-modal";
 
@@ -446,7 +447,7 @@ function Catalogs() {
       qc.invalidateQueries({ queryKey: ["plugin-catalogs"] });
       qc.invalidateQueries({ queryKey: ["plugin-catalog-entries"] });
     },
-    onError: (e: any) => setAddError(e?.message ?? "create failed"),
+    onError: (e: unknown) => setAddError(errorMessage(e, "create failed")),
   });
   const del = useMutation({
     mutationFn: (id: number) => api.pluginCatalogs.delete(id),

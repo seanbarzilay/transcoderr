@@ -52,7 +52,11 @@ pub async fn enroll(
 
     tracing::info!(id, name = %req.name, "worker enrolled via auto-discovery");
 
-    Ok(Json(EnrollResp { id, secret_token: token, ws_url }))
+    Ok(Json(EnrollResp {
+        id,
+        secret_token: token,
+        ws_url,
+    }))
 }
 
 /// Flip `http://` → `ws://`, `https://` → `wss://`. Anything else passes
@@ -73,7 +77,10 @@ mod tests {
 
     #[test]
     fn http_to_ws_handles_both_schemes() {
-        assert_eq!(http_to_ws("http://192.168.1.50:8765"), "ws://192.168.1.50:8765");
+        assert_eq!(
+            http_to_ws("http://192.168.1.50:8765"),
+            "ws://192.168.1.50:8765"
+        );
         assert_eq!(http_to_ws("https://example.com"), "wss://example.com");
         // Trailing slash policy: caller appends "/api/worker/connect", so
         // we leave the trailing slash (or absence) alone.

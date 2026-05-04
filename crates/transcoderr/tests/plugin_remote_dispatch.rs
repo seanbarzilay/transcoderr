@@ -26,20 +26,21 @@ use tokio_tungstenite::tungstenite::http::header::AUTHORIZATION;
 use tokio_tungstenite::tungstenite::Message as WsMessage;
 use transcoderr::db;
 use transcoderr::flow::parse_flow;
-use transcoderr::worker::protocol::{
-    Envelope, Message, PluginManifestEntry, Register,
-};
+use transcoderr::worker::protocol::{Envelope, Message, PluginManifestEntry, Register};
 
-type Ws = tokio_tungstenite::WebSocketStream<
-    tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>,
->;
+type Ws =
+    tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>;
 
 async fn mint_token(client: &reqwest::Client, base: &str, name: &str) -> (i64, String) {
     let resp: serde_json::Value = client
         .post(format!("{base}/api/workers"))
         .json(&json!({"name": name}))
-        .send().await.unwrap()
-        .json().await.unwrap();
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
     (
         resp["id"].as_i64().unwrap(),
         resp["secret_token"].as_str().unwrap().to_string(),
@@ -51,10 +52,8 @@ async fn ws_connect(base_ws: &str, token: &str) -> Ws {
         .as_str()
         .into_client_request()
         .unwrap();
-    req.headers_mut().insert(
-        AUTHORIZATION,
-        format!("Bearer {token}").parse().unwrap(),
-    );
+    req.headers_mut()
+        .insert(AUTHORIZATION, format!("Bearer {token}").parse().unwrap());
     let (ws, _) = tokio_tungstenite::connect_async(req).await.unwrap();
     ws
 }
@@ -133,17 +132,16 @@ async fn submit_job_with_step(
         "name: {flow_name}\ntriggers: [{{ webhook: x }}]\nsteps:\n  - use: {use_}\n{run_on_line}"
     );
     let flow = parse_flow(&yaml).unwrap();
-    let flow_id = db::flows::insert(&app.pool, flow_name, &yaml, &flow).await.unwrap();
+    let flow_id = db::flows::insert(&app.pool, flow_name, &yaml, &flow)
+        .await
+        .unwrap();
     let job_id = db::jobs::insert(&app.pool, flow_id, 1, "webhook", "/tmp/x.mkv", "{}")
         .await
         .unwrap();
     (flow_id, job_id)
 }
 
-async fn wait_for_step_dispatch(
-    ws: &mut Ws,
-    deadline: Duration,
-) -> Option<Envelope> {
+async fn wait_for_step_dispatch(ws: &mut Ws, deadline: Duration) -> Option<Envelope> {
     let res = tokio::time::timeout(deadline, async {
         loop {
             let env = recv_env(ws).await;
@@ -188,8 +186,7 @@ async fn plugin_step_skips_worker_without_it() {
     let mut ws = ws_connect(&base_ws, &token).await;
 
     // Worker only advertises remux -- NOT transcode.
-    send_register_and_get_ack(&mut ws, "fake_no_whisper", vec!["remux".into()])
-        .await;
+    send_register_and_get_ack(&mut ws, "fake_no_whisper", vec!["remux".into()]).await;
 
     let (_flow_id, _job_id) =
         submit_job_with_step(&app, "plugin_skips", "transcode", Some("any")).await;
@@ -220,8 +217,7 @@ async fn coordinator_only_plugin_step_runs_locally() {
     )
     .await;
 
-    let (_flow_id, _job_id) =
-        submit_job_with_step(&app, "plugin_coord_only", "notify", None).await;
+    let (_flow_id, _job_id) = submit_job_with_step(&app, "plugin_coord_only", "notify", None).await;
 
     let dispatch = wait_for_step_dispatch(&mut ws, Duration::from_secs(2)).await;
     assert!(
@@ -243,8 +239,7 @@ async fn re_register_updates_available_steps() {
 
     // Verify initial state by submitting a transcode step -> no dispatch.
     let (_flow_id, _job_id_a) =
-        submit_job_with_step(&app, "plugin_re_register_a", "transcode", Some("any"))
-            .await;
+        submit_job_with_step(&app, "plugin_re_register_a", "transcode", Some("any")).await;
     let dispatch = wait_for_step_dispatch(&mut ws, Duration::from_secs(2)).await;
     assert!(
         dispatch.is_none(),
@@ -252,20 +247,14 @@ async fn re_register_updates_available_steps() {
     );
 
     // Re-register with transcode added.
-    send_re_register(
-        &mut ws,
-        "fake_re",
-        vec!["remux".into(), "transcode".into()],
-    )
-    .await;
+    send_re_register(&mut ws, "fake_re", vec!["remux".into(), "transcode".into()]).await;
 
     // Brief pause to let the coordinator's receive loop process it.
     tokio::time::sleep(Duration::from_millis(500)).await;
 
     // Submit another transcode step -- this time it should dispatch.
     let (_flow_id, _job_id_b) =
-        submit_job_with_step(&app, "plugin_re_register_b", "transcode", Some("any"))
-            .await;
+        submit_job_with_step(&app, "plugin_re_register_b", "transcode", Some("any")).await;
     let dispatch = wait_for_step_dispatch(&mut ws, Duration::from_secs(5)).await;
     assert!(
         dispatch.is_some(),
@@ -295,8 +284,7 @@ async fn disconnect_clears_available_steps_for_dispatch() {
     // worker still listening -- the dispatch::route fall-through to
     // Route::Local is exercised at the unit-test level in Task 8.)
     let (_flow_id, _job_id) =
-        submit_job_with_step(&app, "plugin_disconnect", "transcode", Some("any"))
-            .await;
+        submit_job_with_step(&app, "plugin_disconnect", "transcode", Some("any")).await;
 
     tokio::time::sleep(Duration::from_millis(500)).await;
     // No assertion needed -- the test passes if no panic / crash occurred.

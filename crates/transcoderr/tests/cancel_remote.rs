@@ -15,32 +15,36 @@ use tokio_tungstenite::tungstenite::Message as WsMessage;
 use transcoderr::db;
 use transcoderr::flow::parse_flow;
 use transcoderr::worker::protocol::{
-    Envelope, Message, PluginManifestEntry, Register, StepComplete, StepCancelMsg,
+    Envelope, Message, PluginManifestEntry, Register, StepCancelMsg, StepComplete,
 };
 
-type Ws = tokio_tungstenite::WebSocketStream<
-    tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>,
->;
+type Ws =
+    tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>;
 
 async fn mint_token(client: &reqwest::Client, base: &str, name: &str) -> (i64, String) {
     let resp: serde_json::Value = client
         .post(format!("{base}/api/workers"))
         .json(&json!({"name": name}))
-        .send().await.unwrap()
-        .json().await.unwrap();
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
     (
         resp["id"].as_i64().expect("id"),
-        resp["secret_token"].as_str().expect("secret_token").to_string(),
+        resp["secret_token"]
+            .as_str()
+            .expect("secret_token")
+            .to_string(),
     )
 }
 
 async fn ws_connect(base_ws: &str, token: &str) -> Ws {
     let url = format!("{base_ws}/api/worker/connect");
     let mut req = url.as_str().into_client_request().unwrap();
-    req.headers_mut().insert(
-        AUTHORIZATION,
-        format!("Bearer {token}").parse().unwrap(),
-    );
+    req.headers_mut()
+        .insert(AUTHORIZATION, format!("Bearer {token}").parse().unwrap());
     let (ws, _) = tokio_tungstenite::connect_async(req).await.unwrap();
     ws
 }
@@ -58,11 +62,7 @@ async fn recv_env(ws: &mut Ws) -> Envelope {
     }
 }
 
-async fn send_register_and_get_ack(
-    ws: &mut Ws,
-    name: &str,
-    available_steps: Vec<String>,
-) {
+async fn send_register_and_get_ack(ws: &mut Ws, name: &str, available_steps: Vec<String>) {
     let reg = Envelope {
         id: "reg-1".into(),
         message: Message::Register(Register {
@@ -96,7 +96,9 @@ async fn submit_job_with_step(
         "name: {flow_name}\ntriggers: [{{ webhook: x }}]\nsteps:\n  - use: {use_}\n{run_on_line}"
     );
     let flow = parse_flow(&yaml).unwrap();
-    let flow_id = db::flows::insert(&app.pool, flow_name, &yaml, &flow).await.unwrap();
+    let flow_id = db::flows::insert(&app.pool, flow_name, &yaml, &flow)
+        .await
+        .unwrap();
     let job_id = db::jobs::insert(&app.pool, flow_id, 1, "webhook", "/tmp/x.mkv", "{}")
         .await
         .unwrap();
@@ -140,12 +142,11 @@ async fn wait_for_job_status(
 ) -> Option<String> {
     let start = std::time::Instant::now();
     loop {
-        let status: Option<String> =
-            sqlx::query_scalar("SELECT status FROM jobs WHERE id = ?")
-                .bind(job_id)
-                .fetch_optional(pool)
-                .await
-                .unwrap();
+        let status: Option<String> = sqlx::query_scalar("SELECT status FROM jobs WHERE id = ?")
+            .bind(job_id)
+            .fetch_optional(pool)
+            .await
+            .unwrap();
         if let Some(ref s) = status {
             if s == target {
                 return status;
@@ -200,13 +201,8 @@ async fn cancel_propagates_to_remote_worker() {
         other => panic!("expected StepCancel, got {other:?}"),
     }
 
-    let final_status = wait_for_job_status(
-        &app.pool,
-        job_id,
-        "cancelled",
-        Duration::from_secs(3),
-    )
-    .await;
+    let final_status =
+        wait_for_job_status(&app.pool, job_id, "cancelled", Duration::from_secs(3)).await;
     assert_eq!(
         final_status.as_deref(),
         Some("cancelled"),
@@ -238,13 +234,8 @@ async fn cancel_unblocks_engine_within_a_second() {
         app.state.cancellations.cancel(job_id),
         "cancel should find the registered token"
     );
-    let final_status = wait_for_job_status(
-        &app.pool,
-        job_id,
-        "cancelled",
-        Duration::from_secs(5),
-    )
-    .await;
+    let final_status =
+        wait_for_job_status(&app.pool, job_id, "cancelled", Duration::from_secs(5)).await;
     let elapsed = start.elapsed();
 
     assert_eq!(

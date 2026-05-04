@@ -140,12 +140,18 @@ mod tests {
     #[tokio::test]
     async fn sync_inserts_new_plugins() {
         let (pool, _dir) = open_pool().await;
-        sync_discovered(&pool, &[discovered("size-report", "0.1.0")], &HashMap::new())
-            .await
-            .unwrap();
+        sync_discovered(
+            &pool,
+            &[discovered("size-report", "0.1.0")],
+            &HashMap::new(),
+        )
+        .await
+        .unwrap();
 
         let row = sqlx::query("SELECT name, version, kind, enabled FROM plugins")
-            .fetch_one(&pool).await.unwrap();
+            .fetch_one(&pool)
+            .await
+            .unwrap();
         assert_eq!(row.get::<String, _>(0), "size-report");
         assert_eq!(row.get::<String, _>(1), "0.1.0");
         assert_eq!(row.get::<String, _>(2), "subprocess");
@@ -157,17 +163,31 @@ mod tests {
         // Operator disabled the plugin via the UI toggle, then redeployed.
         // The toggle state should win over the boot-time sync.
         let (pool, _dir) = open_pool().await;
-        sync_discovered(&pool, &[discovered("size-report", "0.1.0")], &HashMap::new())
-            .await.unwrap();
+        sync_discovered(
+            &pool,
+            &[discovered("size-report", "0.1.0")],
+            &HashMap::new(),
+        )
+        .await
+        .unwrap();
         sqlx::query("UPDATE plugins SET enabled = 0 WHERE name = 'size-report'")
-            .execute(&pool).await.unwrap();
+            .execute(&pool)
+            .await
+            .unwrap();
 
         // Sync again with a bumped version -- enabled must stay 0.
-        sync_discovered(&pool, &[discovered("size-report", "0.2.0")], &HashMap::new())
-            .await.unwrap();
+        sync_discovered(
+            &pool,
+            &[discovered("size-report", "0.2.0")],
+            &HashMap::new(),
+        )
+        .await
+        .unwrap();
 
         let row = sqlx::query("SELECT version, enabled FROM plugins WHERE name = 'size-report'")
-            .fetch_one(&pool).await.unwrap();
+            .fetch_one(&pool)
+            .await
+            .unwrap();
         assert_eq!(row.get::<String, _>(0), "0.2.0");
         assert_eq!(row.get::<i64, _>(1), 0, "enabled toggle was reset");
     }
@@ -175,26 +195,37 @@ mod tests {
     #[tokio::test]
     async fn sync_drops_plugins_no_longer_on_disk() {
         let (pool, _dir) = open_pool().await;
-        sync_discovered(&pool, &[
-            discovered("a", "0.1.0"),
-            discovered("b", "0.1.0"),
-        ], &HashMap::new()).await.unwrap();
+        sync_discovered(
+            &pool,
+            &[discovered("a", "0.1.0"), discovered("b", "0.1.0")],
+            &HashMap::new(),
+        )
+        .await
+        .unwrap();
 
         // 'b' deleted from the plugins dir.
-        sync_discovered(&pool, &[discovered("a", "0.1.0")], &HashMap::new()).await.unwrap();
+        sync_discovered(&pool, &[discovered("a", "0.1.0")], &HashMap::new())
+            .await
+            .unwrap();
 
         let names: Vec<String> = sqlx::query_scalar("SELECT name FROM plugins ORDER BY name")
-            .fetch_all(&pool).await.unwrap();
+            .fetch_all(&pool)
+            .await
+            .unwrap();
         assert_eq!(names, vec!["a"]);
     }
 
     #[tokio::test]
     async fn sync_with_empty_list_clears_table() {
         let (pool, _dir) = open_pool().await;
-        sync_discovered(&pool, &[discovered("x", "0.1.0")], &HashMap::new()).await.unwrap();
+        sync_discovered(&pool, &[discovered("x", "0.1.0")], &HashMap::new())
+            .await
+            .unwrap();
         sync_discovered(&pool, &[], &HashMap::new()).await.unwrap();
         let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM plugins")
-            .fetch_one(&pool).await.unwrap();
+            .fetch_one(&pool)
+            .await
+            .unwrap();
         assert_eq!(count, 0);
     }
 
@@ -210,7 +241,9 @@ mod tests {
                     ('b', '1.0', 'subprocess', '/x/b', '{}', 0, 'bbbb'),
                     ('c', '1.0', 'subprocess', '/x/c', '{}', 1, NULL)",
         )
-        .execute(&pool).await.unwrap();
+        .execute(&pool)
+        .await
+        .unwrap();
 
         let rows = list_enabled(&pool).await.unwrap();
         // Only 'a' qualifies: enabled=1 AND tarball_sha256 IS NOT NULL.

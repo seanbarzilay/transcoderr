@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { api } from "../api/client";
+import { errorMessage } from "../lib/errors";
+import { asRecord } from "../lib/records";
 
 type Line = { kind: "status" | "stdout" | "stderr"; text: string };
 type Result =
@@ -31,21 +33,22 @@ export default function InstallLogModal({ catalogId, name, onClose }: Props) {
       try {
         for await (const { event, data } of api.plugins.installStream(catalogId, name)) {
           if (cancelled) return;
+          const record = asRecord(data);
           if (event === "status") {
-            setLines((ls) => [...ls, { kind: "status", text: String(data?.message ?? "") }]);
+            setLines((ls) => [...ls, { kind: "status", text: String(record.message ?? "") }]);
           } else if (event === "log") {
             setLines((ls) => [
               ...ls,
-              { kind: data?.stream === "stderr" ? "stderr" : "stdout", text: String(data?.line ?? "") },
+              { kind: record.stream === "stderr" ? "stderr" : "stdout", text: String(record.line ?? "") },
             ]);
           } else if (event === "done") {
-            setResult({ state: "done", installed: String(data?.installed ?? name) });
+            setResult({ state: "done", installed: String(record.installed ?? name) });
           } else if (event === "error") {
-            setResult({ state: "error", message: String(data?.message ?? "Install failed") });
+            setResult({ state: "error", message: String(record.message ?? "Install failed") });
           }
         }
-      } catch (e: any) {
-        if (!cancelled) setResult({ state: "error", message: e?.message ?? String(e) });
+      } catch (e: unknown) {
+        if (!cancelled) setResult({ state: "error", message: errorMessage(e) });
       }
     })();
     return () => {

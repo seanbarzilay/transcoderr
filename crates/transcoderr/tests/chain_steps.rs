@@ -46,17 +46,17 @@ async fn audio_ensure_then_remux_uses_audio_ensure_output() {
     // Step 2: remux to mkv. Should read from after_audio (the tmp from step 1), not from src.
     let mut with: BTreeMap<String, Value> = BTreeMap::new();
     with.insert("container".into(), json!("mkv"));
-    RemuxStep
-        .execute(&with, &mut ctx, &mut noop)
-        .await
-        .unwrap();
+    RemuxStep.execute(&with, &mut ctx, &mut noop).await.unwrap();
 
     let after_remux = ctx.steps["transcode"]["output_path"]
         .as_str()
         .unwrap()
         .to_string();
     assert!(std::path::Path::new(&after_remux).exists());
-    assert_ne!(after_audio, after_remux, "second step must produce a new file");
+    assert_ne!(
+        after_audio, after_remux,
+        "second step must produce a new file"
+    );
     assert!(
         after_remux.contains(".tcr-01."),
         "expected step counter to advance; got {after_remux}"

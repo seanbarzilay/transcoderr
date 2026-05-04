@@ -1,16 +1,18 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "../api/client";
-import NotifierForm, {
+import {
   KINDS,
   fromConfig,
   toConfig,
   validate,
-} from "../components/notifier-form";
-import type { Kind, FormValue } from "../components/notifier-form";
+} from "../lib/notifier-form";
+import type { Kind, FormValue } from "../lib/notifier-form";
+import NotifierForm from "../components/notifier-form";
 import AddNotifierForm from "../components/forms/add-notifier";
-
-type Notifier = { id: number; name: string; kind: string; config: any };
+import { errorMessage } from "../lib/errors";
+import { asRecord } from "../lib/records";
+import type { JsonObject, Notifier } from "../types";
 
 export default function Notifiers() {
   const qc = useQueryClient();
@@ -21,18 +23,19 @@ export default function Notifiers() {
   const [rowError, setRowError] = useState<Record<number, string | null>>({});
 
   const update = useMutation({
-    mutationFn: ({ id, body }: { id: number; body: any }) =>
+    mutationFn: ({ id, body }: { id: number; body: JsonObject }) =>
       api.notifiers.update(id, body),
     onSuccess: (_d, vars) => {
       setEditing(s => {
-        const { [vars.id]: _gone, ...rest } = s;
-        return rest;
+        const next = { ...s };
+        delete next[vars.id];
+        return next;
       });
       setRowError(s => ({ ...s, [vars.id]: null }));
       qc.invalidateQueries({ queryKey: ["notifiers"] });
     },
-    onError: (e: any, vars) =>
-      setRowError(s => ({ ...s, [vars.id]: e?.message ?? "save failed" })),
+    onError: (e: unknown, vars) =>
+      setRowError(s => ({ ...s, [vars.id]: errorMessage(e, "save failed") })),
   });
 
   const del = useMutation({
@@ -44,8 +47,8 @@ export default function Notifiers() {
     mutationFn: (id: number) => api.notifiers.test(id),
     onSuccess: (_d, id) =>
       setRowError(s => ({ ...s, [id]: "✓ test sent" })),
-    onError: (e: any, id) =>
-      setRowError(s => ({ ...s, [id]: e?.message ?? "test failed" })),
+    onError: (e: unknown, id) =>
+      setRowError(s => ({ ...s, [id]: errorMessage(e, "test failed") })),
   });
 
   function startEdit(n: Notifier) {
@@ -63,8 +66,9 @@ export default function Notifiers() {
 
   function cancelEdit(id: number) {
     setEditing(s => {
-      const { [id]: _gone, ...rest } = s;
-      return rest;
+      const next = { ...s };
+      delete next[id];
+      return next;
     });
     setRowError(s => ({ ...s, [id]: null }));
   }
@@ -213,7 +217,7 @@ export default function Notifiers() {
 /// Read-only render of a notifier's config in the table — labels +
 /// values, no JSON braces. Secrets are already redacted to `***` by
 /// the server for token-authed callers.
-function ConfigSummary({ config }: { config: any }) {
+function ConfigSummary({ config }: { config: unknown }) {
   if (!config || typeof config !== "object") {
     return <span className="muted">—</span>;
   }
@@ -233,13 +237,13 @@ function ConfigSummary({ config }: { config: any }) {
   );
 }
 
-function PathMappingsSummary({ value }: { value: any[] }) {
+function PathMappingsSummary({ value }: { value: unknown[] }) {
   if (value.length === 0) return <span className="muted">none</span>;
   return (
     <span>
       {value.map((m, i) => (
         <span key={i} className="notifier-config-mapping">
-          {String(m?.from ?? "?")} → {String(m?.to ?? "?")}
+          {String(asRecord(m).from ?? "?")} → {String(asRecord(m).to ?? "?")}
           {i < value.length - 1 ? ", " : ""}
         </span>
       ))}

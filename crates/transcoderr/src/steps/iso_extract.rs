@@ -18,9 +18,13 @@ pub struct IsoExtractStep;
 
 #[async_trait]
 impl Step for IsoExtractStep {
-    fn name(&self) -> &'static str { "iso.extract" }
+    fn name(&self) -> &'static str {
+        "iso.extract"
+    }
 
-    fn executor(&self) -> crate::steps::Executor { crate::steps::Executor::Any }
+    fn executor(&self) -> crate::steps::Executor {
+        crate::steps::Executor::Any
+    }
 
     async fn execute(
         &self,
@@ -55,13 +59,15 @@ mod tests {
         let mut ctx = Context::for_file("/m/Dune.mkv");
         let mut log_count = 0usize;
         let mut on_progress = |p: StepProgress| {
-            if matches!(p, StepProgress::Log(_)) { log_count += 1; }
+            if matches!(p, StepProgress::Log(_)) {
+                log_count += 1;
+            }
         };
         IsoExtractStep
             .execute(&BTreeMap::new(), &mut ctx, &mut on_progress)
             .await
             .expect("ok");
-        assert!(ctx.steps.get("transcode").is_none());
+        assert!(!ctx.steps.contains_key("transcode"));
         assert_eq!(ctx.file.path, "/m/Dune.mkv");
         assert!(log_count >= 1);
     }
@@ -76,13 +82,10 @@ mod tests {
             .expect("ok");
 
         // Chain head is the bluray: URL.
-        assert_eq!(
-            staging::current_input(&ctx),
-            "bluray:/movies/Unlocked.iso"
-        );
+        assert_eq!(staging::current_input(&ctx), "bluray:/movies/Unlocked.iso");
         // ctx.file.path is UNCHANGED (the user's original input).
         assert_eq!(ctx.file.path, "/movies/Unlocked.iso");
         // No iso_extract bookkeeping key — output:replace doesn't need it anymore.
-        assert!(ctx.steps.get("iso_extract").is_none());
+        assert!(!ctx.steps.contains_key("iso_extract"));
     }
 }

@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "../api/client";
+import { errorMessage } from "../lib/errors";
 import type { TranscodeReq, TranscodeResp } from "../types-arr";
 
 interface Props {
@@ -27,8 +28,8 @@ export default function TranscodeButton({
       setError(null);
       qc.invalidateQueries({ queryKey: ["runs"] });
     },
-    onError: (e: any) => {
-      setError(e?.message ?? String(e));
+    onError: (e: unknown) => {
+      setError(errorMessage(e));
       setResult(null);
     },
   });

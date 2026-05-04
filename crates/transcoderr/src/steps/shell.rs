@@ -10,20 +10,33 @@ pub struct ShellStep;
 
 #[async_trait]
 impl Step for ShellStep {
-    fn name(&self) -> &'static str { "shell" }
+    fn name(&self) -> &'static str {
+        "shell"
+    }
 
     async fn execute(
-        &self, with: &BTreeMap<String, Value>, ctx: &mut Context,
+        &self,
+        with: &BTreeMap<String, Value>,
+        ctx: &mut Context,
         on_progress: &mut (dyn FnMut(StepProgress) + Send),
     ) -> anyhow::Result<()> {
-        let cmd_template = with.get("cmd").and_then(|v| v.as_str())
+        let cmd_template = with
+            .get("cmd")
+            .and_then(|v| v.as_str())
             .ok_or_else(|| anyhow::anyhow!("shell: missing `cmd`"))?;
         let cmd = expr::eval_string_template(cmd_template, ctx)?;
         on_progress(StepProgress::Log(format!("$ {cmd}")));
-        let status = Command::new("sh").arg("-c").arg(&cmd)
-            .stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null())
-            .status().await?;
-        if !status.success() { anyhow::bail!("shell exited {:?}", status.code()); }
+        let status = Command::new("sh")
+            .arg("-c")
+            .arg(&cmd)
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()
+            .await?;
+        if !status.success() {
+            anyhow::bail!("shell exited {:?}", status.code());
+        }
         Ok(())
     }
 }

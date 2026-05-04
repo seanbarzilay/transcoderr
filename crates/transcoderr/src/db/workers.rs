@@ -71,10 +71,7 @@ pub async fn get_by_id(pool: &SqlitePool, id: i64) -> anyhow::Result<Option<Work
 
 /// Find a worker by its (verbatim) secret token. Used by the auth path
 /// and by the WS upgrade handler.
-pub async fn get_by_token(
-    pool: &SqlitePool,
-    token: &str,
-) -> anyhow::Result<Option<WorkerRow>> {
+pub async fn get_by_token(pool: &SqlitePool, token: &str) -> anyhow::Result<Option<WorkerRow>> {
     Ok(sqlx::query_as(
         "SELECT id, name, kind, secret_token, hw_caps_json, plugin_manifest_json,
                 enabled, last_seen_at, created_at, path_mappings_json
@@ -183,7 +180,9 @@ mod tests {
     #[tokio::test]
     async fn insert_remote_returns_id_and_appears_in_list() {
         let (pool, _dir) = pool().await;
-        let id = insert_remote(&pool, "gpu-box-1", "wkr_abcdef").await.unwrap();
+        let id = insert_remote(&pool, "gpu-box-1", "wkr_abcdef")
+            .await
+            .unwrap();
         let rows = list_all(&pool).await.unwrap();
         assert_eq!(rows.len(), 2); // local + new remote
         assert!(rows.iter().any(|r| r.id == id && r.kind == "remote"));
@@ -192,7 +191,9 @@ mod tests {
     #[tokio::test]
     async fn get_by_token_finds_remote_only() {
         let (pool, _dir) = pool().await;
-        insert_remote(&pool, "gpu-box-1", "wkr_secret_xyz").await.unwrap();
+        insert_remote(&pool, "gpu-box-1", "wkr_secret_xyz")
+            .await
+            .unwrap();
         let found = get_by_token(&pool, "wkr_secret_xyz").await.unwrap();
         assert!(found.is_some());
         assert_eq!(found.unwrap().name, "gpu-box-1");
@@ -214,7 +215,9 @@ mod tests {
     async fn record_register_stamps_payload_and_last_seen() {
         let (pool, _dir) = pool().await;
         let id = insert_remote(&pool, "w", "tok").await.unwrap();
-        record_register(&pool, id, r#"{"encoders":[]}"#, r#"[]"#).await.unwrap();
+        record_register(&pool, id, r#"{"encoders":[]}"#, r#"[]"#)
+            .await
+            .unwrap();
         let row = get_by_id(&pool, id).await.unwrap().unwrap();
         assert_eq!(row.hw_caps_json.as_deref(), Some(r#"{"encoders":[]}"#));
         assert_eq!(row.plugin_manifest_json.as_deref(), Some(r#"[]"#));
@@ -247,13 +250,9 @@ mod tests {
     async fn update_path_mappings_round_trips() {
         let (pool, _dir) = pool().await;
         let id = insert_remote(&pool, "gpu-1", "wkr_xxx").await.unwrap();
-        let n = update_path_mappings(
-            &pool,
-            id,
-            Some(r#"[{"from":"/mnt","to":"/data"}]"#),
-        )
-        .await
-        .unwrap();
+        let n = update_path_mappings(&pool, id, Some(r#"[{"from":"/mnt","to":"/data"}]"#))
+            .await
+            .unwrap();
         assert_eq!(n, 1);
         let row = get_by_id(&pool, id).await.unwrap().unwrap();
         assert_eq!(
@@ -279,13 +278,9 @@ mod tests {
     async fn update_path_mappings_refuses_local_row() {
         let (pool, _dir) = pool().await;
         // id=1 is the seeded local row.
-        let n = update_path_mappings(
-            &pool,
-            1,
-            Some(r#"[{"from":"/a","to":"/b"}]"#),
-        )
-        .await
-        .unwrap();
+        let n = update_path_mappings(&pool, 1, Some(r#"[{"from":"/a","to":"/b"}]"#))
+            .await
+            .unwrap();
         assert_eq!(n, 0, "kind='local' must reject path mapping updates");
         let row = get_by_id(&pool, 1).await.unwrap().unwrap();
         assert!(row.path_mappings_json.is_none());

@@ -20,10 +20,20 @@ async fn transcode_writes_output_and_records_path() {
     with.insert("crf".into(), json!(28));
     with.insert("preset".into(), json!("ultrafast"));
 
-    let step = TranscodeStep { hw: transcoderr::hw::semaphores::DeviceRegistry::empty() };
+    let step = TranscodeStep {
+        hw: transcoderr::hw::semaphores::DeviceRegistry::empty(),
+    };
     step.execute(&with, &mut ctx, &mut cb).await.unwrap();
 
-    let out_path = ctx.steps.get("transcode").unwrap()["output_path"].as_str().unwrap();
-    assert!(std::path::Path::new(out_path).exists(), "output file missing");
-    assert!(events.iter().any(|e| matches!(e, StepProgress::Pct(_))), "no progress reported");
+    let out_path = ctx.steps.get("transcode").unwrap()["output_path"]
+        .as_str()
+        .unwrap();
+    assert!(
+        std::path::Path::new(out_path).exists(),
+        "output file missing"
+    );
+    assert!(
+        events.iter().any(|e| matches!(e, StepProgress::Pct(_))),
+        "no progress reported"
+    );
 }

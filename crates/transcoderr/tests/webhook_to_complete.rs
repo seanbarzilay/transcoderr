@@ -27,7 +27,9 @@ steps:
     with: { mode: replace }
 "#;
     let flow = parse_flow(yaml).unwrap();
-    db::flows::insert(&app.pool, "e2e", yaml, &flow).await.unwrap();
+    db::flows::insert(&app.pool, "e2e", yaml, &flow)
+        .await
+        .unwrap();
 
     // Insert a radarr source so the auth lookup succeeds.
     db::sources::insert(&app.pool, "radarr", "main", &json_macro!({}), "test-token")
@@ -36,20 +38,26 @@ steps:
 
     // POST a Radarr-shaped payload.
     let client = reqwest::Client::new();
-    let resp = client.post(format!("{}/webhook/radarr", app.url))
+    let resp = client
+        .post(format!("{}/webhook/radarr", app.url))
         .bearer_auth("test-token")
         .json(&json!({
             "eventType": "Download",
             "movieFile": { "path": movie.to_string_lossy() }
         }))
-        .send().await.unwrap();
+        .send()
+        .await
+        .unwrap();
     assert!(resp.status().is_success(), "got {}", resp.status());
 
     // Poll the DB until the job reaches a terminal status.
     let deadline = std::time::Instant::now() + Duration::from_secs(60);
     loop {
-        let row: Option<(String,)> = sqlx::query_as("SELECT status FROM jobs ORDER BY id DESC LIMIT 1")
-            .fetch_optional(&app.pool).await.unwrap();
+        let row: Option<(String,)> =
+            sqlx::query_as("SELECT status FROM jobs ORDER BY id DESC LIMIT 1")
+                .fetch_optional(&app.pool)
+                .await
+                .unwrap();
         if let Some((status,)) = row {
             if status == "completed" {
                 break;

@@ -12,8 +12,7 @@ use transcoderr::steps::{Executor, Step, StepProgress};
 
 fn plugin_dir() -> std::path::PathBuf {
     // tests run from crates/transcoderr/, so repo root is two up.
-    std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../../docs/plugins")
+    std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../docs/plugins")
 }
 
 fn make_step(step_name: &str) -> SubprocessStep {
@@ -33,7 +32,6 @@ fn make_step(step_name: &str) -> SubprocessStep {
 
 #[tokio::test]
 async fn before_then_after_records_ratio_into_ctx() {
-
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("Movie.mkv");
 
@@ -86,10 +84,12 @@ async fn before_then_after_records_ratio_into_ctx() {
 
 #[tokio::test]
 async fn after_without_before_fails_with_clear_message() {
-
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("Movie.mkv");
-    std::fs::File::create(&path).unwrap().write_all(b"x").unwrap();
+    std::fs::File::create(&path)
+        .unwrap()
+        .write_all(b"x")
+        .unwrap();
 
     let mut ctx = Context::for_file(path.to_string_lossy().to_string());
     let mut cb = |_e: StepProgress| {};

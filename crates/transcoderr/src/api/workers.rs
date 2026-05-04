@@ -41,7 +41,9 @@ fn row_to_summary(row: db::workers::WorkerRow, redact: bool) -> WorkerSummary {
         id: row.id,
         name: row.name,
         kind: row.kind,
-        secret_token: row.secret_token.map(|t| if redact { "***".to_string() } else { t }),
+        secret_token: row
+            .secret_token
+            .map(|t| if redact { "***".to_string() } else { t }),
         hw_caps: row
             .hw_caps_json
             .as_deref()
@@ -65,7 +67,11 @@ pub async fn list(
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     let redact = auth == AuthSource::Token;
-    Ok(Json(rows.into_iter().map(|r| row_to_summary(r, redact)).collect()))
+    Ok(Json(
+        rows.into_iter()
+            .map(|r| row_to_summary(r, redact))
+            .collect(),
+    ))
 }
 
 #[derive(serde::Deserialize)]
@@ -102,7 +108,10 @@ pub async fn create(
             tracing::error!(error = ?e, "failed to insert worker row");
             StatusCode::INTERNAL_SERVER_ERROR
         })?;
-    Ok(Json(CreateResp { id, secret_token: token }))
+    Ok(Json(CreateResp {
+        id,
+        secret_token: token,
+    }))
 }
 
 pub async fn delete(
@@ -221,10 +230,7 @@ pub async fn set_path_mappings(
     let json: Option<String> = if canonical.is_empty() {
         None
     } else {
-        Some(
-            serde_json::to_string(&canonical)
-                .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?,
-        )
+        Some(serde_json::to_string(&canonical).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?)
     };
 
     db::workers::update_path_mappings(&state.pool, id, json.as_deref())
@@ -236,12 +242,12 @@ pub async fn set_path_mappings(
 
     // Refresh the Connections cache so a subsequent dispatch picks up
     // the new mappings without re-reading the DB.
-    state
-        .connections
-        .set_path_mappings(id, mappings)
-        .await;
+    state.connections.set_path_mappings(id, mappings).await;
 
-    Ok(Json(SetPathMappingsResp { id, rules: canonical }))
+    Ok(Json(SetPathMappingsResp {
+        id,
+        rules: canonical,
+    }))
 }
 
 // --- WebSocket upgrade -----------------------------------------------------
@@ -303,10 +309,17 @@ async fn handle_connection(state: AppState, socket: WebSocket, worker_id: i64) {
     // every successful boot to validate the cached token without
     // triggering a full registration). Both log at debug to avoid
     // operator-facing log spam on healthy boots.
-    let register = match tokio::time::timeout(REGISTER_TIMEOUT, recv_message(&mut ws_stream)).await {
-        Ok(Ok(Envelope { id, message: Message::Register(r) })) => (id, r),
+    let register = match tokio::time::timeout(REGISTER_TIMEOUT, recv_message(&mut ws_stream)).await
+    {
+        Ok(Ok(Envelope {
+            id,
+            message: Message::Register(r),
+        })) => (id, r),
         _ => {
-            tracing::debug!(worker_id, "no register frame within {REGISTER_TIMEOUT:?} (likely a probe); closing");
+            tracing::debug!(
+                worker_id,
+                "no register frame within {REGISTER_TIMEOUT:?} (likely a probe); closing"
+            );
             let _ = ws_sink.close().await;
             return;
         }
@@ -314,16 +327,13 @@ async fn handle_connection(state: AppState, socket: WebSocket, worker_id: i64) {
     let (correlation_id, register_payload) = register;
 
     // 2. Persist the registration.
-    let hw_caps_json = serde_json::to_string(&register_payload.hw_caps).unwrap_or_else(|_| "null".into());
+    let hw_caps_json =
+        serde_json::to_string(&register_payload.hw_caps).unwrap_or_else(|_| "null".into());
     let plugin_manifest_json =
         serde_json::to_string(&register_payload.plugin_manifest).unwrap_or_else(|_| "[]".into());
-    if let Err(e) = db::workers::record_register(
-        &state.pool,
-        worker_id,
-        &hw_caps_json,
-        &plugin_manifest_json,
-    )
-    .await
+    if let Err(e) =
+        db::workers::record_register(&state.pool, worker_id, &hw_caps_json, &plugin_manifest_json)
+            .await
     {
         tracing::error!(worker_id, error = ?e, "failed to record register");
         let _ = ws_sink.close().await;
@@ -341,7 +351,10 @@ async fn handle_connection(state: AppState, socket: WebSocket, worker_id: i64) {
     // 3. Register the outbound channel in `Connections` (RAII cleanup
     //    on drop). We register BEFORE sending register_ack so the
     //    worker's first frames-after-ack already see a live entry.
-    let _sender_guard = state.connections.register_sender(worker_id, out_tx.clone()).await;
+    let _sender_guard = state
+        .connections
+        .register_sender(worker_id, out_tx.clone())
+        .await;
 
     // 4. Spawn the sender task: drains `out_rx` -> ws_sink.
     let sender_task = tokio::spawn(async move {
@@ -419,10 +432,10 @@ async fn handle_connection(state: AppState, socket: WebSocket, worker_id: i64) {
                 // worker row + the in-memory available_steps map. NO
                 // register_ack response (would oscillate — see spec
                 // distributed-piece-5).
-                let hw_caps_json = serde_json::to_string(&r.hw_caps)
-                    .unwrap_or_else(|_| "null".into());
-                let plugin_manifest_json = serde_json::to_string(&r.plugin_manifest)
-                    .unwrap_or_else(|_| "[]".into());
+                let hw_caps_json =
+                    serde_json::to_string(&r.hw_caps).unwrap_or_else(|_| "null".into());
+                let plugin_manifest_json =
+                    serde_json::to_string(&r.plugin_manifest).unwrap_or_else(|_| "[]".into());
                 if let Err(e) = db::workers::record_register(
                     &state.pool,
                     worker_id,

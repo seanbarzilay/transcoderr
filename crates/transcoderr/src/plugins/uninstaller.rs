@@ -28,7 +28,9 @@ pub async fn uninstall(
 ) -> Result<String, UninstallError> {
     use sqlx::Row;
     let row = sqlx::query("SELECT name FROM plugins WHERE id = ?")
-        .bind(plugin_id).fetch_optional(pool).await?;
+        .bind(plugin_id)
+        .fetch_optional(pool)
+        .await?;
     let row = match row {
         Some(r) => r,
         None => return Err(UninstallError::NotFound(plugin_id.to_string())),
@@ -38,7 +40,10 @@ pub async fn uninstall(
     if dir.exists() {
         std::fs::remove_dir_all(&dir)?;
     }
-    sqlx::query("DELETE FROM plugins WHERE id = ?").bind(plugin_id).execute(pool).await?;
+    sqlx::query("DELETE FROM plugins WHERE id = ?")
+        .bind(plugin_id)
+        .execute(pool)
+        .await?;
 
     // Best-effort: clear any cached source tarballs for this name.
     // Coordinator-side only — the worker has no cache dir, so the
@@ -103,14 +108,19 @@ mod tests {
 
         let id: i64 = sqlx::query_scalar(
             "INSERT INTO plugins (name, version, kind, path, schema_json, enabled) \
-             VALUES ('foo', '0.1.0', 'subprocess', ?, '{}', 1) RETURNING id"
-        ).bind(plugin_dir.to_string_lossy().to_string())
-         .fetch_one(&pool).await.unwrap();
+             VALUES ('foo', '0.1.0', 'subprocess', ?, '{}', 1) RETURNING id",
+        )
+        .bind(plugin_dir.to_string_lossy().to_string())
+        .fetch_one(&pool)
+        .await
+        .unwrap();
 
         uninstall(&pool, plugins_dir.path(), id).await.unwrap();
         assert!(!plugin_dir.exists());
         let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM plugins")
-            .fetch_one(&pool).await.unwrap();
+            .fetch_one(&pool)
+            .await
+            .unwrap();
         assert_eq!(count, 0);
     }
 
@@ -118,7 +128,9 @@ mod tests {
     async fn uninstall_returns_not_found_for_missing_id() {
         let (pool, _data) = open_pool().await;
         let plugins_dir = tempdir().unwrap();
-        let err = uninstall(&pool, plugins_dir.path(), 9999).await.unwrap_err();
+        let err = uninstall(&pool, plugins_dir.path(), 9999)
+            .await
+            .unwrap_err();
         assert!(matches!(err, UninstallError::NotFound(_)));
     }
 
@@ -155,6 +167,9 @@ mod tests {
 
         assert!(!cache.join("foo-abc.tar.gz").exists());
         assert!(!cache.join("foo-def.tar.gz").exists());
-        assert!(cache.join("bar-xyz.tar.gz").exists(), "bar should be untouched");
+        assert!(
+            cache.join("bar-xyz.tar.gz").exists(),
+            "bar should be untouched"
+        );
     }
 }

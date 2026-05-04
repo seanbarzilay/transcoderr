@@ -28,7 +28,9 @@ on_failure:
     assert!(flow.on_failure.is_some());
     assert_eq!(flow.steps.len(), 2);
     match &flow.steps[1] {
-        Node::Conditional { if_, then_, else_, .. } => {
+        Node::Conditional {
+            if_, then_, else_, ..
+        } => {
             assert_eq!(if_, "probe.video.codec == \"hevc\"");
             assert_eq!(then_.len(), 1);
             assert!(matches!(then_[0], Node::Return { .. }));

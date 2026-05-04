@@ -1,4 +1,4 @@
-use schemars::{JsonSchema, Schema, SchemaGenerator, json_schema};
+use schemars::{json_schema, JsonSchema, Schema, SchemaGenerator};
 use serde::{Deserialize, Serialize};
 
 /// `schema_with` helper for fields whose Rust type is `serde_json::Value`
@@ -37,7 +37,11 @@ pub struct ApiError {
 
 impl ApiError {
     pub fn new(code: impl Into<String>, message: impl Into<String>) -> Self {
-        Self { code: code.into(), message: message.into(), details: None }
+        Self {
+            code: code.into(),
+            message: message.into(),
+            details: None,
+        }
     }
 }
 

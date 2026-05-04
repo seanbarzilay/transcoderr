@@ -45,7 +45,9 @@ pub struct Connections {
 }
 
 impl Connections {
-    pub fn new() -> Arc<Self> { Arc::new(Self::default()) }
+    pub fn new() -> Arc<Self> {
+        Arc::new(Self::default())
+    }
 
     /// Register a worker's outbound channel. Returns a guard whose
     /// drop removes the entry — call `register_sender` from the WS
@@ -68,11 +70,7 @@ impl Connections {
     /// Record the worker's current `available_steps` snapshot.
     /// Overwrites any existing entry for this worker_id. Called on
     /// initial register and on every re-register frame.
-    pub async fn record_available_steps(
-        &self,
-        worker_id: i64,
-        steps: Vec<String>,
-    ) {
+    pub async fn record_available_steps(&self, worker_id: i64, steps: Vec<String>) {
         self.available_steps.write().await.insert(worker_id, steps);
     }
 
@@ -115,11 +113,7 @@ impl Connections {
     /// Send an envelope to the worker. Returns Err if the worker
     /// isn't registered (e.g. just disconnected) or its channel is
     /// closed.
-    pub async fn send_to_worker(
-        &self,
-        worker_id: i64,
-        env: Envelope,
-    ) -> Result<(), &'static str> {
+    pub async fn send_to_worker(&self, worker_id: i64, env: Envelope) -> Result<(), &'static str> {
         let map = self.senders.read().await;
         let tx = map.get(&worker_id).ok_or("worker not connected")?;
         tx.send(env).await.map_err(|_| "worker channel closed")?;
@@ -138,10 +132,7 @@ impl Connections {
         correlation_id: String,
     ) -> (mpsc::Receiver<InboundStepEvent>, InboxGuard) {
         let (tx, rx) = mpsc::channel(8);
-        self.inbox
-            .write()
-            .await
-            .insert(correlation_id.clone(), tx);
+        self.inbox.write().await.insert(correlation_id.clone(), tx);
         let guard = InboxGuard {
             map: self.inbox.clone(),
             correlation_id,
@@ -152,11 +143,7 @@ impl Connections {
     /// Forward an inbound step_progress / step_complete frame to the
     /// awaiting RemoteRunner. Drops silently if no inbox is
     /// registered (the runner already gave up / cleaned up).
-    pub async fn forward_inbound(
-        &self,
-        correlation_id: &str,
-        event: InboundStepEvent,
-    ) {
+    pub async fn forward_inbound(&self, correlation_id: &str, event: InboundStepEvent) {
         let map = self.inbox.read().await;
         if let Some(tx) = map.get(correlation_id) {
             let _ = tx.send(event).await;
@@ -311,12 +298,11 @@ mod tests {
     #[tokio::test]
     async fn record_available_steps_overwrites() {
         let conns = Connections::new();
-        conns.record_available_steps(7, vec!["transcode".into()]).await;
         conns
-            .record_available_steps(
-                7,
-                vec!["transcode".into(), "whisper.transcribe".into()],
-            )
+            .record_available_steps(7, vec!["transcode".into()])
+            .await;
+        conns
+            .record_available_steps(7, vec!["transcode".into(), "whisper.transcribe".into()])
             .await;
 
         assert!(conns.worker_has_step(7, "whisper.transcribe").await);
@@ -328,14 +314,18 @@ mod tests {
         let (tx, _rx) = mpsc::channel(4);
         {
             let _guard = conns.register_sender(11, tx).await;
-            conns.record_available_steps(11, vec!["transcode".into()]).await;
+            conns
+                .record_available_steps(11, vec!["transcode".into()])
+                .await;
             assert!(conns.worker_has_step(11, "transcode").await);
         }
         // Drop spawns an async cleanup; give it a moment.
         tokio::time::sleep(std::time::Duration::from_millis(50)).await;
         assert!(!conns.is_connected(11).await);
-        assert!(!conns.worker_has_step(11, "transcode").await,
-            "available_steps entry should be cleared on disconnect");
+        assert!(
+            !conns.worker_has_step(11, "transcode").await,
+            "available_steps entry should be cleared on disconnect"
+        );
     }
 
     #[tokio::test]
@@ -350,24 +340,31 @@ mod tests {
 
         let env_a = rx_a.recv().await.expect("worker 1 got envelope");
         let env_b = rx_b.recv().await.expect("worker 2 got envelope");
-        assert!(matches!(env_a.message, crate::worker::protocol::Message::PluginSync(_)));
-        assert!(matches!(env_b.message, crate::worker::protocol::Message::PluginSync(_)));
+        assert!(matches!(
+            env_a.message,
+            crate::worker::protocol::Message::PluginSync(_)
+        ));
+        assert!(matches!(
+            env_b.message,
+            crate::worker::protocol::Message::PluginSync(_)
+        ));
     }
 
     #[tokio::test]
     async fn set_and_query_path_mappings() {
         let conns = Connections::new();
-        let mappings = crate::path_mapping::PathMappings::from_rules(vec![
-            crate::path_mapping::PathMapping {
+        let mappings =
+            crate::path_mapping::PathMappings::from_rules(vec![crate::path_mapping::PathMapping {
                 from: "/mnt".into(),
                 to: "/data".into(),
-            },
-        ]);
+            }]);
         conns.set_path_mappings(7, mappings).await;
         let got = conns.path_mappings_for(7).await.expect("entry exists");
         assert!(!got.is_empty());
-        assert!(conns.path_mappings_for(999).await.is_none(),
-            "missing worker → None, distinct from Some(empty)");
+        assert!(
+            conns.path_mappings_for(999).await.is_none(),
+            "missing worker → None, distinct from Some(empty)"
+        );
     }
 
     #[tokio::test]
@@ -391,7 +388,9 @@ mod tests {
         }
         // Drop spawns an async cleanup; give it a moment.
         tokio::time::sleep(std::time::Duration::from_millis(50)).await;
-        assert!(conns.path_mappings_for(13).await.is_none(),
-            "entry must be cleared on disconnect");
+        assert!(
+            conns.path_mappings_for(13).await.is_none(),
+            "entry must be cleared on disconnect"
+        );
     }
 }

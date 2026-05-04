@@ -41,11 +41,7 @@ static RR_POINTER: AtomicUsize = AtomicUsize::new(0);
 ///    ourselves).
 /// 4. If list is empty → Local (with `tracing::warn!`).
 /// 5. Else round-robin pick → Remote(worker_id).
-pub async fn route(
-    step_kind: &str,
-    run_on: Option<RunOn>,
-    state: &AppState,
-) -> Route {
+pub async fn route(step_kind: &str, run_on: Option<RunOn>, state: &AppState) -> Route {
     if matches!(run_on, Some(RunOn::Coordinator)) {
         return Route::Local;
     }
@@ -77,10 +73,7 @@ const STALE_AFTER_SECS: i64 = 90;
 
 /// Workers that are enabled, fresh, NOT the local row, AND have an
 /// active sender connection, AND advertise the requested step_kind.
-async fn eligible_remotes(
-    step_kind: &str,
-    state: &AppState,
-) -> anyhow::Result<Vec<i64>> {
+async fn eligible_remotes(step_kind: &str, state: &AppState) -> anyhow::Result<Vec<i64>> {
     let cutoff = chrono::Utc::now().timestamp() - STALE_AFTER_SECS;
 
     let rows = crate::db::workers::list_all(&state.pool).await?;
@@ -193,11 +186,13 @@ mod tests {
         let id = crate::db::workers::insert_remote(&state.pool, name, &format!("tok_{name}"))
             .await
             .unwrap();
-        crate::db::workers::record_heartbeat(&state.pool, id).await.unwrap();
+        crate::db::workers::record_heartbeat(&state.pool, id)
+            .await
+            .unwrap();
         let (tx, _rx) = mpsc::channel::<Envelope>(4);
         let guard = state.connections.register_sender(id, tx).await;
         std::mem::forget(guard); // keep registered for the test's lifetime
-        // Also leak the receiver so the channel doesn't close.
+                                 // Also leak the receiver so the channel doesn't close.
         std::mem::forget(_rx);
         // NEW (Piece 5): default to advertising the same step kinds the
         // existing dispatch tests assume — built-in "transcode" suffices
@@ -295,8 +290,14 @@ mod tests {
                 _ => panic!("expected remote: {r:?}"),
             })
             .collect();
-        assert!(picks.contains(&id_a), "round-robin should hit id_a in 3 calls");
-        assert!(picks.contains(&id_b), "round-robin should hit id_b in 3 calls");
+        assert!(
+            picks.contains(&id_a),
+            "round-robin should hit id_a in 3 calls"
+        );
+        assert!(
+            picks.contains(&id_b),
+            "round-robin should hit id_b in 3 calls"
+        );
     }
 
     #[tokio::test]
@@ -311,7 +312,9 @@ mod tests {
         )
         .await;
         let id = add_fake_remote(&state, "gpu1").await;
-        crate::db::workers::set_enabled(&state.pool, id, false).await.unwrap();
+        crate::db::workers::set_enabled(&state.pool, id, false)
+            .await
+            .unwrap();
         let r = route("transcode", None, &state).await;
         assert_eq!(r, Route::Local);
     }
@@ -352,10 +355,7 @@ mod tests {
         // Override default to advertise both transcode and whisper.transcribe.
         state
             .connections
-            .record_available_steps(
-                id,
-                vec!["transcode".into(), "whisper.transcribe".into()],
-            )
+            .record_available_steps(id, vec!["transcode".into(), "whisper.transcribe".into()])
             .await;
 
         // route() consults registry::try_resolve to determine the

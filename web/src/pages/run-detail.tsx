@@ -6,7 +6,8 @@ import { useLive, type LiveRunEvent } from "../state/live";
 import RunTimeline from "../components/run-timeline";
 import LiveProgress from "../components/live-progress";
 import StatusPill from "../components/status-pill";
-import { basename } from "../components/file-id";
+import { basename } from "../lib/path";
+import type { RunEvent } from "../types";
 
 const EMPTY_EVENTS: LiveRunEvent[] = [];
 
@@ -31,7 +32,7 @@ export default function RunDetail() {
     const fromPoll = q.data?.events ?? [];
     const seen = new Set(
       fromPoll.map(
-        (e: any) =>
+        (e: RunEvent) =>
           `${e.ts}|${e.kind}|${e.step_id ?? ""}|${JSON.stringify(e.payload ?? null)}`
       )
     );

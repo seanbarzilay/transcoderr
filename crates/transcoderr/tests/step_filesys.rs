@@ -3,8 +3,8 @@ use std::collections::BTreeMap;
 use tempfile::tempdir;
 use transcoderr::flow::Context;
 use transcoderr::steps::{
-    copy_step::CopyStep, delete_step::DeleteStep, move_step::MoveStep, shell::ShellStep,
-    Step, StepProgress,
+    copy_step::CopyStep, delete_step::DeleteStep, move_step::MoveStep, shell::ShellStep, Step,
+    StepProgress,
 };
 
 #[tokio::test]
@@ -51,7 +51,10 @@ async fn delete_step_removes_file() {
 
     let mut ctx = Context::for_file(p.to_string_lossy());
     let mut cb = |_: StepProgress| {};
-    DeleteStep.execute(&BTreeMap::new(), &mut ctx, &mut cb).await.unwrap();
+    DeleteStep
+        .execute(&BTreeMap::new(), &mut ctx, &mut cb)
+        .await
+        .unwrap();
     assert!(!p.exists());
 }
 

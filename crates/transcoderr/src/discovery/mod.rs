@@ -14,10 +14,7 @@ pub const SERVICE_TYPE: &str = "_transcoderr._tcp.local.";
 
 /// Build the `ServiceInfo` for our advertisement. Public so unit tests
 /// can inspect it without actually starting a daemon.
-pub fn build_service_info(
-    port: u16,
-    instance_name: &str,
-) -> anyhow::Result<ServiceInfo> {
+pub fn build_service_info(port: u16, instance_name: &str) -> anyhow::Result<ServiceInfo> {
     // Empty `host_ipv4` means mdns-sd will auto-detect interfaces and
     // publish on all of them. That's what we want for a multi-homed host.
     build_service_info_with_host(port, instance_name, "")
@@ -83,10 +80,7 @@ pub fn start_responder_on_loopback(
 
 /// Start the responder. Returned `ServiceDaemon` holds the registration
 /// for its lifetime; drop it (or call `shutdown`) to unregister.
-pub fn start_responder(
-    port: u16,
-    instance_name: &str,
-) -> anyhow::Result<ServiceDaemon> {
+pub fn start_responder(port: u16, instance_name: &str) -> anyhow::Result<ServiceDaemon> {
     let mdns = ServiceDaemon::new().context("start mDNS daemon")?;
     let info = build_service_info(port, instance_name)?;
     mdns.register(info).context("register mDNS service")?;

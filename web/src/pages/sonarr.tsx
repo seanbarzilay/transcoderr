@@ -4,6 +4,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "../api/client";
 import SourcePicker from "../components/source-picker";
 import PosterGrid from "../components/poster-grid";
+import { errorMessage } from "../lib/errors";
 
 export default function Sonarr() {
   const qc = useQueryClient();
@@ -16,6 +17,7 @@ export default function Sonarr() {
     const sp = new URLSearchParams(searchParams);
     sp.set("source", String(id));
     setSearchParams(sp, { replace: true });
+    setPage(1);
   };
 
   const [search, setSearch] = useState("");
@@ -26,10 +28,12 @@ export default function Sonarr() {
   const [page, setPage] = useState(1);
 
   useEffect(() => {
-    const t = setTimeout(() => setDebounced(search), 250);
+    const t = setTimeout(() => {
+      setDebounced(search);
+      setPage(1);
+    }, 250);
     return () => clearTimeout(t);
   }, [search]);
-  useEffect(() => setPage(1), [debounced, sort, codec, resolution, sourceId]);
 
   const series = useQuery({
     queryKey: ["arr.series", sourceId, debounced, sort, codec, resolution, page],
@@ -61,7 +65,10 @@ export default function Sonarr() {
         <select
           className="source-picker"
           value={sort}
-          onChange={(e) => setSort(e.target.value as "title" | "year")}
+          onChange={(e) => {
+            setSort(e.target.value as "title" | "year");
+            setPage(1);
+          }}
         >
           <option value="title">Sort: title</option>
           <option value="year">Sort: year</option>
@@ -69,7 +76,10 @@ export default function Sonarr() {
         <select
           className="source-picker"
           value={codec}
-          onChange={(e) => setCodec(e.target.value)}
+          onChange={(e) => {
+            setCodec(e.target.value);
+            setPage(1);
+          }}
         >
           <option value="">Codec: any</option>
           {(series.data?.available_codecs ?? []).map((c) => (
@@ -81,7 +91,10 @@ export default function Sonarr() {
         <select
           className="source-picker"
           value={resolution}
-          onChange={(e) => setResolution(e.target.value)}
+          onChange={(e) => {
+            setResolution(e.target.value);
+            setPage(1);
+          }}
         >
           <option value="">Resolution: any</option>
           {(series.data?.available_resolutions ?? []).map((r) => (
@@ -109,7 +122,7 @@ export default function Sonarr() {
       )}
       {series.isError && (
         <div className="empty">
-          Couldn't load series: {(series.error as any)?.message ?? "unknown error"}
+          Couldn't load series: {errorMessage(series.error, "unknown error")}
         </div>
       )}
       {series.isLoading && sourceId != null && (

@@ -18,5 +18,9 @@ export default defineConfig([
     languageOptions: {
       globals: globals.browser,
     },
+    rules: {
+      // The setup wizard intentionally latches open after async query data arrives.
+      'react-hooks/set-state-in-effect': 'off',
+    },
   },
 ])

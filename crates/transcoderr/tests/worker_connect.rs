@@ -10,17 +10,19 @@ use serde_json::json;
 use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 use tokio_tungstenite::tungstenite::http::header::AUTHORIZATION;
 use tokio_tungstenite::tungstenite::Message as WsMessage;
-use transcoderr::worker::protocol::{
-    Envelope, Heartbeat, Message, PluginManifestEntry, Register,
-};
+use transcoderr::worker::protocol::{Envelope, Heartbeat, Message, PluginManifestEntry, Register};
 
 /// Mint a remote-worker token via the REST endpoint and return it.
 async fn mint_token(client: &reqwest::Client, base: &str, name: &str) -> (i64, String) {
     let resp: serde_json::Value = client
         .post(format!("{base}/api/workers"))
         .json(&json!({"name": name}))
-        .send().await.unwrap()
-        .json().await.unwrap();
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
     let id = resp["id"].as_i64().expect("id");
     let token = resp["secret_token"].as_str().expect("token").to_string();
     (id, token)
@@ -32,17 +34,13 @@ async fn ws_connect(
     base_ws: &str,
     token: &str,
 ) -> Result<
-    tokio_tungstenite::WebSocketStream<
-        tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>,
-    >,
+    tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>,
     tokio_tungstenite::tungstenite::Error,
 > {
     let url = format!("{base_ws}/api/worker/connect");
     let mut req = url.as_str().into_client_request().unwrap();
-    req.headers_mut().insert(
-        AUTHORIZATION,
-        format!("Bearer {token}").parse().unwrap(),
-    );
+    req.headers_mut()
+        .insert(AUTHORIZATION, format!("Bearer {token}").parse().unwrap());
     tokio_tungstenite::connect_async(req).await.map(|(s, _)| s)
 }
 
@@ -104,13 +102,12 @@ async fn connect_with_valid_token_succeeds_and_register_persists() {
     }
 
     // DB should now have hw_caps_json + last_seen_at populated.
-    let row: (Option<String>, Option<i64>) = sqlx::query_as(
-        "SELECT hw_caps_json, last_seen_at FROM workers WHERE id = ?",
-    )
-    .bind(worker_id)
-    .fetch_one(&app.pool)
-    .await
-    .unwrap();
+    let row: (Option<String>, Option<i64>) =
+        sqlx::query_as("SELECT hw_caps_json, last_seen_at FROM workers WHERE id = ?")
+            .bind(worker_id)
+            .fetch_one(&app.pool)
+            .await
+            .unwrap();
     assert!(row.0.is_some(), "hw_caps_json must be persisted");
     assert!(row.1.is_some(), "last_seen_at must be set");
 }
@@ -137,14 +134,13 @@ async fn heartbeat_keeps_last_seen_fresh() {
     let _ack = recv_env(&mut ws).await;
 
     // Capture initial last_seen.
-    let initial: i64 = sqlx::query_as::<_, (i64,)>(
-        "SELECT COALESCE(last_seen_at, 0) FROM workers WHERE id = ?",
-    )
-    .bind(worker_id)
-    .fetch_one(&app.pool)
-    .await
-    .unwrap()
-    .0;
+    let initial: i64 =
+        sqlx::query_as::<_, (i64,)>("SELECT COALESCE(last_seen_at, 0) FROM workers WHERE id = ?")
+            .bind(worker_id)
+            .fetch_one(&app.pool)
+            .await
+            .unwrap()
+            .0;
 
     // Wait a real second so unix-second granularity advances.
     tokio::time::sleep(std::time::Duration::from_millis(1100)).await;
@@ -197,8 +193,12 @@ async fn list_endpoint_redacts_secret_token_under_token_auth() {
     let resp: serde_json::Value = client
         .get(format!("{}/api/workers", app.url))
         .bearer_auth(&token)
-        .send().await.unwrap()
-        .json().await.unwrap();
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
     let arr = resp.as_array().unwrap();
     let remote = arr.iter().find(|w| w["kind"] == "remote").unwrap();
     assert_eq!(remote["secret_token"], "***");

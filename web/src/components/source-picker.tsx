@@ -11,7 +11,7 @@ interface Props {
 
 const STORAGE_PREFIX = "transcoderr.last_source.";
 
-export function lastSourceKey(kind: string): string {
+function lastSourceKey(kind: string): string {
   return `${STORAGE_PREFIX}${kind}`;
 }
 

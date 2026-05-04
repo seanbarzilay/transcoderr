@@ -19,7 +19,9 @@ pub struct Flow {
     pub on_failure: Option<Vec<Node>>,
 }
 
-fn default_true() -> bool { true }
+fn default_true() -> bool {
+    true
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct MatchBlock {
@@ -58,14 +60,30 @@ impl<'de> serde::Deserialize<'de> for Trigger {
         use serde::de::Error as _;
         let map: BTreeMap<String, serde_yaml::Value> = serde::Deserialize::deserialize(d)?;
         let mut iter = map.into_iter();
-        let (key, val) = iter.next().ok_or_else(|| D::Error::custom("trigger map is empty"))?;
-        if iter.next().is_some() { return Err(D::Error::custom("trigger map has multiple keys")); }
+        let (key, val) = iter
+            .next()
+            .ok_or_else(|| D::Error::custom("trigger map is empty"))?;
+        if iter.next().is_some() {
+            return Err(D::Error::custom("trigger map has multiple keys"));
+        }
         match key.as_str() {
-            "radarr"  => Ok(Trigger::Radarr( serde_yaml::from_value(val).map_err(|e| D::Error::custom(format!("radarr: {e}")))? )),
-            "sonarr"  => Ok(Trigger::Sonarr( serde_yaml::from_value(val).map_err(|e| D::Error::custom(format!("sonarr: {e}")))? )),
-            "lidarr"  => Ok(Trigger::Lidarr( serde_yaml::from_value(val).map_err(|e| D::Error::custom(format!("lidarr: {e}")))? )),
-            "webhook" => Ok(Trigger::Webhook(serde_yaml::from_value(val).map_err(|e| D::Error::custom(format!("webhook: {e}")))? )),
-            other     => Err(D::Error::custom(format!("unknown trigger kind {other:?}"))),
+            "radarr" => Ok(Trigger::Radarr(
+                serde_yaml::from_value(val)
+                    .map_err(|e| D::Error::custom(format!("radarr: {e}")))?,
+            )),
+            "sonarr" => Ok(Trigger::Sonarr(
+                serde_yaml::from_value(val)
+                    .map_err(|e| D::Error::custom(format!("sonarr: {e}")))?,
+            )),
+            "lidarr" => Ok(Trigger::Lidarr(
+                serde_yaml::from_value(val)
+                    .map_err(|e| D::Error::custom(format!("lidarr: {e}")))?,
+            )),
+            "webhook" => Ok(Trigger::Webhook(
+                serde_yaml::from_value(val)
+                    .map_err(|e| D::Error::custom(format!("webhook: {e}")))?,
+            )),
+            other => Err(D::Error::custom(format!("unknown trigger kind {other:?}"))),
         }
     }
 }
@@ -75,9 +93,9 @@ impl serde::Serialize for Trigger {
         use serde::ser::SerializeMap;
         let mut map = s.serialize_map(Some(1))?;
         match self {
-            Trigger::Radarr(events)  => map.serialize_entry("radarr", events)?,
-            Trigger::Sonarr(events)  => map.serialize_entry("sonarr", events)?,
-            Trigger::Lidarr(events)  => map.serialize_entry("lidarr", events)?,
+            Trigger::Radarr(events) => map.serialize_entry("radarr", events)?,
+            Trigger::Sonarr(events) => map.serialize_entry("sonarr", events)?,
+            Trigger::Lidarr(events) => map.serialize_entry("lidarr", events)?,
             Trigger::Webhook(source) => map.serialize_entry("webhook", source)?,
         }
         map.end()

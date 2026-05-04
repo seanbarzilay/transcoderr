@@ -3,9 +3,9 @@
 //! the same JSON shape. `Kind` discriminates which event flags to
 //! enable on create.
 
-pub mod reconcile;
-pub mod cache;
 pub mod browse;
+pub mod cache;
+pub mod reconcile;
 
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
@@ -251,7 +251,10 @@ impl Client {
             .context("parsing sonarr series response")
     }
 
-    pub async fn list_episodes(&self, series_id: i64) -> Result<Vec<crate::arr::browse::SonarrEpisode>> {
+    pub async fn list_episodes(
+        &self,
+        series_id: i64,
+    ) -> Result<Vec<crate::arr::browse::SonarrEpisode>> {
         // includeEpisodeFile=true is required to get `episodeFile.mediaInfo`
         // inlined in the response. Without it, Sonarr only returns
         // `episodeFileId` (an int) and our codec/resolution badges +
@@ -284,11 +287,7 @@ impl Client {
 /// transcoderr's "react to a downloaded file" use case.
 fn event_flags(kind: Kind) -> Vec<(&'static str, bool)> {
     match kind {
-        Kind::Radarr => vec![
-            ("onGrab", false),
-            ("onDownload", true),
-            ("onUpgrade", true),
-        ],
+        Kind::Radarr => vec![("onGrab", false), ("onDownload", true), ("onUpgrade", true)],
         Kind::Sonarr => vec![
             ("onGrab", false),
             ("onDownload", true),
@@ -354,7 +353,10 @@ mod tests {
         let n: Notification = serde_json::from_value(raw).expect("deserialize");
         assert_eq!(n.id, 7);
         assert_eq!(n.fields.len(), 2);
-        assert!(n.fields[0].value.is_null(), "missing value defaults to Value::Null");
+        assert!(
+            n.fields[0].value.is_null(),
+            "missing value defaults to Value::Null"
+        );
         assert_eq!(n.fields[1].value.as_str(), Some("********"));
     }
 

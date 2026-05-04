@@ -10,34 +10,54 @@ pub struct SourceRow {
     pub secret_token: String,
 }
 
-pub async fn insert(pool: &SqlitePool, kind: &str, name: &str, config: &Value, token: &str) -> anyhow::Result<i64> {
+pub async fn insert(
+    pool: &SqlitePool,
+    kind: &str,
+    name: &str,
+    config: &Value,
+    token: &str,
+) -> anyhow::Result<i64> {
     let cj = serde_json::to_string(config)?;
     Ok(sqlx::query_scalar::<_, i64>(
         "INSERT INTO sources (kind, name, config_json, secret_token) VALUES (?, ?, ?, ?) RETURNING id"
     ).bind(kind).bind(name).bind(cj).bind(token).fetch_one(pool).await?)
 }
 
-pub async fn get_by_kind_and_token(pool: &SqlitePool, kind: &str, token: &str) -> anyhow::Result<Option<SourceRow>> {
+pub async fn get_by_kind_and_token(
+    pool: &SqlitePool,
+    kind: &str,
+    token: &str,
+) -> anyhow::Result<Option<SourceRow>> {
     Ok(sqlx::query_as("SELECT id, kind, name, config_json, secret_token FROM sources WHERE kind = ? AND secret_token = ?")
         .bind(kind).bind(token).fetch_optional(pool).await?)
 }
 
-pub async fn get_webhook_by_name_and_token(pool: &SqlitePool, name: &str, token: &str) -> anyhow::Result<Option<SourceRow>> {
+pub async fn get_webhook_by_name_and_token(
+    pool: &SqlitePool,
+    name: &str,
+    token: &str,
+) -> anyhow::Result<Option<SourceRow>> {
     Ok(sqlx::query_as("SELECT id, kind, name, config_json, secret_token FROM sources WHERE kind = 'webhook' AND name = ? AND secret_token = ?")
         .bind(name).bind(token).fetch_optional(pool).await?)
 }
 
 pub async fn list_all(pool: &SqlitePool) -> anyhow::Result<Vec<SourceRow>> {
-    Ok(sqlx::query_as("SELECT id, kind, name, config_json, secret_token FROM sources ORDER BY id")
-        .fetch_all(pool)
-        .await?)
+    Ok(
+        sqlx::query_as("SELECT id, kind, name, config_json, secret_token FROM sources ORDER BY id")
+            .fetch_all(pool)
+            .await?,
+    )
 }
 
 pub async fn get_by_id(pool: &SqlitePool, id: i64) -> anyhow::Result<Option<SourceRow>> {
-    Ok(sqlx::query_as("SELECT id, kind, name, config_json, secret_token FROM sources WHERE id = ?")
+    Ok(
+        sqlx::query_as(
+            "SELECT id, kind, name, config_json, secret_token FROM sources WHERE id = ?",
+        )
         .bind(id)
         .fetch_optional(pool)
-        .await?)
+        .await?,
+    )
 }
 
 /// Update only the `arr_notification_id` field within an existing source's
@@ -64,19 +84,19 @@ pub async fn update_arr_notification_id(
 
         let mut cfg: serde_json::Value = serde_json::from_str(&row.config_json)
             .map_err(|e| anyhow::anyhow!("invalid JSON in source {source_id} config: {e}"))?;
-        let obj = cfg.as_object_mut()
+        let obj = cfg
+            .as_object_mut()
             .ok_or_else(|| anyhow::anyhow!("source {source_id} config is not a JSON object"))?;
         obj.insert("arr_notification_id".into(), serde_json::json!(new_id));
         let new_cfg_str = serde_json::to_string(&cfg)?;
 
-        let res = sqlx::query(
-            "UPDATE sources SET config_json = ? WHERE id = ? AND config_json = ?",
-        )
-        .bind(&new_cfg_str)
-        .bind(source_id)
-        .bind(&row.config_json)
-        .execute(pool)
-        .await?;
+        let res =
+            sqlx::query("UPDATE sources SET config_json = ? WHERE id = ? AND config_json = ?")
+                .bind(&new_cfg_str)
+                .bind(source_id)
+                .bind(&row.config_json)
+                .execute(pool)
+                .await?;
         if res.rows_affected() == 1 {
             return Ok(());
         }

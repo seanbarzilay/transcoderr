@@ -1,10 +1,19 @@
 use super::model::{Flow, Node};
 
 const KNOWN_STEPS: &[&str] = &[
-    "probe", "transcode", "output",
+    "probe",
+    "transcode",
+    "output",
     // Phase 2 built-ins (added in later tasks):
-    "verify.playable", "remux", "extract.subs", "strip.tracks",
-    "move", "copy", "delete", "notify", "shell",
+    "verify.playable",
+    "remux",
+    "extract.subs",
+    "strip.tracks",
+    "move",
+    "copy",
+    "delete",
+    "notify",
+    "shell",
 ];
 
 pub fn parse_flow(yaml: &str) -> anyhow::Result<Flow> {
@@ -18,7 +27,9 @@ fn validate(flow: &Flow) -> anyhow::Result<()> {
         anyhow::bail!("flow {:?} has no triggers", flow.name);
     }
     walk(&flow.steps)?;
-    if let Some(of) = &flow.on_failure { walk(of)?; }
+    if let Some(of) = &flow.on_failure {
+        walk(of)?;
+    }
     Ok(())
 }
 
@@ -26,18 +37,22 @@ fn walk(nodes: &[Node]) -> anyhow::Result<()> {
     for n in nodes {
         match n {
             Node::Step { use_, run_on, .. } => {
-                let _ = use_;  // accepted; final validation at runtime via plugin registry
+                let _ = use_; // accepted; final validation at runtime via plugin registry
                 if let Some(crate::flow::model::RunOn::Any) = run_on {
                     if let Some(step) = crate::steps::registry::try_resolve(use_) {
                         if step.executor() == crate::steps::Executor::CoordinatorOnly {
-                            anyhow::bail!("step `{use_}` is coordinator-only; `run_on: any` is invalid");
+                            anyhow::bail!(
+                                "step `{use_}` is coordinator-only; `run_on: any` is invalid"
+                            );
                         }
                     }
                 }
             }
             Node::Conditional { then_, else_, .. } => {
                 walk(then_)?;
-                if let Some(e) = else_ { walk(e)?; }
+                if let Some(e) = else_ {
+                    walk(e)?;
+                }
             }
             Node::Return { .. } => {}
         }
@@ -46,7 +61,9 @@ fn walk(nodes: &[Node]) -> anyhow::Result<()> {
 }
 
 #[allow(dead_code)]
-fn known_step(use_: &str) -> bool { KNOWN_STEPS.contains(&use_) }
+fn known_step(use_: &str) -> bool {
+    KNOWN_STEPS.contains(&use_)
+}
 
 #[cfg(test)]
 mod tests {
@@ -61,7 +78,9 @@ steps:
     run_on: any
 "#;
         let flow = crate::flow::parser::parse_flow(yaml).expect("parse ok");
-        let crate::flow::model::Node::Step { run_on, .. } = &flow.steps[0] else { panic!() };
+        let crate::flow::model::Node::Step { run_on, .. } = &flow.steps[0] else {
+            panic!()
+        };
         assert_eq!(*run_on, Some(crate::flow::model::RunOn::Any));
     }
 
@@ -75,7 +94,9 @@ steps:
     run_on: coordinator
 "#;
         let flow = crate::flow::parser::parse_flow(yaml).expect("parse ok");
-        let crate::flow::model::Node::Step { run_on, .. } = &flow.steps[0] else { panic!() };
+        let crate::flow::model::Node::Step { run_on, .. } = &flow.steps[0] else {
+            panic!()
+        };
         assert_eq!(*run_on, Some(crate::flow::model::RunOn::Coordinator));
     }
 
@@ -90,8 +111,11 @@ steps:
 "#;
         let err = crate::flow::parser::parse_flow(yaml).expect_err("must reject");
         // The YAML parser fails to deserialize unknown enum variant 'nope'
-        assert!(format!("{err}").to_lowercase().contains("variant") || format!("{err}").contains("nope"),
-            "error should mention the bad variant: {err}");
+        assert!(
+            format!("{err}").to_lowercase().contains("variant")
+                || format!("{err}").contains("nope"),
+            "error should mention the bad variant: {err}"
+        );
     }
 
     // NOTE: "rejects run_on:any on CoordinatorOnly step" is covered

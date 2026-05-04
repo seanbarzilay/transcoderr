@@ -34,13 +34,12 @@ async fn local_row_populated_after_boot() {
 async fn heartbeat_advances_last_seen_when_idle() {
     let app = boot().await;
 
-    let initial: i64 = sqlx::query_scalar(
-        "SELECT COALESCE(last_seen_at, 0) FROM workers WHERE id = ?",
-    )
-    .bind(LOCAL_WORKER_ID)
-    .fetch_one(&app.pool)
-    .await
-    .unwrap();
+    let initial: i64 =
+        sqlx::query_scalar("SELECT COALESCE(last_seen_at, 0) FROM workers WHERE id = ?")
+            .bind(LOCAL_WORKER_ID)
+            .fetch_one(&app.pool)
+            .await
+            .unwrap();
 
     // Don't wait the real 30s tick. Force one explicit heartbeat
     // after a >1s pause so unix-second granularity advances.
@@ -49,13 +48,12 @@ async fn heartbeat_advances_last_seen_when_idle() {
         .await
         .unwrap();
 
-    let after: i64 = sqlx::query_scalar(
-        "SELECT COALESCE(last_seen_at, 0) FROM workers WHERE id = ?",
-    )
-    .bind(LOCAL_WORKER_ID)
-    .fetch_one(&app.pool)
-    .await
-    .unwrap();
+    let after: i64 =
+        sqlx::query_scalar("SELECT COALESCE(last_seen_at, 0) FROM workers WHERE id = ?")
+            .bind(LOCAL_WORKER_ID)
+            .fetch_one(&app.pool)
+            .await
+            .unwrap();
 
     assert!(
         after > initial,

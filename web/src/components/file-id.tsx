@@ -1,10 +1,4 @@
-/// FileId — displays a run's input file as `basename` (truncated if long)
-/// with the full path on hover.
-
-export function basename(path: string): string {
-  const last = path.split(/[\\/]/).filter(Boolean).pop();
-  return last ?? path;
-}
+import { basename } from "../lib/path";
 
 export default function FileId({
   path,

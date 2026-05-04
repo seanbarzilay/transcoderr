@@ -36,13 +36,9 @@ async fn discover_enroll_and_persist_worker_toml() {
     // with_loopback=true because both sides run on 127.0.0.1 in tests.
     let dir = tempfile::tempdir().unwrap();
     let cfg_path = dir.path().join("worker.toml");
-    let cfg = transcoderr::worker::enroll::discover_and_enroll(
-        &cfg_path,
-        Some(suffix),
-        true,
-    )
-    .await
-    .expect("discover + enroll within 5s");
+    let cfg = transcoderr::worker::enroll::discover_and_enroll(&cfg_path, Some(suffix), true)
+        .await
+        .expect("discover + enroll within 5s");
 
     // The cfg is the freshly-loaded WorkerConfig. The token is non-empty
     // and the URL is ws://...
@@ -68,7 +64,9 @@ async fn discover_enroll_and_persist_worker_toml() {
     let rows = transcoderr::db::workers::list_all(&app.pool).await.unwrap();
     let mine = rows
         .iter()
-        .find(|r| r.kind == "remote" && r.secret_token.as_deref() == Some(cfg.coordinator_token.as_str()))
+        .find(|r| {
+            r.kind == "remote" && r.secret_token.as_deref() == Some(cfg.coordinator_token.as_str())
+        })
         .expect("our enrolled row must exist");
     assert!(mine.id > 0);
 }
@@ -88,6 +86,9 @@ async fn discover_times_out_when_no_responder_present() {
     )
     .await
     .expect("must complete within 7s wall-clock");
-    assert!(res.is_err(), "expected an error when no responder is present");
+    assert!(
+        res.is_err(),
+        "expected an error when no responder is present"
+    );
     assert!(!cfg_path.exists(), "no partial file may be written");
 }

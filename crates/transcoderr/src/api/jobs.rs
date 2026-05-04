@@ -1,5 +1,9 @@
 use crate::http::AppState;
-use axum::{extract::{Path, State}, http::StatusCode, Json};
+use axum::{
+    extract::{Path, State},
+    http::StatusCode,
+    Json,
+};
 use serde::Serialize;
 use sqlx::Row;
 

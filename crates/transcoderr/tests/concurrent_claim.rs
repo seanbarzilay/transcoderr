@@ -17,7 +17,9 @@ async fn concurrent_claim_returns_a_single_job_once() {
     let yaml = "name: t\ntriggers: [{ radarr: [downloaded] }]\nsteps:\n  - use: probe\n";
     let flow = parse_flow(yaml).unwrap();
     let flow_id = db::flows::insert(&pool, "t", yaml, &flow).await.unwrap();
-    let job_id = db::jobs::insert(&pool, flow_id, 1, "radarr", "/tmp/x.mkv", "{}").await.unwrap();
+    let job_id = db::jobs::insert(&pool, flow_id, 1, "radarr", "/tmp/x.mkv", "{}")
+        .await
+        .unwrap();
 
     // Fire 8 claim_next calls concurrently against a single pending job.
     // Exactly one should return Some(job); the rest must return None.
@@ -40,7 +42,10 @@ async fn concurrent_claim_returns_a_single_job_once() {
             None => nones += 1,
         }
     }
-    assert_eq!(claimed, 1, "exactly one worker must claim the job (got {claimed})");
+    assert_eq!(
+        claimed, 1,
+        "exactly one worker must claim the job (got {claimed})"
+    );
     assert_eq!(nones, 7, "the other 7 workers must see None (got {nones})");
 
     // The job is now in 'running' state and a fresh claim_next sees nothing.

@@ -24,53 +24,93 @@ use tower_cookies::CookieManagerLayer;
 
 pub fn router(state: AppState) -> Router<AppState> {
     let public = Router::new()
-        .route("/auth/login",  post(auth::login))
+        .route("/auth/login", post(auth::login))
         .route("/auth/logout", post(auth::logout))
-        .route("/auth/me",     get(auth::me))
+        .route("/auth/me", get(auth::me))
         .route("/worker/connect", get(workers::connect))
         .route("/worker/enroll", post(worker_enroll::enroll))
-        .route("/worker/plugins/:name/tarball", get(worker_plugins::tarball));
+        .route(
+            "/worker/plugins/:name/tarball",
+            get(worker_plugins::tarball),
+        );
 
     let protected = Router::new()
-        .route("/auth/tokens",        get(auth::list_tokens).post(auth::create_token))
-        .route("/auth/tokens/:id",    delete(auth::delete_token))
-        .route("/flows",              get(flows::list).post(flows::create))
-        .route("/flows/:id",          get(flows::get).put(flows::update).delete(flows::delete))
-        .route("/flows/parse",        post(flows::parse))
-        .route("/hw",                 get(hw_get))
-        .route("/hw/reprobe",         post(hw_reprobe))
-        .route("/version",            get(version_get))
-        .route("/runs",               get(runs::list))
-        .route("/runs/:id",           get(runs::get))
-        .route("/runs/:id/events",    get(runs::events))
-        .route("/runs/:id/cancel",    post(runs::cancel))
-        .route("/runs/:id/rerun",     post(runs::rerun))
-        .route("/jobs/:id",           get(jobs::get))
-        .route("/sources",            get(sources::list).post(sources::create))
-        .route("/sources/:id",        get(sources::get).put(sources::update).delete(sources::delete))
+        .route(
+            "/auth/tokens",
+            get(auth::list_tokens).post(auth::create_token),
+        )
+        .route("/auth/tokens/:id", delete(auth::delete_token))
+        .route("/flows", get(flows::list).post(flows::create))
+        .route(
+            "/flows/:id",
+            get(flows::get).put(flows::update).delete(flows::delete),
+        )
+        .route("/flows/parse", post(flows::parse))
+        .route("/hw", get(hw_get))
+        .route("/hw/reprobe", post(hw_reprobe))
+        .route("/version", get(version_get))
+        .route("/runs", get(runs::list))
+        .route("/runs/:id", get(runs::get))
+        .route("/runs/:id/events", get(runs::events))
+        .route("/runs/:id/cancel", post(runs::cancel))
+        .route("/runs/:id/rerun", post(runs::rerun))
+        .route("/jobs/:id", get(jobs::get))
+        .route("/sources", get(sources::list).post(sources::create))
+        .route(
+            "/sources/:id",
+            get(sources::get)
+                .put(sources::update)
+                .delete(sources::delete),
+        )
         .route("/sources/:id/test-fire", post(sources::test_fire))
         .route("/sources/:id/movies", get(arr_browse::movies))
         .route("/sources/:id/series", get(arr_browse::series))
-        .route("/sources/:id/series/:series_id", get(arr_browse::series_get))
-        .route("/sources/:id/series/:series_id/episodes", get(arr_browse::episodes))
+        .route(
+            "/sources/:id/series/:series_id",
+            get(arr_browse::series_get),
+        )
+        .route(
+            "/sources/:id/series/:series_id/episodes",
+            get(arr_browse::episodes),
+        )
         .route("/sources/:id/refresh", post(arr_browse::refresh))
         .route("/sources/:id/transcode", post(arr_browse::transcode))
-        .route("/plugins",            get(plugins::list))
-        .route("/plugins/:id",        get(plugins::get).delete(plugins::uninstall))
-        .route("/plugin-catalog-entries",   get(plugins::browse))
-        .route("/plugin-catalog-entries/:catalog_id/:name/install", post(plugins::install))
-        .route("/plugin-catalogs",          get(plugin_catalogs::list).post(plugin_catalogs::create))
-        .route("/plugin-catalogs/:id",      delete(plugin_catalogs::delete))
-        .route("/plugin-catalogs/:id/refresh", post(plugin_catalogs::refresh))
-        .route("/notifiers",          get(notifiers::list).post(notifiers::create))
-        .route("/notifiers/:id",      get(notifiers::get).put(notifiers::update).delete(notifiers::delete))
+        .route("/plugins", get(plugins::list))
+        .route("/plugins/:id", get(plugins::get).delete(plugins::uninstall))
+        .route("/plugin-catalog-entries", get(plugins::browse))
+        .route(
+            "/plugin-catalog-entries/:catalog_id/:name/install",
+            post(plugins::install),
+        )
+        .route(
+            "/plugin-catalogs",
+            get(plugin_catalogs::list).post(plugin_catalogs::create),
+        )
+        .route("/plugin-catalogs/:id", delete(plugin_catalogs::delete))
+        .route(
+            "/plugin-catalogs/:id/refresh",
+            post(plugin_catalogs::refresh),
+        )
+        .route("/notifiers", get(notifiers::list).post(notifiers::create))
+        .route(
+            "/notifiers/:id",
+            get(notifiers::get)
+                .put(notifiers::update)
+                .delete(notifiers::delete),
+        )
         .route("/notifiers/:id/test", post(notifiers::test))
-        .route("/settings",           get(settings::get_all).patch(settings::patch))
-        .route("/dry-run",            post(dryrun::dry_run))
-        .route("/workers",            get(workers::list).post(workers::create))
-        .route("/workers/:id",        patch(workers::patch).delete(workers::delete))
-        .route("/workers/:id/path-mappings", put(workers::set_path_mappings))
-        .route("/stream",             axum::routing::get(crate::bus::sse::stream))
+        .route("/settings", get(settings::get_all).patch(settings::patch))
+        .route("/dry-run", post(dryrun::dry_run))
+        .route("/workers", get(workers::list).post(workers::create))
+        .route(
+            "/workers/:id",
+            patch(workers::patch).delete(workers::delete),
+        )
+        .route(
+            "/workers/:id/path-mappings",
+            put(workers::set_path_mappings),
+        )
+        .route("/stream", axum::routing::get(crate::bus::sse::stream))
         .route_layer(from_fn_with_state(state.clone(), auth::require_auth));
 
     public.merge(protected).layer(CookieManagerLayer::new())

@@ -27,6 +27,14 @@ const STEP_FIRST_FRAME_TIMEOUT: Duration = Duration::from_secs(300);
 
 pub struct RemoteRunner;
 
+pub struct RemoteStep<'a> {
+    pub worker_id: i64,
+    pub job_id: i64,
+    pub step_id: &'a str,
+    pub use_: &'a str,
+    pub with: &'a BTreeMap<String, serde_json::Value>,
+}
+
 impl RemoteRunner {
     /// Run a single step on a remote worker. Blocks until the worker
     /// reports `step_complete` (success or failure), the frame timeout
@@ -39,11 +47,7 @@ impl RemoteRunner {
     /// space when the worker has path mappings configured).
     pub async fn run(
         state: &AppState,
-        worker_id: i64,
-        job_id: i64,
-        step_id: &str,
-        use_: &str,
-        with: &BTreeMap<String, serde_json::Value>,
+        step: RemoteStep<'_>,
         ctx: &mut Context,
         on_progress: &mut (dyn FnMut(StepProgress) + Send),
     ) -> anyhow::Result<()> {
@@ -52,7 +56,7 @@ impl RemoteRunner {
         // 0. Load (or lazily fill) the per-worker path mappings cache.
         //    Snapshot once for the duration of this step so a mid-flight
         //    edit by the operator can't desync the round-trip.
-        let mappings = load_or_fill_mappings(state, worker_id).await;
+        let mappings = load_or_fill_mappings(state, step.worker_id).await;
 
         // 1. Register an inbox for inbound frames keyed by correlation_id.
         let (mut rx, _inbox_guard) = state
@@ -64,26 +68,25 @@ impl RemoteRunner {
         let ctx_snapshot = if mappings.is_empty() {
             ctx.to_snapshot()
         } else {
-            let mut value: serde_json::Value =
-                serde_json::from_str(&ctx.to_snapshot())?;
+            let mut value: serde_json::Value = serde_json::from_str(&ctx.to_snapshot())?;
             mappings.apply(&mut value, crate::path_mapping::Direction::CoordToWorker);
             serde_json::to_string(&value)?
         };
 
-        let with_json: serde_json::Value = serde_json::to_value(with)?;
+        let with_json: serde_json::Value = serde_json::to_value(step.with)?;
         let dispatch_env = Envelope {
             id: correlation_id.clone(),
             message: Message::StepDispatch(StepDispatch {
-                job_id,
-                step_id: step_id.into(),
-                use_: use_.into(),
+                job_id: step.job_id,
+                step_id: step.step_id.into(),
+                use_: step.use_.into(),
                 with: with_json,
                 ctx_snapshot,
             }),
         };
         state
             .connections
-            .send_to_worker(worker_id, dispatch_env)
+            .send_to_worker(step.worker_id, dispatch_env)
             .await
             .map_err(|e| anyhow::anyhow!("dispatch send failed: {e}"))?;
 
@@ -116,7 +119,7 @@ impl RemoteRunner {
                     // disconnect within ~2s of SenderGuard cleanup.
                     loop {
                         tokio::time::sleep(Duration::from_secs(2)).await;
-                        if !state.connections.is_connected(worker_id).await {
+                        if !state.connections.is_connected(step.worker_id).await {
                             return;
                         }
                     }
@@ -137,22 +140,22 @@ impl RemoteRunner {
                     // bail. Engine records the run as cancelled via the
                     // existing cancel-token-aware error path.
                     tracing::info!(
-                        job_id,
-                        step_id,
-                        worker_id,
+                        job_id = step.job_id,
+                        step_id = step.step_id,
+                        worker_id = step.worker_id,
                         correlation_id = %correlation_id,
                         "cancelling in-flight remote step; sending StepCancel to worker"
                     );
                     let cancel_env = Envelope {
                         id: correlation_id.clone(),
                         message: Message::StepCancel(StepCancelMsg {
-                            job_id,
-                            step_id: step_id.into(),
+                            job_id: step.job_id,
+                            step_id: step.step_id.into(),
                         }),
                     };
                     let _ = state
                         .connections
-                        .send_to_worker(worker_id, cancel_env)
+                        .send_to_worker(step.worker_id, cancel_env)
                         .await;
                     anyhow::bail!("step cancelled by operator");
                 }
@@ -196,8 +199,7 @@ impl RemoteRunner {
                             let restored = if mappings.is_empty() {
                                 snap
                             } else {
-                                let mut value: serde_json::Value =
-                                    serde_json::from_str(&snap)?;
+                                let mut value: serde_json::Value = serde_json::from_str(&snap)?;
                                 mappings.apply(
                                     &mut value,
                                     crate::path_mapping::Direction::WorkerToCoord,

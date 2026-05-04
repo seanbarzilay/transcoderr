@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { api } from "../api/client";
+import { errorMessage } from "../lib/errors";
 
 export default function Login({ onLoggedIn }: { onLoggedIn: () => void }) {
   const [pw, setPw] = useState("");
@@ -21,8 +22,8 @@ export default function Login({ onLoggedIn }: { onLoggedIn: () => void }) {
           try {
             await api.auth.login(pw);
             onLoggedIn();
-          } catch (ex: any) {
-            setErr(ex?.message ?? "login failed");
+          } catch (ex: unknown) {
+            setErr(errorMessage(ex, "login failed"));
           }
         }}
         className="surface"

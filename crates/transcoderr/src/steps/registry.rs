@@ -25,14 +25,13 @@ pub struct Registry {
 
 impl Registry {
     pub fn empty() -> Self {
-        Self { by_name: HashMap::new() }
+        Self {
+            by_name: HashMap::new(),
+        }
     }
 }
 
-fn build(
-    inputs: &BuildInputs,
-    discovered: Vec<DiscoveredPlugin>,
-) -> Registry {
+fn build(inputs: &BuildInputs, discovered: Vec<DiscoveredPlugin>) -> Registry {
     let mut reg = Registry::empty();
     builtin::register_all(
         &mut reg.by_name,
@@ -82,7 +81,11 @@ pub async fn init(
     ffmpeg_caps: Arc<crate::ffmpeg_caps::FfmpegCaps>,
     discovered: Vec<DiscoveredPlugin>,
 ) {
-    let inputs = BuildInputs { pool, hw, ffmpeg_caps };
+    let inputs = BuildInputs {
+        pool,
+        hw,
+        ffmpeg_caps,
+    };
     let reg = build(&inputs, discovered);
     let _ = BUILD_INPUTS.set(inputs);
     let _ = REGISTRY.set(RwLock::new(Arc::new(reg)));
@@ -93,7 +96,9 @@ pub async fn init(
 /// finish on the old code; new `resolve()` calls return the new
 /// step set.
 pub async fn rebuild_from_discovered(discovered: Vec<DiscoveredPlugin>) {
-    let Some(inputs) = BUILD_INPUTS.get() else { return };
+    let Some(inputs) = BUILD_INPUTS.get() else {
+        return;
+    };
     let new = build(inputs, discovered);
     if let Some(rw) = REGISTRY.get() {
         *rw.write().await = Arc::new(new);
@@ -157,7 +162,11 @@ mod tests {
     /// Build a minimal DiscoveredPlugin pointing at a shell script that
     /// emits `result:ok`. Used to verify rebuild_from_discovered swaps
     /// in a new step that wasn't there at boot.
-    fn discovered_with_step(plugin_name: &str, step_name: &str, dir: &std::path::Path) -> DiscoveredPlugin {
+    fn discovered_with_step(
+        plugin_name: &str,
+        step_name: &str,
+        dir: &std::path::Path,
+    ) -> DiscoveredPlugin {
         let plugin_dir = dir.join(plugin_name);
         std::fs::create_dir_all(plugin_dir.join("bin")).unwrap();
         let script = "#!/bin/sh\nread INIT\nread EXEC\necho '{\"event\":\"result\",\"status\":\"ok\",\"outputs\":{}}'\n";
@@ -201,7 +210,8 @@ mod tests {
             DeviceRegistry::empty(),
             Arc::new(crate::ffmpeg_caps::FfmpegCaps::default()),
             vec![],
-        ).await;
+        )
+        .await;
         // Leak the temp dir so the migration files stay reachable; this
         // is a one-shot global init for the whole test binary.
         std::mem::forget(dir);
@@ -218,10 +228,14 @@ mod tests {
 
         rebuild_from_discovered(vec![d]).await;
 
-        let step = resolve("rebuild.test.step").await.expect("step now present");
+        let step = resolve("rebuild.test.step")
+            .await
+            .expect("step now present");
         let mut ctx = Context::for_file("/x");
         let mut cb = |_: StepProgress| {};
-        step.execute(&BTreeMap::new(), &mut ctx, &mut cb).await.unwrap();
+        step.execute(&BTreeMap::new(), &mut ctx, &mut cb)
+            .await
+            .unwrap();
     }
 
     #[tokio::test]
@@ -231,17 +245,24 @@ mod tests {
         let d = discovered_with_step("inflight", "inflight.test.step", dir.path());
         rebuild_from_discovered(vec![d]).await;
 
-        let step = resolve("inflight.test.step").await.expect("step present pre-swap");
+        let step = resolve("inflight.test.step")
+            .await
+            .expect("step present pre-swap");
 
         // Swap to an empty registry (drops the step). The in-flight
         // Arc<dyn Step> we hold should still be runnable.
         rebuild_from_discovered(vec![]).await;
 
-        assert!(resolve("inflight.test.step").await.is_none(), "step gone after swap");
+        assert!(
+            resolve("inflight.test.step").await.is_none(),
+            "step gone after swap"
+        );
 
         let mut ctx = Context::for_file("/x");
         let mut cb = |_: StepProgress| {};
-        step.execute(&BTreeMap::new(), &mut ctx, &mut cb).await.unwrap();
+        step.execute(&BTreeMap::new(), &mut ctx, &mut cb)
+            .await
+            .unwrap();
     }
 
     #[tokio::test]

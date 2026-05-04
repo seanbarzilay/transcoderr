@@ -7,7 +7,13 @@ pub struct Readiness {
 }
 
 impl Readiness {
-    pub fn new() -> Self { Self::default() }
-    pub async fn mark_ready(&self) { *self.inner.write().await = true; }
-    pub async fn is_ready(&self) -> bool { *self.inner.read().await }
+    pub fn new() -> Self {
+        Self::default()
+    }
+    pub async fn mark_ready(&self) {
+        *self.inner.write().await = true;
+    }
+    pub async fn is_ready(&self) -> bool {
+        *self.inner.read().await
+    }
 }

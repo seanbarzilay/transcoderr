@@ -6,13 +6,16 @@ use tokio::process::Command;
 pub async fn ffprobe_json(path: &Path) -> anyhow::Result<Value> {
     let out = Command::new("ffprobe")
         .args([
-            "-v", "error",
-            "-print_format", "json",
+            "-v",
+            "error",
+            "-print_format",
+            "json",
             "-show_format",
             "-show_streams",
         ])
         .arg(path)
-        .output().await
+        .output()
+        .await
         .context("spawn ffprobe")?;
     if !out.status.success() {
         anyhow::bail!("ffprobe failed: {}", String::from_utf8_lossy(&out.stderr));
@@ -27,14 +30,27 @@ pub async fn make_testsrc_mkv(dest: &Path, seconds: u32) -> anyhow::Result<()> {
     let status = Command::new("ffmpeg")
         .args([
             "-y",
-            "-f", "lavfi", "-i", &format!("testsrc=duration={seconds}:size=320x240:rate=30"),
-            "-f", "lavfi", "-i", &format!("sine=duration={seconds}:frequency=440"),
-            "-c:v", "libx264", "-preset", "ultrafast", "-pix_fmt", "yuv420p",
-            "-c:a", "aac",
+            "-f",
+            "lavfi",
+            "-i",
+            &format!("testsrc=duration={seconds}:size=320x240:rate=30"),
+            "-f",
+            "lavfi",
+            "-i",
+            &format!("sine=duration={seconds}:frequency=440"),
+            "-c:v",
+            "libx264",
+            "-preset",
+            "ultrafast",
+            "-pix_fmt",
+            "yuv420p",
+            "-c:a",
+            "aac",
             "-shortest",
         ])
         .arg(dest)
-        .status().await?;
+        .status()
+        .await?;
     if !status.success() {
         anyhow::bail!("ffmpeg testsrc generation failed");
     }
@@ -72,7 +88,9 @@ impl ProgressParser {
         let time_str = &line[time_idx..];
         let end = time_str.find(' ').unwrap_or(time_str.len());
         let t = parse_hhmmss(&time_str[..end])?;
-        if self.duration_sec <= 0.0 { return None; }
+        if self.duration_sec <= 0.0 {
+            return None;
+        }
         Some((t / self.duration_sec * 100.0).clamp(0.0, 100.0))
     }
 }
@@ -107,7 +125,9 @@ where
     F: FnMut(FfmpegEvent),
 {
     use std::process::Stdio;
-    cmd.stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::piped());
+    cmd.stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped());
     let mut child = cmd.spawn()?;
     let stderr = child.stderr.take().expect("piped");
     let parser = ProgressParser { duration_sec };
@@ -126,7 +146,9 @@ where
     let pid = child.id();
     let cancel_for_killer = cancel.cloned();
     let killer_handle = tokio::spawn(async move {
-        let (Some(token), Some(p)) = (cancel_for_killer, pid) else { return };
+        let (Some(token), Some(p)) = (cancel_for_killer, pid) else {
+            return;
+        };
         token.cancelled().await;
         let _ = tokio::process::Command::new("kill")
             .arg("-KILL")
@@ -245,7 +267,9 @@ where
 }
 
 pub async fn drain_stderr_progress<F>(stderr: ChildStderr, parser: ProgressParser, mut on_pct: F)
-where F: FnMut(f64) {
+where
+    F: FnMut(f64),
+{
     let mut reader = BufReader::new(stderr).lines();
     while let Ok(Some(line)) = reader.next_line().await {
         if let Some(pct) = parser.parse_line(&line) {
@@ -259,8 +283,14 @@ mod parser_tests {
     use super::*;
     #[test]
     fn parses_progress_line() {
-        let p = ProgressParser { duration_sec: 100.0 };
-        let pct = p.parse_line("frame=  120 fps= 30 q=28.0 size=N/A time=00:00:50.00 bitrate=N/A speed=1.0x").unwrap();
+        let p = ProgressParser {
+            duration_sec: 100.0,
+        };
+        let pct = p
+            .parse_line(
+                "frame=  120 fps= 30 q=28.0 size=N/A time=00:00:50.00 bitrate=N/A speed=1.0x",
+            )
+            .unwrap();
         assert!((pct - 50.0).abs() < 0.001);
     }
 }

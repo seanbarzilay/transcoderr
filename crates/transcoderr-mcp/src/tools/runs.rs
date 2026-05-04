@@ -41,7 +41,10 @@ pub struct EventsArgs {
 // `pub(crate)` visibility.
 #[tool_router(router = runs_router, vis = "pub")]
 impl Server {
-    #[tool(name = "list_runs", description = "List job runs, newest first. Filter by status (`pending|running|completed|failed|cancelled`), flow_id; default limit 50, max 500.")]
+    #[tool(
+        name = "list_runs",
+        description = "List job runs, newest first. Filter by status (`pending|running|completed|failed|cancelled`), flow_id; default limit 50, max 500."
+    )]
     pub async fn list_runs(
         &self,
         Parameters(a): Parameters<ListRunsArgs>,
@@ -71,7 +74,10 @@ impl Server {
             .map_err(|e| e.into_error_data())
     }
 
-    #[tool(name = "get_run", description = "Get a run by id, including its full event timeline (last 200 events).")]
+    #[tool(
+        name = "get_run",
+        description = "Get a run by id, including its full event timeline (last 200 events)."
+    )]
     pub async fn get_run(
         &self,
         Parameters(a): Parameters<IdArgs>,
@@ -83,7 +89,10 @@ impl Server {
             .map_err(|e| e.into_error_data())
     }
 
-    #[tool(name = "get_run_events", description = "Get raw events for a run, oldest first; for tailing live timelines.")]
+    #[tool(
+        name = "get_run_events",
+        description = "Get raw events for a run, oldest first; for tailing live timelines."
+    )]
     pub async fn get_run_events(
         &self,
         Parameters(a): Parameters<EventsArgs>,
@@ -107,7 +116,10 @@ impl Server {
             .map_err(|e| e.into_error_data())
     }
 
-    #[tool(name = "cancel_run", description = "Destructive: terminates a running job mid-encode. Sends SIGKILL to ffmpeg if running. Cannot be undone — the run state becomes 'cancelled'.")]
+    #[tool(
+        name = "cancel_run",
+        description = "Destructive: terminates a running job mid-encode. Sends SIGKILL to ffmpeg if running. Cannot be undone — the run state becomes 'cancelled'."
+    )]
     pub async fn cancel_run(
         &self,
         Parameters(a): Parameters<IdArgs>,
@@ -122,7 +134,10 @@ impl Server {
         Ok(Json(serde_json::json!({"cancelled": true, "id": a.id})))
     }
 
-    #[tool(name = "rerun_run", description = "Enqueue a new pending job using the same flow + file as the given run. Side effect: starts a new transcode in the queue. Returns the new run id.")]
+    #[tool(
+        name = "rerun_run",
+        description = "Enqueue a new pending job using the same flow + file as the given run. Side effect: starts a new transcode in the queue. Returns the new run id."
+    )]
     pub async fn rerun_run(
         &self,
         Parameters(a): Parameters<IdArgs>,

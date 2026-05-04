@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "../../api/client";
+import { errorMessage } from "../../lib/errors";
 import hevcNormalizeYaml from "../../templates/hevc-normalize.yaml?raw";
 
 interface Props {
@@ -20,7 +21,7 @@ export default function FlowStep({ onCreated, onSkip }: Props) {
       qc.invalidateQueries({ queryKey: ["flows"] });
       onCreated();
     },
-    onError: (e: any) => setError(e?.message ?? "failed to create flow"),
+    onError: (e: unknown) => setError(errorMessage(e, "failed to create flow")),
   });
 
   const disabled = create.isPending || !name.trim() || !yaml.trim();

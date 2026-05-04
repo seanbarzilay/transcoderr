@@ -1,12 +1,16 @@
 use crate::{db, http::AppState};
 use axum::{extract::State, http::StatusCode, Json};
 use serde_json::Value;
-use std::collections::HashMap;
 use sqlx::Row;
+use std::collections::HashMap;
 
-pub async fn get_all(State(state): State<AppState>) -> Result<Json<HashMap<String, String>>, StatusCode> {
+pub async fn get_all(
+    State(state): State<AppState>,
+) -> Result<Json<HashMap<String, String>>, StatusCode> {
     let rows = sqlx::query("SELECT key, value FROM settings ORDER BY key")
-        .fetch_all(&state.pool).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        .fetch_all(&state.pool)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     let mut out = HashMap::new();
     for r in rows {
         let key: String = r.get(0);
@@ -35,7 +39,8 @@ pub async fn patch(
             };
             let hash = crate::api::auth::hash_password(&password)
                 .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-            db::settings::set(&state.pool, "auth.password_hash", &hash).await
+            db::settings::set(&state.pool, "auth.password_hash", &hash)
+                .await
                 .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
         }
     }
@@ -51,7 +56,8 @@ pub async fn patch(
             Value::Number(n) => n.to_string(),
             other => other.to_string(),
         };
-        db::settings::set(&state.pool, key, &val_str).await
+        db::settings::set(&state.pool, key, &val_str)
+            .await
             .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     }
     Ok(StatusCode::NO_CONTENT)

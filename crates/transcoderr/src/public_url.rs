@@ -52,7 +52,10 @@ pub fn resolve(bound_addr: SocketAddr) -> PublicUrl {
 /// also catch the rarer 64-char full id.
 fn looks_like_container_id(host: &str) -> bool {
     let len = host.len();
-    (len == 12 || len == 64) && host.chars().all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase())
+    (len == 12 || len == 64)
+        && host
+            .chars()
+            .all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase())
 }
 
 #[cfg(test)]

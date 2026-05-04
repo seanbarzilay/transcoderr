@@ -34,7 +34,9 @@ impl Metrics {
         metrics::gauge!("transcoderr_queue_depth").set(0.0);
         Ok(Self { handle })
     }
-    pub fn render(&self) -> String { self.handle.render() }
+    pub fn render(&self) -> String {
+        self.handle.render()
+    }
 }
 
 pub fn record_job_finished(flow: &str, status: &str, duration_secs: f64) {
