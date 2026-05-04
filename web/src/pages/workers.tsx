@@ -85,7 +85,7 @@ export default function Workers() {
               <th>Hardware</th>
               <th style={{ width: 130 }}>Last seen</th>
               <th style={{ width: 90 }}>Enabled</th>
-              <th style={{ width: 90 }}></th>
+              <th style={{ width: 240 }}></th>
             </tr>
           </thead>
           <tbody>
@@ -115,7 +115,7 @@ export default function Workers() {
                   </td>
                   <td>
                     {w.kind === "remote" && (
-                      <>
+                      <div style={{ display: "flex", gap: "0.5rem", whiteSpace: "nowrap" }}>
                         <button
                           onClick={() => setMappingFor({
                             id: w.id,
@@ -126,7 +126,6 @@ export default function Workers() {
                         >
                           Edit mappings
                         </button>
-                        {" "}
                         <button
                           className="btn-danger"
                           onClick={() => {
@@ -135,7 +134,7 @@ export default function Workers() {
                         >
                           Delete
                         </button>
-                      </>
+                      </div>
                     )}
                   </td>
                 </tr>
