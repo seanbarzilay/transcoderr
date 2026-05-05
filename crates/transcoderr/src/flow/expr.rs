@@ -12,6 +12,54 @@ pub fn eval_bool(expr: &str, ctx: &Context) -> anyhow::Result<bool> {
     Ok(matches!(v, CelValue::Bool(true)))
 }
 
+/// Try-compile a CEL expression. Returns `Ok(())` on success or the
+/// compile-error string on failure. Used by the flow validator (and any
+/// caller that wants to surface CEL syntax errors without executing).
+///
+/// `Program::compile` is supposed to return an error on malformed
+/// input, but for some inputs the underlying antlr4rust parser hits an
+/// `unreachable!` and panics instead. We catch_unwind defensively here
+/// so the validator returns a clean error message rather than taking
+/// the request handler down with it.
+pub fn compile(expr: &str) -> Result<(), String> {
+    use std::panic::{catch_unwind, AssertUnwindSafe};
+    match catch_unwind(AssertUnwindSafe(|| Program::compile(expr))) {
+        Ok(Ok(_)) => Ok(()),
+        Ok(Err(e)) => Err(format!("{e:?}")),
+        Err(_) => Err(
+            "CEL parser panicked on this expression — almost certainly malformed input the parser couldn't gracefully reject"
+                .into(),
+        ),
+    }
+}
+
+/// Walk a `{{ ... }}` template and try-compile every embedded CEL
+/// expression. Returns `Ok(())` if every embedded expression compiles
+/// AND every `{{` has a matching `}}`. On failure returns the first
+/// issue found, prefixed with the offending expression so the operator
+/// can locate it.
+pub fn validate_template(template: &str) -> Result<(), String> {
+    let mut i = 0usize;
+    while i < template.len() {
+        if template[i..].starts_with("{{") {
+            let after = i + 2;
+            let end = template[after..]
+                .find("}}")
+                .ok_or_else(|| format!("unterminated `{{{{` at byte {i}"))?;
+            let expr_str = template[after..after + end].trim();
+            compile(expr_str).map_err(|e| format!("`{{{{ {expr_str} }}}}`: {e}"))?;
+            i = after + end + 2;
+        } else {
+            let next_char = template[i..]
+                .chars()
+                .next()
+                .expect("non-empty slice has at least one char");
+            i += next_char.len_utf8();
+        }
+    }
+    Ok(())
+}
+
 pub fn eval_string_template(template: &str, ctx: &Context) -> anyhow::Result<String> {
     // Template is: literal text with {{ expr }} placeholders. Walk the string with
     // UTF-8 aware indices so multibyte characters in the literal text (✗, ✓, em-dashes,

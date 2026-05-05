@@ -5,6 +5,7 @@ pub mod model;
 pub mod parser;
 pub mod plan;
 pub mod staging;
+pub mod validate;
 
 pub use context::Context;
 pub use engine::Engine;
