@@ -81,4 +81,19 @@ impl Server {
             .map_err(|e| e.into_error_data())?;
         Ok(Json(serde_json::Value::String(txt)))
     }
+
+    #[tool(
+        name = "list_step_kinds",
+        description = "List every registered step kind: built-ins + plugin-provided steps. Each entry has {name, kind: 'builtin'|'subprocess', executor: 'coordinator_only'|'any', summary?, provided_by?, with_schema?}. Use this to author flows without grepping the source — names go in step `use:` and the schema/summary describe what's allowed in `with:`. Built-in steps currently report null schema; plugin-provided steps return the schema from the plugin manifest. Read-only."
+    )]
+    pub async fn list_step_kinds(
+        &self,
+        _: Parameters<super::NoArgs>,
+    ) -> Result<Json<serde_json::Value>, ErrorData> {
+        self.api
+            .get::<serde_json::Value>("/api/step-kinds")
+            .await
+            .map(Json)
+            .map_err(|e| e.into_error_data())
+    }
 }

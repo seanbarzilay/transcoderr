@@ -50,6 +50,7 @@ pub fn router(state: AppState) -> Router<AppState> {
         .route("/hw", get(hw_get))
         .route("/hw/reprobe", post(hw_reprobe))
         .route("/version", get(version_get))
+        .route("/step-kinds", get(step_kinds_get))
         .route("/runs", get(runs::list))
         .route("/runs/:id", get(runs::get))
         .route("/runs/:id/events", get(runs::events))
@@ -131,4 +132,8 @@ async fn hw_reprobe(State(state): State<AppState>) -> axum::Json<crate::hw::HwCa
 
 async fn version_get() -> axum::Json<serde_json::Value> {
     axum::Json(serde_json::json!({ "version": env!("CARGO_PKG_VERSION") }))
+}
+
+async fn step_kinds_get() -> axum::Json<Vec<crate::steps::registry::StepKindInfo>> {
+    axum::Json(crate::steps::registry::list_kinds().await)
 }
