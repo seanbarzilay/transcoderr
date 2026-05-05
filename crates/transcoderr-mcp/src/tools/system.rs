@@ -84,7 +84,7 @@ impl Server {
 
     #[tool(
         name = "list_step_kinds",
-        description = "List every registered step kind: built-ins + plugin-provided steps. Each entry has {name, kind: 'builtin'|'subprocess', executor: 'coordinator_only'|'any', summary?, provided_by?, with_schema?}. Use this to author flows without grepping the source — names go in step `use:` and the schema/summary describe what's allowed in `with:`. Built-in steps currently report null schema; plugin-provided steps return the schema from the plugin manifest. Read-only."
+        description = "List every registered step kind: built-ins + plugin-provided steps. Each entry has {name, kind: 'builtin'|'subprocess', executor: 'coordinator_only'|'any', summary?, provided_by?, with_schema?}. Use this to author flows without grepping the source — names go in step `use:` and the schema describes what's allowed in `with:`. Built-in steps emit a typed JSON schema derived from `steps/schemas.rs`; steps with no `with:` keys (probe, plan.init, plan.execute, etc.) return `{type:'object', additionalProperties:false}` as an explicit no-config signal. Plugin-provided steps return the schema from the plugin manifest. Read-only."
     )]
     pub async fn list_step_kinds(
         &self,
