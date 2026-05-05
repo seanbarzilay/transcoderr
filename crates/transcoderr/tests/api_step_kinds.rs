@@ -53,6 +53,8 @@ async fn step_kinds_returns_built_in_catalog_with_metadata() {
     let names: Vec<&str> = arr.iter().map(|v| v["name"].as_str().unwrap()).collect();
     let mut sorted = names.clone();
     sorted.sort();
-    assert_eq!(names, sorted, "step-kinds response should be sorted by name");
+    assert_eq!(
+        names, sorted,
+        "step-kinds response should be sorted by name"
+    );
 }
-
