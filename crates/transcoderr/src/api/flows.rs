@@ -1,4 +1,8 @@
-use crate::{db, flow::parse_flow, http::AppState};
+use crate::{
+    db,
+    flow::{parse_flow, validate::validate_flow_yaml},
+    http::AppState,
+};
 use axum::{
     extract::{Path, State},
     http::StatusCode,
@@ -135,4 +139,19 @@ pub async fn parse(Json(yaml): Json<String>) -> Json<ParseResult> {
             parsed: None,
         }),
     }
+}
+
+#[derive(serde::Deserialize)]
+pub struct ValidateReq {
+    pub yaml: String,
+}
+
+/// Static validation: surface YAML parse errors AND every CEL compile
+/// error in `if:` conditionals and `{{ ... }}` templates. The runtime
+/// `if:` evaluator silently treats compile/exec errors as `false`, so
+/// without this endpoint a typo in a guard expression silently disables
+/// the branch.
+pub async fn validate(Json(req): Json<ValidateReq>) -> Json<serde_json::Value> {
+    let report = validate_flow_yaml(&req.yaml);
+    Json(serde_json::to_value(report).unwrap_or(serde_json::Value::Null))
 }

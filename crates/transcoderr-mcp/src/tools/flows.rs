@@ -38,6 +38,11 @@ pub struct DryRunArgs {
     pub probe: Option<serde_json::Value>,
 }
 
+#[derive(Deserialize, Serialize, JsonSchema)]
+pub struct ValidateFlowArgs {
+    pub yaml: String,
+}
+
 #[tool_router(router = flows_router, vis = "pub")]
 impl Server {
     #[tool(
@@ -136,6 +141,21 @@ impl Server {
     ) -> Result<Json<serde_json::Value>, ErrorData> {
         self.api
             .post::<serde_json::Value, _>("/api/dry-run", &a)
+            .await
+            .map(Json)
+            .map_err(|e| e.into_error_data())
+    }
+
+    #[tool(
+        name = "validate_flow",
+        description = "Static check on a flow YAML — surfaces YAML parse errors AND every CEL compile error in `if:` conditions and `{{ ... }}` templates. Returns {ok, issues:[{path, kind, message}]}. The runtime evaluator silently treats CEL errors in `if:` as `false`, so a typo in a guard would otherwise disable the branch without warning. Run this before `update_flow` / `create_flow`. No side effects."
+    )]
+    pub async fn validate_flow(
+        &self,
+        Parameters(a): Parameters<ValidateFlowArgs>,
+    ) -> Result<Json<serde_json::Value>, ErrorData> {
+        self.api
+            .post::<serde_json::Value, _>("/api/flows/validate", &a)
             .await
             .map(Json)
             .map_err(|e| e.into_error_data())

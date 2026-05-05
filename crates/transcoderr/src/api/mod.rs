@@ -46,6 +46,7 @@ pub fn router(state: AppState) -> Router<AppState> {
             get(flows::get).put(flows::update).delete(flows::delete),
         )
         .route("/flows/parse", post(flows::parse))
+        .route("/flows/validate", post(flows::validate))
         .route("/hw", get(hw_get))
         .route("/hw/reprobe", post(hw_reprobe))
         .route("/version", get(version_get))
