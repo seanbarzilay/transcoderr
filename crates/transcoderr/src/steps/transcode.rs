@@ -22,6 +22,10 @@ impl Step for TranscodeStep {
         crate::steps::Executor::Any
     }
 
+    fn with_schema(&self) -> Option<Value> {
+        Some(super::schemas::transcode_schema())
+    }
+
     async fn execute(
         &self,
         with: &BTreeMap<String, Value>,

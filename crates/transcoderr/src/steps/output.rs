@@ -13,6 +13,10 @@ impl Step for OutputStep {
         "output"
     }
 
+    fn with_schema(&self) -> Option<Value> {
+        Some(super::schemas::output_schema())
+    }
+
     async fn execute(
         &self,
         with: &BTreeMap<String, Value>,

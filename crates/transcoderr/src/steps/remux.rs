@@ -18,6 +18,10 @@ impl Step for RemuxStep {
         crate::steps::Executor::Any
     }
 
+    fn with_schema(&self) -> Option<Value> {
+        Some(super::schemas::remux_schema())
+    }
+
     async fn execute(
         &self,
         with: &BTreeMap<String, Value>,

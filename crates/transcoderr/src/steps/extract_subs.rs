@@ -19,6 +19,10 @@ impl Step for ExtractSubsStep {
         crate::steps::Executor::Any
     }
 
+    fn with_schema(&self) -> Option<Value> {
+        Some(super::schemas::extract_subs_schema())
+    }
+
     async fn execute(
         &self,
         with: &BTreeMap<String, Value>,

@@ -26,6 +26,7 @@ pub mod plan_steps;
 pub mod probe;
 pub mod registry;
 pub mod remux;
+pub mod schemas;
 pub mod shell;
 pub mod strip_tracks;
 pub mod transcode;
@@ -59,6 +60,16 @@ pub trait Step: Send + Sync {
     /// overrides this. See `dispatch::route` for how this is consumed.
     fn executor(&self) -> Executor {
         Executor::CoordinatorOnly
+    }
+
+    /// JSON schema for this step's `with:` map. Default `None` for
+    /// steps that haven't declared one. Surfaced via the registry's
+    /// `list_kinds()` and the `list_step_kinds` MCP tool so flow
+    /// authors can discover what each step accepts without reading
+    /// source. Plugin steps surface their schema separately via the
+    /// manifest path; this is the built-in-only hook.
+    fn with_schema(&self) -> Option<Value> {
+        None
     }
 }
 

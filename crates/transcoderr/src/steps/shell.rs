@@ -14,6 +14,10 @@ impl Step for ShellStep {
         "shell"
     }
 
+    fn with_schema(&self) -> Option<Value> {
+        Some(super::schemas::shell_schema())
+    }
+
     async fn execute(
         &self,
         with: &BTreeMap<String, Value>,

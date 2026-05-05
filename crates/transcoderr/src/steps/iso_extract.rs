@@ -26,6 +26,10 @@ impl Step for IsoExtractStep {
         crate::steps::Executor::Any
     }
 
+    fn with_schema(&self) -> Option<Value> {
+        Some(super::schemas::empty_schema())
+    }
+
     async fn execute(
         &self,
         _with: &BTreeMap<String, Value>,

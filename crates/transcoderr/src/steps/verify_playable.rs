@@ -14,6 +14,10 @@ impl Step for VerifyPlayableStep {
         "verify.playable"
     }
 
+    fn with_schema(&self) -> Option<Value> {
+        Some(super::schemas::verify_playable_schema())
+    }
+
     async fn execute(
         &self,
         with: &BTreeMap<String, Value>,

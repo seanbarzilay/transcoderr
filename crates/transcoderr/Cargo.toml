@@ -16,6 +16,7 @@ libsqlite3-sys = { version = "0.30", features = ["bundled"] }
 serde = { workspace = true }
 serde_json = { workspace = true }
 serde_yaml = "0.9"
+schemars = { workspace = true }
 toml = "0.8"
 thiserror = { workspace = true }
 anyhow = { workspace = true }
