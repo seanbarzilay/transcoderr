@@ -19,7 +19,7 @@ jobs:
     runs-on: ubuntu-latest
     if: startsWith(github.ref, 'refs/tags/v')
     steps:
-      - uses: softprops/action-gh-release@v2
+      - uses: softprops/action-gh-release@v3
         with:
           generate_release_notes: true
 
@@ -50,7 +50,7 @@ jobs:
           mkdir -p out
           cp target/x86_64-unknown-linux-gnu/release/transcoderr     out/transcoderr-linux-amd64
           cp target/x86_64-unknown-linux-gnu/release/transcoderr-mcp out/transcoderr-mcp-linux-amd64
-      - uses: softprops/action-gh-release@v2
+      - uses: softprops/action-gh-release@v3
         if: startsWith(github.ref, 'refs/tags/')
         with:
           files: out/*
@@ -82,7 +82,7 @@ jobs:
           mkdir -p out
           cp target/aarch64-unknown-linux-gnu/release/transcoderr     out/transcoderr-linux-arm64
           cp target/aarch64-unknown-linux-gnu/release/transcoderr-mcp out/transcoderr-mcp-linux-arm64
-      - uses: softprops/action-gh-release@v2
+      - uses: softprops/action-gh-release@v3
         if: startsWith(github.ref, 'refs/tags/')
         with:
           files: out/*
@@ -115,7 +115,7 @@ jobs:
           mkdir -p out
           cp target/aarch64-apple-darwin/release/transcoderr     out/transcoderr-darwin-arm64
           cp target/aarch64-apple-darwin/release/transcoderr-mcp out/transcoderr-mcp-darwin-arm64
-      - uses: softprops/action-gh-release@v2
+      - uses: softprops/action-gh-release@v3
         if: startsWith(github.ref, 'refs/tags/')
         with:
           files: out/*
@@ -154,7 +154,7 @@ jobs:
           mkdir -p out
           cp target/x86_64-pc-windows-msvc/release/transcoderr.exe     out/transcoderr-windows-amd64.exe
           cp target/x86_64-pc-windows-msvc/release/transcoderr-mcp.exe out/transcoderr-mcp-windows-amd64.exe
-      - uses: softprops/action-gh-release@v2
+      - uses: softprops/action-gh-release@v3
         if: startsWith(github.ref, 'refs/tags/')
         with:
           files: out/*
