@@ -19,6 +19,24 @@ steps:
   - id: probe
     use: probe
 
+  # Fast-path: already-normalized files (HEVC video + at least one
+  # non-commentary AC3 audio track + already an .mkv) skip plan.execute
+  # entirely. Anything that needs a container remux (.mp4 etc.) still
+  # falls through.
+  - id: bail-if-already-normalized
+    if: |
+      probe.streams != null &&
+      probe.streams[0].codec_name == "hevc" &&
+      file.path.endsWith(".mkv") &&
+      probe.streams.exists(s,
+        s.codec_type == "audio" &&
+        s.codec_name == "ac3" &&
+        !(has(s.disposition.comment) && s.disposition.comment == 1) &&
+        !(has(s.tags.title) && s.tags.title.matches("(?i)comment"))
+      )
+    then:
+      - return: skipped-already-normalized
+
   - id: plan-init
     use: plan.init
   - id: plan-tolerate

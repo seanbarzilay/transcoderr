@@ -33,6 +33,25 @@ steps:
     then:
       - return: skipped-no-streams
 
+  # Fast-path: already-normalized files (HEVC video + at least one
+  # non-commentary AC3 audio track + already an .mkv) shouldn't pay for
+  # plan.execute, which is a full ffmpeg copy pass that just rewrites
+  # the file byte-for-byte. Anything that needs a container remux
+  # (.mp4 etc.) still falls through. Commentary tracks don't satisfy
+  # the AC3 check — same detection logic as plan.audio.ensure.
+  - id: bail-if-already-normalized
+    if: |
+      probe.streams[0].codec_name == "hevc" &&
+      file.path.endsWith(".mkv") &&
+      probe.streams.exists(s,
+        s.codec_type == "audio" &&
+        s.codec_name == "ac3" &&
+        !(has(s.disposition.comment) && s.disposition.comment == 1) &&
+        !(has(s.tags.title) && s.tags.title.matches("(?i)comment"))
+      )
+    then:
+      - return: skipped-already-normalized
+
   # Seed the plan from probe (every stream copied, container=mkv).
   - id: plan-init
     use: plan.init
