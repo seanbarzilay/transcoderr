@@ -12,6 +12,10 @@ impl Step for CopyStep {
         "copy"
     }
 
+    fn with_schema(&self) -> Option<Value> {
+        Some(super::schemas::destination_schema())
+    }
+
     async fn execute(
         &self,
         with: &BTreeMap<String, Value>,

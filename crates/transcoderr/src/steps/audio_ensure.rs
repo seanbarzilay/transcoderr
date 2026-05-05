@@ -132,6 +132,10 @@ impl Step for AudioEnsureStep {
         crate::steps::Executor::Any
     }
 
+    fn with_schema(&self) -> Option<Value> {
+        Some(super::schemas::audio_ensure_schema())
+    }
+
     async fn execute(
         &self,
         with: &BTreeMap<String, Value>,

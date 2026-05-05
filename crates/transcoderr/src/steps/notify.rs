@@ -17,6 +17,10 @@ impl Step for NotifyStep {
         "notify"
     }
 
+    fn with_schema(&self) -> Option<Value> {
+        Some(super::schemas::notify_schema())
+    }
+
     async fn execute(
         &self,
         with: &BTreeMap<String, Value>,

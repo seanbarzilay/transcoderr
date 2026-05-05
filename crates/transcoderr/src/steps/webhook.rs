@@ -110,6 +110,10 @@ impl super::Step for WebhookStep {
         "webhook"
     }
 
+    fn with_schema(&self) -> Option<Value> {
+        Some(super::schemas::webhook_schema())
+    }
+
     async fn execute(
         &self,
         with: &BTreeMap<String, Value>,

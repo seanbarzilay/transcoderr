@@ -291,9 +291,11 @@ The `executor` field tells you whether the step is remote-eligible
 (`any`) or coordinator-pinned (`coordinator_only`); a flow's
 `run_on: any-worker` is rejected at parse time on coordinator-only
 steps. Plugin steps include the manifest's `summary` and JSON
-schema for `with:`. Built-in steps currently report `null` schema —
-match against the example flows in `docs/flows/` until per-step
-schemas land in a follow-up.
+schema for `with:`. Built-in steps emit a JSON schema derived from
+their typed config (`steps/schemas.rs`); steps that take no `with:`
+keys (`probe`, `iso.extract`, `plan.init`, etc.) return an empty
+object schema with `additionalProperties: false` — an explicit
+"this step accepts no config" signal.
 
 ## Validation tooling
 

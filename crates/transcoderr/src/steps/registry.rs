@@ -211,6 +211,16 @@ pub async fn list_kinds() -> Vec<StepKindInfo> {
                 Executor::CoordinatorOnly => "coordinator_only",
             };
             let plugin = guard.plugin_meta.get(name);
+            // Plugin-provided steps source schema/summary from the
+            // manifest. Built-ins source schema from
+            // `Step::with_schema()` (typed-config derive in
+            // `steps/schemas.rs`); summary is left None for now —
+            // adding per-step summaries is a small follow-up.
+            let with_schema = if let Some(p) = plugin {
+                p.schema.clone()
+            } else {
+                step.with_schema().unwrap_or(serde_json::Value::Null)
+            };
             StepKindInfo {
                 name: name.clone(),
                 kind: if plugin.is_some() {
@@ -221,9 +231,7 @@ pub async fn list_kinds() -> Vec<StepKindInfo> {
                 executor: exec_label,
                 summary: plugin.and_then(|p| p.summary.clone()),
                 provided_by: plugin.map(|p| p.plugin_name.clone()),
-                with_schema: plugin
-                    .map(|p| p.schema.clone())
-                    .unwrap_or(serde_json::Value::Null),
+                with_schema,
             }
         })
         .collect();

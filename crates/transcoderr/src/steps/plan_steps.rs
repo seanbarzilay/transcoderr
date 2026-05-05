@@ -110,6 +110,10 @@ impl Step for PlanInitStep {
         "plan.init"
     }
 
+    fn with_schema(&self) -> Option<Value> {
+        Some(super::schemas::empty_schema())
+    }
+
     async fn execute(
         &self,
         _with: &BTreeMap<String, Value>,
@@ -143,6 +147,10 @@ impl Step for PlanTolerateErrorsStep {
         "plan.input.tolerate_errors"
     }
 
+    fn with_schema(&self) -> Option<Value> {
+        Some(super::schemas::empty_schema())
+    }
+
     async fn execute(
         &self,
         _with: &BTreeMap<String, Value>,
@@ -173,6 +181,10 @@ pub struct PlanDropCoverArtStep;
 impl Step for PlanDropCoverArtStep {
     fn name(&self) -> &'static str {
         "plan.streams.drop_cover_art"
+    }
+
+    fn with_schema(&self) -> Option<Value> {
+        Some(super::schemas::empty_schema())
     }
 
     async fn execute(
@@ -213,6 +225,10 @@ impl Step for PlanDropDataStep {
         "plan.streams.drop_data"
     }
 
+    fn with_schema(&self) -> Option<Value> {
+        Some(super::schemas::empty_schema())
+    }
+
     async fn execute(
         &self,
         _with: &BTreeMap<String, Value>,
@@ -246,6 +262,10 @@ pub struct PlanDropUnsupportedSubsStep;
 impl Step for PlanDropUnsupportedSubsStep {
     fn name(&self) -> &'static str {
         "plan.subs.drop_unsupported"
+    }
+
+    fn with_schema(&self) -> Option<Value> {
+        Some(super::schemas::empty_schema())
     }
 
     async fn execute(
@@ -300,6 +320,10 @@ impl Step for PlanContainerStep {
         "plan.container"
     }
 
+    fn with_schema(&self) -> Option<Value> {
+        Some(super::schemas::plan_container_schema())
+    }
+
     async fn execute(
         &self,
         with: &BTreeMap<String, Value>,
@@ -331,6 +355,10 @@ pub struct PlanVideoEncodeStep;
 impl Step for PlanVideoEncodeStep {
     fn name(&self) -> &'static str {
         "plan.video.encode"
+    }
+
+    fn with_schema(&self) -> Option<Value> {
+        Some(super::schemas::plan_video_encode_schema())
     }
 
     async fn execute(
@@ -395,6 +423,10 @@ impl Step for PlanVideoTonemapStep {
         "plan.video.tonemap"
     }
 
+    fn with_schema(&self) -> Option<Value> {
+        Some(super::schemas::plan_video_tonemap_schema())
+    }
+
     async fn execute(
         &self,
         with: &BTreeMap<String, Value>,
@@ -455,6 +487,10 @@ pub struct PlanAudioEnsureStep;
 impl Step for PlanAudioEnsureStep {
     fn name(&self) -> &'static str {
         "plan.audio.ensure"
+    }
+
+    fn with_schema(&self) -> Option<Value> {
+        Some(super::schemas::plan_audio_ensure_schema())
     }
 
     async fn execute(
