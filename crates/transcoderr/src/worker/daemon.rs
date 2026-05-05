@@ -51,9 +51,15 @@ pub async fn run(cfg_path: PathBuf) -> ! {
         }
     };
 
+    // Seed the runtime registry from the same probe we just sent to the
+    // coordinator. Previously this used `HwCaps::default()` (empty), so
+    // the worker reported "NVENC ×3" to the UI but its own
+    // `acquire_preferred` had no semaphores to hand out — every
+    // hw-preferring step on a remote worker fired `hw_unavailable` and
+    // fell back to CPU.
     crate::steps::registry::init(
         pool.clone(),
-        crate::hw::semaphores::DeviceRegistry::from_caps(&crate::hw::HwCaps::default()),
+        crate::hw::semaphores::DeviceRegistry::from_caps(&hw_caps_full),
         std::sync::Arc::new(caps.clone()),
         Vec::new(),
     )

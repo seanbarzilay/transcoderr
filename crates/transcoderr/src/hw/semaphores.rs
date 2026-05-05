@@ -46,3 +46,51 @@ impl DeviceRegistry {
         None
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::hw::devices::{Accel, Device, HwCaps};
+
+    fn caps_with_nvenc(max: u32) -> HwCaps {
+        HwCaps {
+            probed_at: 0,
+            ffmpeg_version: None,
+            devices: vec![Device {
+                accel: Accel::Nvenc,
+                index: 0,
+                name: "test".into(),
+                max_concurrent: max,
+            }],
+            encoders: vec!["hevc_nvenc".into()],
+        }
+    }
+
+    /// Empty caps → empty registry → `acquire_preferred` returns None
+    /// regardless of prefer list. This is the failure mode we hit in
+    /// the worker daemon when `from_caps(&HwCaps::default())` was wired
+    /// instead of the actual probe result.
+    #[tokio::test]
+    async fn empty_caps_yield_no_permits() {
+        let reg = DeviceRegistry::from_caps(&HwCaps::default());
+        assert!(reg.acquire_preferred(&[Accel::Nvenc]).await.is_none());
+    }
+
+    /// Caps with one NVENC device → registry hands out up to
+    /// max_concurrent permits, then refuses further until one drops.
+    #[tokio::test]
+    async fn nvenc_caps_yield_max_concurrent_permits() {
+        let reg = DeviceRegistry::from_caps(&caps_with_nvenc(3));
+        let p1 = reg.acquire_preferred(&[Accel::Nvenc]).await;
+        let p2 = reg.acquire_preferred(&[Accel::Nvenc]).await;
+        let p3 = reg.acquire_preferred(&[Accel::Nvenc]).await;
+        let p4 = reg.acquire_preferred(&[Accel::Nvenc]).await;
+        assert!(p1.is_some());
+        assert!(p2.is_some());
+        assert!(p3.is_some());
+        assert!(p4.is_none(), "4th acquire should fail with max=3");
+        drop(p1);
+        let p5 = reg.acquire_preferred(&[Accel::Nvenc]).await;
+        assert!(p5.is_some(), "permit should be reusable after drop");
+    }
+}
