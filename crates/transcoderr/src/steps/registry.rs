@@ -1,7 +1,8 @@
 use crate::hw::semaphores::DeviceRegistry;
 use crate::plugins::manifest::DiscoveredPlugin;
 use crate::plugins::subprocess::SubprocessStep;
-use crate::steps::{builtin, Step};
+use crate::steps::{builtin, Executor, Step};
+use serde::Serialize;
 use sqlx::SqlitePool;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -21,14 +22,46 @@ static BUILD_INPUTS: OnceCell<BuildInputs> = OnceCell::const_new();
 
 pub struct Registry {
     by_name: HashMap<String, Arc<dyn Step>>,
+    /// Per-step metadata sourced from the plugin manifest. Built-in
+    /// steps have no entry here.
+    plugin_meta: HashMap<String, PluginStepMeta>,
+}
+
+#[derive(Clone)]
+struct PluginStepMeta {
+    plugin_name: String,
+    summary: Option<String>,
+    schema: serde_json::Value,
 }
 
 impl Registry {
     pub fn empty() -> Self {
         Self {
             by_name: HashMap::new(),
+            plugin_meta: HashMap::new(),
         }
     }
+}
+
+/// Public-facing step description. Returned by `list_kinds` and
+/// surfaced over `GET /api/step-kinds` and the `list_step_kinds` MCP
+/// tool. `summary` and `with_schema` are populated for plugin-
+/// provided steps (from the plugin manifest); built-in steps have
+/// `summary: None` and `with_schema: null` until per-step schemas
+/// land in a follow-up.
+#[derive(Debug, Clone, Serialize)]
+pub struct StepKindInfo {
+    pub name: String,
+    /// "builtin" or "subprocess".
+    pub kind: &'static str,
+    /// "coordinator_only" or "any".
+    pub executor: &'static str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub summary: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub provided_by: Option<String>,
+    #[serde(skip_serializing_if = "serde_json::Value::is_null")]
+    pub with_schema: serde_json::Value,
 }
 
 fn build(inputs: &BuildInputs, discovered: Vec<DiscoveredPlugin>) -> Registry {
@@ -70,6 +103,14 @@ fn build(inputs: &BuildInputs, discovered: Vec<DiscoveredPlugin>) -> Registry {
                 executor,
             };
             reg.by_name.insert(step_name.clone(), Arc::new(step));
+            reg.plugin_meta.insert(
+                step_name.clone(),
+                PluginStepMeta {
+                    plugin_name: d.manifest.name.clone(),
+                    summary: d.manifest.summary.clone(),
+                    schema: d.schema.clone(),
+                },
+            );
         }
     }
     reg
@@ -148,6 +189,46 @@ pub async fn list_step_names() -> Vec<String> {
     let mut names: Vec<String> = guard.by_name.keys().cloned().collect();
     names.sort();
     names
+}
+
+/// Snapshot of every registered step kind with its operator-facing
+/// metadata: kind (builtin/subprocess), executor (coordinator/any),
+/// summary, plugin origin, and `with:` schema.
+///
+/// Sorted by name for stable output. Returns empty if the registry
+/// hasn't been initialised yet (matches `list_step_names`).
+pub async fn list_kinds() -> Vec<StepKindInfo> {
+    let Some(rw) = REGISTRY.get() else {
+        return Vec::new();
+    };
+    let guard = rw.read().await;
+    let mut out: Vec<StepKindInfo> = guard
+        .by_name
+        .iter()
+        .map(|(name, step)| {
+            let exec_label = match step.executor() {
+                Executor::Any => "any",
+                Executor::CoordinatorOnly => "coordinator_only",
+            };
+            let plugin = guard.plugin_meta.get(name);
+            StepKindInfo {
+                name: name.clone(),
+                kind: if plugin.is_some() {
+                    "subprocess"
+                } else {
+                    "builtin"
+                },
+                executor: exec_label,
+                summary: plugin.and_then(|p| p.summary.clone()),
+                provided_by: plugin.map(|p| p.plugin_name.clone()),
+                with_schema: plugin
+                    .map(|p| p.schema.clone())
+                    .unwrap_or(serde_json::Value::Null),
+            }
+        })
+        .collect();
+    out.sort_by(|a, b| a.name.cmp(&b.name));
+    out
 }
 
 #[cfg(test)]

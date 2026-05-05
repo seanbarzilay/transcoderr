@@ -268,6 +268,33 @@ runtime ignores them. Treat as no-ops:
 - **`file.size_gb`** — not bound. Use `file.size_bytes` (an integer)
   and convert: `file.size_bytes > 1000000000` for "≥1GB".
 
+## Discovering available steps
+
+Built-in step IDs and plugin-provided step IDs are enumerated by the
+runtime registry. Query at any time:
+
+```bash
+curl -s -H "Authorization: Bearer $T" http://localhost:8080/api/step-kinds | jq
+# → [
+#     {"name": "audio.ensure", "kind": "builtin", "executor": "coordinator_only"},
+#     {"name": "plan.execute", "kind": "builtin", "executor": "coordinator_only"},
+#     {"name": "transcode", "kind": "builtin", "executor": "any"},
+#     {"name": "whisper.transcribe", "kind": "subprocess", "executor": "any",
+#      "summary": "...", "provided_by": "whisper", "with_schema": {...}},
+#     ...
+#   ]
+```
+
+Or via MCP: `list_step_kinds()`.
+
+The `executor` field tells you whether the step is remote-eligible
+(`any`) or coordinator-pinned (`coordinator_only`); a flow's
+`run_on: any-worker` is rejected at parse time on coordinator-only
+steps. Plugin steps include the manifest's `summary` and JSON
+schema for `with:`. Built-in steps currently report `null` schema —
+match against the example flows in `docs/flows/` until per-step
+schemas land in a follow-up.
+
 ## Validation tooling
 
 ```bash
