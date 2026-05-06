@@ -1,7 +1,8 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 import { api } from "../api/client";
+import type { FlowValidationIssue } from "../types";
 
 const STARTER_YAML = `name: example
 triggers:
@@ -20,13 +21,45 @@ export default function FlowsList() {
   const [showNew, setShowNew] = useState(false);
   const [name, setName] = useState("");
   const [yaml, setYaml] = useState(STARTER_YAML);
+  const [issues, setIssues] = useState<FlowValidationIssue[] | null>(null);
+  const [acknowledged, setAcknowledged] = useState(false);
+  const [validateError, setValidateError] = useState<string | null>(null);
+
+  useEffect(() => {
+    setIssues(null);
+    setAcknowledged(false);
+  }, [yaml]);
+
   const create = useMutation({
     mutationFn: () => api.flows.create({ name, yaml }),
     onSuccess: () => {
       setShowNew(false);
+      setIssues(null);
+      setAcknowledged(false);
       qc.invalidateQueries({ queryKey: ["flows"] });
     },
   });
+
+  const onCreate = async () => {
+    setValidateError(null);
+    if (!acknowledged) {
+      try {
+        const report = await api.flows.validate(yaml);
+        const compileIssues = report.issues.filter(
+          (i) => i.kind !== "yaml_parse_error",
+        );
+        setIssues(compileIssues);
+        setAcknowledged(true);
+        if (compileIssues.length > 0) return;
+      } catch (e: unknown) {
+        setValidateError(e instanceof Error ? e.message : String(e));
+        return;
+      }
+    }
+    create.mutate();
+  };
+
+  const hasWarnings = (issues?.length ?? 0) > 0;
 
   return (
     <div className="page">
@@ -55,9 +88,37 @@ export default function FlowsList() {
             rows={12}
             style={{ width: "100%" }}
           />
+          {hasWarnings && (
+            <div
+              className="surface"
+              style={{
+                marginTop: 8,
+                padding: 10,
+                borderColor: "var(--bad)",
+                background: "var(--bad-soft)",
+                fontSize: 12,
+              }}
+            >
+              <div style={{ color: "var(--bad)", marginBottom: 6, fontWeight: 600 }}>
+                ⚠ {issues!.length} compile issue{issues!.length === 1 ? "" : "s"} —
+                click Create again to commit anyway, or edit the YAML to fix.
+              </div>
+              <ul style={{ paddingLeft: 16, margin: 0 }}>
+                {issues!.map((iss, i) => (
+                  <li key={i} style={{ marginBottom: 4 }}>
+                    <span className="mono">{iss.path}</span>{" "}
+                    <span style={{ color: "var(--text-dim)" }}>— {iss.message}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+          {validateError && (
+            <p className="hint" style={{ color: "var(--bad)" }}>{validateError}</p>
+          )}
           <div style={{ marginTop: 12, display: "flex", gap: 8 }}>
-            <button onClick={() => create.mutate()} disabled={!name.trim()}>
-              Create
+            <button onClick={onCreate} disabled={!name.trim() || create.isPending}>
+              {hasWarnings ? "Create anyway" : "Create"}
             </button>
             <button className="btn-ghost" onClick={() => setShowNew(false)}>
               Cancel
