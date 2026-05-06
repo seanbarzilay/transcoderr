@@ -167,9 +167,7 @@ pub async fn validate(Json(req): Json<ValidateReq>) -> Json<serde_json::Value> {
 /// issue count (YAML parse errors and CEL/template compile errors all
 /// count). Lets the flows-list page badge broken flows without N
 /// round-trips to /flows/validate.
-pub async fn health(
-    State(state): State<AppState>,
-) -> Result<Json<Vec<FlowHealthRow>>, StatusCode> {
+pub async fn health(State(state): State<AppState>) -> Result<Json<Vec<FlowHealthRow>>, StatusCode> {
     let rows = sqlx::query("SELECT id, yaml_source FROM flows ORDER BY name")
         .fetch_all(&state.pool)
         .await
