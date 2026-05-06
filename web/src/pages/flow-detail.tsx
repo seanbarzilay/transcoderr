@@ -5,6 +5,7 @@ import { api } from "../api/client";
 import YamlEditor from "../components/yaml-editor";
 import FlowMirror from "../components/flow-mirror";
 import { useMediaQuery } from "../lib/use-media-query";
+import type { FlowValidationReport } from "../types";
 
 type ParseResult = { ok: boolean; error?: string; parsed?: unknown };
 type DryRunResult = { steps: Array<{ kind: string; use_or_label: string }>; probe: unknown };
@@ -17,6 +18,7 @@ export default function FlowDetail() {
   const [yamlDraft, setYamlDraft] = useState<{ flowId: number; yaml: string } | null>(null);
   const [tab, setTab] = useState<"editor" | "test">("editor");
   const [parseResult, setParseResult] = useState<ParseResult | null>(null);
+  const [validation, setValidation] = useState<FlowValidationReport | null>(null);
   const [filePath, setFilePath] = useState("");
   const [dryResult, setDryResult] = useState<DryRunResult | null>(null);
   // CodeMirror-on-mobile is unusable (no pinch-zoom, scrollwheel
@@ -33,7 +35,12 @@ export default function FlowDetail() {
     const t = setTimeout(async () => {
       if (!yaml) return;
       try {
-        setParseResult(await api.flows.parse(yaml));
+        const [p, v] = await Promise.all([
+          api.flows.parse(yaml),
+          api.flows.validate(yaml),
+        ]);
+        setParseResult(p);
+        setValidation(v);
       } catch {
         /* noop */
       }
@@ -104,16 +111,32 @@ export default function FlowDetail() {
               <YamlEditor value={yaml} onChange={setYaml} />
             </div>
           )}
-          <div className="surface" style={{ padding: 16 }}>
-            <div className="label" style={{ marginBottom: 10 }}>
-              Mirror
+          <div style={{ display: "flex", flexDirection: "column", gap: 12, minWidth: 0 }}>
+            <div className="surface" style={{ padding: 16 }}>
+              <div className="label" style={{ marginBottom: 10 }}>
+                Mirror
+              </div>
+              {parseResult?.ok ? (
+                <FlowMirror parsed={parseResult.parsed} />
+              ) : (
+                <pre style={{ color: "var(--bad)" }}>{parseResult?.error ?? ""}</pre>
+              )}
             </div>
-            {parseResult?.ok ? (
-              <FlowMirror parsed={parseResult.parsed} />
-            ) : (
-              <pre style={{ color: "var(--bad)" }}>{parseResult?.error ?? ""}</pre>
-            )}
+            <ValidationPanel report={validation} parseOk={parseResult?.ok ?? false} />
           </div>
+        </div>
+      )}
+
+      {tab === "editor" && validation && !validation.ok && parseResult?.ok && (
+        <div
+          className="hint"
+          style={{
+            marginTop: 8,
+            color: "var(--bad)",
+            fontSize: 12,
+          }}
+        >
+          ⚠ {validation.issues.length} validation issue{validation.issues.length === 1 ? "" : "s"} — saving anyway will leave a typo'd guard silently disabled.
         </div>
       )}
 
@@ -146,6 +169,77 @@ export default function FlowDetail() {
             </ol>
           )}
         </div>
+      )}
+    </div>
+  );
+}
+
+function ValidationPanel({
+  report,
+  parseOk,
+}: {
+  report: FlowValidationReport | null;
+  parseOk: boolean;
+}) {
+  if (!report) return null;
+
+  // YAML parse errors are already shown in the Mirror panel above —
+  // the validate endpoint surfaces the same one. Avoid duplicating it.
+  if (!parseOk) return null;
+
+  const issues = report.issues.filter((i) => i.kind !== "yaml_parse_error");
+
+  return (
+    <div className="surface" style={{ padding: 16 }}>
+      <div
+        className="label"
+        style={{
+          marginBottom: 10,
+          display: "flex",
+          alignItems: "center",
+          gap: 8,
+        }}
+      >
+        <span>Validation</span>
+        {issues.length === 0 ? (
+          <span style={{ color: "var(--ok)", fontSize: 11, textTransform: "none", letterSpacing: 0 }}>
+            ✓ no issues
+          </span>
+        ) : (
+          <span style={{ color: "var(--bad)", fontSize: 11, textTransform: "none", letterSpacing: 0 }}>
+            {issues.length} issue{issues.length === 1 ? "" : "s"}
+          </span>
+        )}
+      </div>
+      {issues.length > 0 && (
+        <ul style={{ paddingLeft: 0, margin: 0, listStyle: "none" }}>
+          {issues.map((iss, i) => (
+            <li
+              key={i}
+              style={{
+                marginBottom: 8,
+                paddingBottom: 8,
+                borderBottom:
+                  i === issues.length - 1 ? "none" : "1px solid var(--border)",
+              }}
+            >
+              <div style={{ display: "flex", gap: 8, alignItems: "baseline", flexWrap: "wrap" }}>
+                <span
+                  className="label"
+                  style={{ color: "var(--bad)", fontSize: 10 }}
+                >
+                  {iss.kind === "condition_compile_error" ? "if:" : "{{ }}"}
+                </span>
+                <span className="mono" style={{ fontSize: 12 }}>
+                  {iss.path}
+                </span>
+              </div>
+              <div className="mono" style={{ fontSize: 12, color: "var(--text-dim)", marginTop: 4, whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
+                {iss.message}
+              </div>
+            </li>
+          ))}
+        </ul>
       )}
     </div>
   );
