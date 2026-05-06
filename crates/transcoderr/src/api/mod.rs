@@ -47,6 +47,7 @@ pub fn router(state: AppState) -> Router<AppState> {
         )
         .route("/flows/parse", post(flows::parse))
         .route("/flows/validate", post(flows::validate))
+        .route("/flows/health", get(flows::health))
         .route("/hw", get(hw_get))
         .route("/hw/reprobe", post(hw_reprobe))
         .route("/version", get(version_get))

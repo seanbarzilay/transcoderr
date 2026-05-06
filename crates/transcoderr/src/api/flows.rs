@@ -21,6 +21,13 @@ pub struct ParseResult {
     pub parsed: Option<serde_json::Value>,
 }
 
+#[derive(Serialize)]
+pub struct FlowHealthRow {
+    pub id: i64,
+    pub ok: bool,
+    pub issue_count: usize,
+}
+
 pub async fn list(State(state): State<AppState>) -> Result<Json<Vec<FlowSummary>>, StatusCode> {
     let rows = sqlx::query("SELECT id, name, enabled, version FROM flows ORDER BY name")
         .fetch_all(&state.pool)
@@ -154,4 +161,31 @@ pub struct ValidateReq {
 pub async fn validate(Json(req): Json<ValidateReq>) -> Json<serde_json::Value> {
     let report = validate_flow_yaml(&req.yaml);
     Json(serde_json::to_value(report).unwrap_or(serde_json::Value::Null))
+}
+
+/// Per-flow validation summary: one row per flow with `ok` + total
+/// issue count (YAML parse errors and CEL/template compile errors all
+/// count). Lets the flows-list page badge broken flows without N
+/// round-trips to /flows/validate.
+pub async fn health(
+    State(state): State<AppState>,
+) -> Result<Json<Vec<FlowHealthRow>>, StatusCode> {
+    let rows = sqlx::query("SELECT id, yaml_source FROM flows ORDER BY name")
+        .fetch_all(&state.pool)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let out = rows
+        .into_iter()
+        .map(|r| {
+            let id: i64 = r.get(0);
+            let yaml: &str = r.get(1);
+            let report = validate_flow_yaml(yaml);
+            FlowHealthRow {
+                id,
+                ok: report.ok,
+                issue_count: report.issues.len(),
+            }
+        })
+        .collect();
+    Ok(Json(out))
 }

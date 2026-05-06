@@ -18,6 +18,8 @@ steps:
 export default function FlowsList() {
   const qc = useQueryClient();
   const flows = useQuery({ queryKey: ["flows"], queryFn: api.flows.list });
+  const health = useQuery({ queryKey: ["flows-health"], queryFn: api.flows.health });
+  const healthById = new Map((health.data ?? []).map((h) => [h.id, h]));
   const [showNew, setShowNew] = useState(false);
   const [name, setName] = useState("");
   const [yaml, setYaml] = useState(STARTER_YAML);
@@ -37,6 +39,7 @@ export default function FlowsList() {
       setIssues(null);
       setAcknowledged(false);
       qc.invalidateQueries({ queryKey: ["flows"] });
+      qc.invalidateQueries({ queryKey: ["flows-health"] });
     },
   });
 
@@ -132,27 +135,46 @@ export default function FlowsList() {
           <thead>
             <tr>
               <th>Name</th>
+              <th style={{ width: 140 }}>Health</th>
               <th style={{ width: 100 }}>Enabled</th>
               <th style={{ width: 100 }}>Version</th>
             </tr>
           </thead>
           <tbody>
-            {(flows.data ?? []).map((f) => (
-              <tr key={f.id}>
-                <td>
-                  <Link to={`/flows/${f.id}`}>{f.name}</Link>
-                </td>
-                <td>
-                  <span className={`pill ${f.enabled ? "pill-completed" : "pill-pending"}`}>
-                    {f.enabled ? "enabled" : "disabled"}
-                  </span>
-                </td>
-                <td className="dim tnum">v{f.version}</td>
-              </tr>
-            ))}
+            {(flows.data ?? []).map((f) => {
+              const h = healthById.get(f.id);
+              return (
+                <tr key={f.id}>
+                  <td>
+                    <Link to={`/flows/${f.id}`}>{f.name}</Link>
+                  </td>
+                  <td>
+                    {h == null ? (
+                      <span className="dim" style={{ fontSize: 11 }}>—</span>
+                    ) : h.issue_count === 0 ? (
+                      <span style={{ color: "var(--ok)", fontSize: 12 }}>✓ valid</span>
+                    ) : (
+                      <Link
+                        to={`/flows/${f.id}`}
+                        style={{ color: "var(--bad)", fontSize: 12 }}
+                        title="Open the editor — issues are listed under the Mirror"
+                      >
+                        ⚠ {h.issue_count} issue{h.issue_count === 1 ? "" : "s"}
+                      </Link>
+                    )}
+                  </td>
+                  <td>
+                    <span className={`pill ${f.enabled ? "pill-completed" : "pill-pending"}`}>
+                      {f.enabled ? "enabled" : "disabled"}
+                    </span>
+                  </td>
+                  <td className="dim tnum">v{f.version}</td>
+                </tr>
+              );
+            })}
             {(flows.data ?? []).length === 0 && !flows.isLoading && (
               <tr>
-                <td colSpan={3} className="empty">
+                <td colSpan={4} className="empty">
                   No flows yet.
                   <div className="hint">Click "New flow" to create one.</div>
                 </td>
