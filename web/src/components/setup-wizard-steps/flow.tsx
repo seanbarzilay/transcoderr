@@ -1,8 +1,9 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "../../api/client";
 import { errorMessage } from "../../lib/errors";
 import hevcNormalizeYaml from "../../templates/hevc-normalize.yaml?raw";
+import type { FlowValidationIssue } from "../../types";
 
 interface Props {
   onCreated: () => void;
@@ -14,6 +15,15 @@ export default function FlowStep({ onCreated, onSkip }: Props) {
   const [name, setName] = useState("hevc-normalize");
   const [yaml, setYaml] = useState(hevcNormalizeYaml);
   const [error, setError] = useState<string | null>(null);
+  const [issues, setIssues] = useState<FlowValidationIssue[] | null>(null);
+  const [acknowledged, setAcknowledged] = useState(false);
+
+  // Editing the YAML invalidates a prior validation pass — force the
+  // user to preview again before they can save with warnings.
+  useEffect(() => {
+    setIssues(null);
+    setAcknowledged(false);
+  }, [yaml]);
 
   const create = useMutation({
     mutationFn: () => api.flows.create({ name, yaml }),
@@ -24,7 +34,27 @@ export default function FlowStep({ onCreated, onSkip }: Props) {
     onError: (e: unknown) => setError(errorMessage(e, "failed to create flow")),
   });
 
+  const onSave = async () => {
+    setError(null);
+    if (!acknowledged) {
+      try {
+        const report = await api.flows.validate(yaml);
+        const compileIssues = report.issues.filter(
+          (i) => i.kind !== "yaml_parse_error",
+        );
+        setIssues(compileIssues);
+        setAcknowledged(true);
+        if (compileIssues.length > 0) return; // wait for second click
+      } catch (e: unknown) {
+        setError(errorMessage(e, "validation failed"));
+        return;
+      }
+    }
+    create.mutate();
+  };
+
   const disabled = create.isPending || !name.trim() || !yaml.trim();
+  const hasWarnings = (issues?.length ?? 0) > 0;
 
   return (
     <div className="wizard-step">
@@ -60,12 +90,37 @@ export default function FlowStep({ onCreated, onSkip }: Props) {
           resize: "vertical",
         }}
       />
+      {hasWarnings && (
+        <div
+          className="surface"
+          style={{
+            marginTop: 8,
+            padding: 10,
+            borderColor: "var(--bad)",
+            background: "var(--bad-soft)",
+            fontSize: 12,
+          }}
+        >
+          <div style={{ color: "var(--bad)", marginBottom: 6, fontWeight: 600 }}>
+            ⚠ {issues!.length} compile issue{issues!.length === 1 ? "" : "s"} —
+            click Save again to commit anyway, or edit the YAML to fix.
+          </div>
+          <ul style={{ paddingLeft: 16, margin: 0 }}>
+            {issues!.map((iss, i) => (
+              <li key={i} style={{ marginBottom: 4 }}>
+                <span className="mono">{iss.path}</span>{" "}
+                <span style={{ color: "var(--text-dim)" }}>— {iss.message}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
       {error && (
         <p className="hint" style={{ color: "var(--bad)" }}>{error}</p>
       )}
       <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
-        <button onClick={() => create.mutate()} disabled={disabled}>
-          Save flow
+        <button onClick={onSave} disabled={disabled}>
+          {hasWarnings ? "Save anyway" : "Save flow"}
         </button>
         <button className="btn-ghost" onClick={onSkip}>Skip this step</button>
       </div>

@@ -7,11 +7,18 @@ exactly what's available — what bindings are reachable, which CEL
 functions and macros work, and the sharp edges that have actually
 caught operators in the wild.
 
-If you're authoring or editing a flow, run `POST /api/flows/validate`
-(or the `validate_flow` MCP tool) on the YAML *before* saving. The
-runtime evaluator silently treats CEL compile and execution errors in
-`if:` as `false` — so a typo in a guard turns the branch off without
-warning. The validator surfaces those errors statically.
+If you're authoring or editing a flow, validate the YAML *before*
+saving. The runtime evaluator silently treats CEL compile and
+execution errors in `if:` as `false` — so a typo in a guard turns the
+branch off without warning. Three ways to catch this statically:
+
+- **Web editor** (`/flows/<id>`) — debounces a validate call on every
+  keystroke and shows each compile error under the Mirror with its
+  JSON-pointer-ish path. A pre-save banner surfaces above the editor
+  when issues exist; saving still works (you may want to fix in
+  stages), but the warning is loud.
+- **`POST /api/flows/validate`** — same payload as the editor uses.
+- **`validate_flow` MCP tool** — same payload.
 
 ## File shape
 

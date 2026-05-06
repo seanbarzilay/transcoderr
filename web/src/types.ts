@@ -2,6 +2,10 @@ export type JsonObject = Record<string, unknown>;
 
 export type FlowSummary = { id: number; name: string; enabled: boolean; version: number };
 export type FlowDetail  = FlowSummary & { yaml_source: string; parsed_json: unknown };
+export type FlowValidationIssueKind = "yaml_parse_error" | "condition_compile_error" | "template_compile_error";
+export type FlowValidationIssue = { path: string; kind: FlowValidationIssueKind; message: string };
+export type FlowValidationReport = { ok: boolean; issues: FlowValidationIssue[] };
+export type FlowHealthRow = { id: number; ok: boolean; issue_count: number };
 export type RunRow      = { id: number; flow_id: number; status: string; created_at: number; finished_at?: number; file_path: string };
 export type RunEvent    = { id: number; job_id: number; ts: number; step_id?: string; kind: string; payload?: unknown; worker_id?: number; worker_name?: string };
 export type Source      = { id: number; kind: string; name: string; config?: JsonObject; secret_token?: string };

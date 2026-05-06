@@ -20,6 +20,8 @@ export const api = {
     create: (body: { name: string; yaml: string }) => req<{ id: number }>("/flows", { method: "POST", body: JSON.stringify(body) }),
     update: (id: number, body: { yaml: string; enabled?: boolean }) => req<void>(`/flows/${id}`, { method: "PUT", body: JSON.stringify(body) }),
     parse:  (yaml: string) => req<{ ok: boolean; error?: string; parsed?: unknown }>("/flows/parse", { method: "POST", body: JSON.stringify(yaml) }),
+    validate: (yaml: string) => req<import("../types").FlowValidationReport>("/flows/validate", { method: "POST", body: JSON.stringify({ yaml }) }),
+    health: () => req<import("../types").FlowHealthRow[]>("/flows/health"),
   },
   runs: {
     list:   (params?: { status?: string; flow_id?: number; limit?: number; offset?: number }) => {
