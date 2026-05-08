@@ -12,6 +12,45 @@ use serde_json::{json, Value};
 use std::collections::BTreeMap;
 use tokio::process::Command;
 
+/// Last few lines of ffmpeg's stderr to keep around so a non-zero exit
+/// can include the actual failure reason in its bail message — instead
+/// of the opaque `ffmpeg exited Some(228)` that ate an operator's hour
+/// before they tracked a 4K UHD remux disk-fill back to ENOSPC.
+const FFMPEG_TAIL_LINES: usize = 8;
+
+/// Translate ffmpeg's exit code to a human-readable explanation when the
+/// pattern matches a known errno-negation (`exit_code = 256 - errno`).
+/// ffmpeg surfaces AVERROR codes which are negated POSIX errnos; the OS
+/// truncates the signed value to a single byte on exit, so e.g. ENOSPC
+/// (errno 28) shows up as exit code 228.
+///
+/// Returns `"<code> (likely errno -<n>: <reason>)"` when a match is
+/// found, just `"<code>"` otherwise.
+pub(crate) fn humanize_exit_code(code: Option<i32>) -> String {
+    let Some(c) = code else {
+        return "killed without an exit code (signal — SIGKILL / SIGTERM / OOM)".into();
+    };
+    // Negated-errno interpretation. Mask to a byte first; ffmpeg's
+    // raw AVERROR codes can be negative i32s the OS clamps anyway.
+    let neg_errno = (256 - (c & 0xff)) % 256;
+    let label = match neg_errno {
+        2 => Some("no such file or directory (ENOENT)"),
+        5 => Some("input/output error (EIO)"),
+        12 => Some("out of memory (ENOMEM)"),
+        13 => Some("permission denied (EACCES)"),
+        22 => Some("invalid argument (EINVAL)"),
+        28 => Some("no space left on device (ENOSPC)"),
+        30 => Some("read-only file system (EROFS)"),
+        36 => Some("filename too long (ENAMETOOLONG)"),
+        122 => Some("disk quota exceeded (EDQUOT)"),
+        _ => None,
+    };
+    match label {
+        Some(reason) => format!("{c} — likely errno -{neg_errno}: {reason}"),
+        None => format!("{c}"),
+    }
+}
+
 /// Build the `-filter:v` value for an HDR→SDR tonemap. Picks libplacebo
 /// when the engine is `Libplacebo`, or `Auto` and the boot probe found
 /// libplacebo in the local ffmpeg. Otherwise returns the zscale chain
@@ -119,6 +158,10 @@ impl Step for PlanExecuteStep {
         )?;
 
         let mut emitted_any_pct = false;
+        // Ring-style tail buffer — drop oldest line once we hit the cap
+        // so we always have the *last* N lines on hand for the bail
+        // message. ffmpeg writes its actual failure reason here.
+        let mut tail: Vec<String> = Vec::with_capacity(FFMPEG_TAIL_LINES);
         let result =
             crate::ffmpeg::run_with_live_events(cmd, duration_sec, ctx.cancel.as_ref(), |ev| {
                 match ev {
@@ -127,6 +170,10 @@ impl Step for PlanExecuteStep {
                         on_progress(StepProgress::Pct(p));
                     }
                     FfmpegEvent::Line(l) => {
+                        if tail.len() == FFMPEG_TAIL_LINES {
+                            tail.remove(0);
+                        }
+                        tail.push(l.clone());
                         on_progress(StepProgress::Log(format!("ffmpeg: {l}")));
                     }
                 }
@@ -154,6 +201,7 @@ impl Step for PlanExecuteStep {
                     let _ = std::fs::remove_file(&dest);
                     let cpu_cmd =
                         build_command(&src, &dest, &plan, &probe, None, &self.ffmpeg_caps)?;
+                    let mut cpu_tail: Vec<String> = Vec::with_capacity(FFMPEG_TAIL_LINES);
                     let cpu_status = crate::ffmpeg::run_with_live_events(
                         cpu_cmd,
                         duration_sec,
@@ -161,6 +209,10 @@ impl Step for PlanExecuteStep {
                         |ev| match ev {
                             FfmpegEvent::Pct(p) => on_progress(StepProgress::Pct(p)),
                             FfmpegEvent::Line(l) => {
+                                if cpu_tail.len() == FFMPEG_TAIL_LINES {
+                                    cpu_tail.remove(0);
+                                }
+                                cpu_tail.push(l.clone());
                                 on_progress(StepProgress::Log(format!("ffmpeg: {l}")))
                             }
                         },
@@ -168,9 +220,11 @@ impl Step for PlanExecuteStep {
                     .await?;
                     if !cpu_status.success() {
                         anyhow::bail!(
-                            "plan.execute: cpu fallback also failed (hw exited {:?}, cpu exited {:?})",
-                            status.code(),
-                            cpu_status.code()
+                            "plan.execute: cpu fallback also failed (hw exited {}, cpu exited {}). \
+                             Last ffmpeg output:\n{}",
+                            humanize_exit_code(status.code()),
+                            humanize_exit_code(cpu_status.code()),
+                            cpu_tail.join("\n"),
                         );
                     }
                     staging::record_output(
@@ -180,7 +234,11 @@ impl Step for PlanExecuteStep {
                     );
                     Ok(())
                 } else {
-                    anyhow::bail!("plan.execute: ffmpeg exited {:?}", status.code())
+                    anyhow::bail!(
+                        "plan.execute: ffmpeg exited {}. Last ffmpeg output:\n{}",
+                        humanize_exit_code(status.code()),
+                        tail.join("\n"),
+                    )
                 }
             }
             Err(e) => Err(e),
@@ -390,5 +448,41 @@ mod tests {
     fn build_tonemap_vf_auto_falls_back_to_zscale() {
         let vf = build_tonemap_vf(TonemapEngine::Auto, false);
         assert!(vf.starts_with("zscale="), "got {vf}");
+    }
+
+    #[test]
+    fn humanize_exit_code_recognizes_enospc() {
+        // 228 = -28 truncated to a byte → ENOSPC. The original Dust Devil
+        // 4K UHD remux failure that motivated this whole change.
+        let s = humanize_exit_code(Some(228));
+        assert!(s.contains("228"), "got: {s}");
+        assert!(s.contains("-28"), "got: {s}");
+        assert!(s.contains("no space left"), "got: {s}");
+    }
+
+    #[test]
+    fn humanize_exit_code_recognizes_eacces() {
+        // 243 = 256 - 13 = -EACCES.
+        let s = humanize_exit_code(Some(243));
+        assert!(s.contains("permission denied"), "got: {s}");
+    }
+
+    #[test]
+    fn humanize_exit_code_recognizes_enoent() {
+        let s = humanize_exit_code(Some(254));
+        assert!(s.contains("no such file"), "got: {s}");
+    }
+
+    #[test]
+    fn humanize_exit_code_passes_through_unknown_code() {
+        // 1 is generic "ffmpeg said no" — no errno match, just the raw code.
+        let s = humanize_exit_code(Some(1));
+        assert_eq!(s, "1");
+    }
+
+    #[test]
+    fn humanize_exit_code_handles_signal_kill() {
+        let s = humanize_exit_code(None);
+        assert!(s.contains("signal"), "got: {s}");
     }
 }
