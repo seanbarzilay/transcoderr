@@ -14,6 +14,17 @@ pub async fn get_all(
     let mut out = HashMap::new();
     for r in rows {
         let key: String = r.get(0);
+        // Mirror the PATCH-side filter: every `auth.*` key is server-
+        // internal credential / state. `auth.password_hash` is the
+        // one that actually leaks crackable material if exposed (the
+        // Argon2 hash an attacker could take offline), but blocking
+        // the whole namespace also covers `auth.enabled` and any
+        // future `auth.*` additions automatically. The Settings UI
+        // gets `auth.enabled` from /api/auth/me's `auth_required`
+        // boolean instead of reading it through this endpoint.
+        if key.starts_with("auth.") {
+            continue;
+        }
         let val: String = r.get(1);
         out.insert(key, val);
     }

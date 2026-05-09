@@ -6,6 +6,13 @@ import ApiTokensCard from "../components/api-tokens-card";
 export default function Settings() {
   const qc = useQueryClient();
   const settings = useQuery({ queryKey: ["settings"], queryFn: api.settings.get });
+  // Auth state lives behind /api/auth/me, not /api/settings. The settings
+  // endpoint filters every `auth.*` key server-side (auth.password_hash
+  // would otherwise leak the Argon2 hash; auth.enabled is just status
+  // that's already on /auth/me as `auth_required`). Read it from the
+  // dedicated endpoint so the password-change input still renders.
+  const me = useQuery({ queryKey: ["auth-me"], queryFn: api.auth.me });
+  const authEnabled = me.data?.auth_required ?? false;
   const [draftOverride, setDraftOverride] = useState<Record<string, string> | null>(null);
   const [password, setPassword] = useState("");
   const draft = draftOverride ?? settings.data ?? {};
@@ -14,19 +21,25 @@ export default function Settings() {
   const save = useMutation({
     mutationFn: () => {
       const body: Record<string, string> = { ...draft };
-      if (draft["auth.enabled"] === "true" && password) body["auth.password"] = password;
+      if (authEnabled && password) {
+        body["auth.password"] = password;
+        // Re-affirm auth.enabled so the PATCH special-case fires and
+        // hashes the new password. The server filters auth.* in the
+        // generic loop, so the only way to write the hash is through
+        // this branch.
+        body["auth.enabled"] = "true";
+      }
       return api.settings.patch(body);
     },
     onSuccess: () => {
       setPassword("");
       setDraftOverride(null);
       qc.invalidateQueries({ queryKey: ["settings"] });
+      qc.invalidateQueries({ queryKey: ["auth-me"] });
     },
   });
 
-  const keys = Object.keys(draft)
-    .filter((k) => k !== "auth.password_hash")
-    .sort();
+  const keys = Object.keys(draft).sort();
 
   return (
     <div className="page">
@@ -65,7 +78,7 @@ export default function Settings() {
         </table>
       </div>
 
-      {draft["auth.enabled"] === "true" && (
+      {authEnabled && (
         <div className="surface" style={{ padding: 16, marginTop: 16 }}>
           <div className="label" style={{ marginBottom: 6 }}>
             New password

@@ -334,8 +334,12 @@ async fn settings_get_and_patch() {
         .json()
         .await
         .unwrap();
-    // auth.enabled is seeded as 'false'
-    assert!(settings.contains_key("auth.enabled"));
+    // auth.* keys are filtered server-side (mirror of the PATCH-side
+    // filter). The seeded `auth.enabled = "false"` row exists in the
+    // database but is not exposed through this endpoint. The Settings
+    // UI reads `auth_required` from /api/auth/me instead.
+    assert!(!settings.contains_key("auth.enabled"));
+    assert!(!settings.contains_key("auth.password_hash"));
 
     // patch the run-concurrency setting
     let patch = client
@@ -459,6 +463,64 @@ async fn settings_patch_blocks_auth_password_hash_overwrite() {
         login.status().is_success(),
         "operator login should still work after attempted overwrite: {}",
         login.status()
+    );
+}
+
+/// Read-path companion to the PATCH fix: GET /api/settings must not
+/// echo back `auth.password_hash` (the Argon2 hash an attacker could
+/// take offline and brute-force) or `auth.enabled` (which leaks the
+/// auth-on/off state to anyone who reaches the read endpoint, and was
+/// reachable as part of the same takeover chain via worker tokens).
+#[tokio::test]
+async fn settings_get_does_not_leak_auth_keys() {
+    let app = boot().await;
+    let client = reqwest::ClientBuilder::new()
+        .cookie_store(true)
+        .build()
+        .unwrap();
+
+    // Enable auth via the legitimate first-run path so an actual
+    // Argon2 hash exists in the settings table.
+    let r = client
+        .patch(format!("{}/api/settings", app.url))
+        .json(&json!({
+            "auth.enabled": "true",
+            "auth.password": "operator-password",
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert!(r.status().is_success());
+
+    // Log in so the GET is "authed" — the leak would still apply to
+    // any caller who can reach this endpoint (including a worker
+    // token from /worker/enroll).
+    let login = client
+        .post(format!("{}/api/auth/login", app.url))
+        .json(&json!({"password": "operator-password"}))
+        .send()
+        .await
+        .unwrap();
+    assert!(login.status().is_success());
+
+    let settings: std::collections::HashMap<String, serde_json::Value> = client
+        .get(format!("{}/api/settings", app.url))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+
+    assert!(
+        !settings.contains_key("auth.password_hash"),
+        "GET /api/settings leaks auth.password_hash — an attacker can \
+         take the Argon2 hash offline and brute-force it"
+    );
+    assert!(
+        !settings.contains_key("auth.enabled"),
+        "GET /api/settings leaks auth.enabled — the UI should read \
+         auth state from /api/auth/me instead"
     );
 }
 
