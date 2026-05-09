@@ -357,6 +357,175 @@ async fn settings_get_and_patch() {
     assert_eq!(settings2["runs.max_concurrent"].as_str().unwrap(), "4");
 }
 
+/// Reproduces the Enclave 2026-05-09 critical: anyone with worker-token
+/// access (which is unauthenticated to obtain via POST /worker/enroll)
+/// could PATCH /api/settings with `{"auth.password_hash": "<known>"}`
+/// and then log in with the matching plaintext.
+///
+/// Pre-fix: this test FAILS at the `attacker login MUST fail` assertion
+/// because the password hash gets overwritten and `/api/auth/login`
+/// happily verifies against the attacker's hash.
+///
+/// Post-fix: PATCH silently drops every `auth.*` key; the legitimate
+/// hash stays, attacker login returns 401, operator login still works.
+#[tokio::test]
+async fn settings_patch_blocks_auth_password_hash_overwrite() {
+    let app = boot().await;
+    let client = reqwest::ClientBuilder::new()
+        .cookie_store(true)
+        .build()
+        .unwrap();
+
+    // Operator enables auth and sets a legitimate password via the
+    // first-run path. The handler hashes it server-side.
+    let r = client
+        .patch(format!("{}/api/settings", app.url))
+        .json(&json!({
+            "auth.enabled": "true",
+            "auth.password": "operator-password",
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert!(
+        r.status().is_success(),
+        "first-run enable failed: {}",
+        r.status()
+    );
+
+    // Sanity: operator can log in.
+    let login = client
+        .post(format!("{}/api/auth/login", app.url))
+        .json(&json!({"password": "operator-password"}))
+        .send()
+        .await
+        .unwrap();
+    assert!(
+        login.status().is_success(),
+        "operator login should succeed: {}",
+        login.status()
+    );
+
+    // Attacker move: forge an Argon2 hash for a chosen password and
+    // try to overwrite the stored hash via PATCH /api/settings. The
+    // request rides on the just-issued session cookie (the cookie jar
+    // captured it from /auth/login), simulating an attacker who has
+    // any authenticated identity — including a worker token from the
+    // unauthenticated /worker/enroll endpoint.
+    let attacker_password = "attacker-password";
+    let attacker_hash =
+        transcoderr::api::auth::hash_password(attacker_password).expect("argon2 hash builds");
+    let r = client
+        .patch(format!("{}/api/settings", app.url))
+        .json(&json!({"auth.password_hash": attacker_hash}))
+        .send()
+        .await
+        .unwrap();
+    // The PATCH itself is allowed to return 204 (silently dropped).
+    // The vulnerability isn't the response — it's whether the stored
+    // hash actually changed. The login attempt below is the real assertion.
+    assert!(
+        r.status().is_success() || r.status().as_u16() == 400,
+        "unexpected PATCH status: {}",
+        r.status()
+    );
+
+    // The actual security assertion: attacker's chosen plaintext must
+    // NOT log in. If this returns 204, `auth.password_hash` was
+    // successfully overwritten and the takeover chain works.
+    let attack_login = client
+        .post(format!("{}/api/auth/login", app.url))
+        .json(&json!({"password": attacker_password}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(
+        attack_login.status().as_u16(),
+        401,
+        "ATTACK SUCCEEDED: PATCH /api/settings with auth.password_hash \
+         overwrote the operator hash; attacker logged in as admin. This \
+         is the Enclave 2026-05-09 critical."
+    );
+
+    // Belt-and-braces: legitimate password still works after the
+    // attack attempt.
+    let login = client
+        .post(format!("{}/api/auth/login", app.url))
+        .json(&json!({"password": "operator-password"}))
+        .send()
+        .await
+        .unwrap();
+    assert!(
+        login.status().is_success(),
+        "operator login should still work after attempted overwrite: {}",
+        login.status()
+    );
+}
+
+/// Companion to the `auth.password_hash` overwrite test: the report's
+/// "alternative" attack of disabling auth wholesale via PATCH must be
+/// blocked the same way.
+#[tokio::test]
+async fn settings_patch_blocks_auth_enabled_disable() {
+    let app = boot().await;
+    let client = reqwest::ClientBuilder::new()
+        .cookie_store(true)
+        .build()
+        .unwrap();
+
+    // Enable auth.
+    let r = client
+        .patch(format!("{}/api/settings", app.url))
+        .json(&json!({
+            "auth.enabled": "true",
+            "auth.password": "operator-password",
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert!(r.status().is_success());
+
+    // Log in to obtain a session cookie so the next PATCH is "authed".
+    let login = client
+        .post(format!("{}/api/auth/login", app.url))
+        .json(&json!({"password": "operator-password"}))
+        .send()
+        .await
+        .unwrap();
+    assert!(login.status().is_success());
+
+    // Try to disable auth via PATCH. Pre-fix this would write
+    // `auth.enabled = "false"` and any subsequent unauthenticated
+    // request would walk straight through `require_auth`.
+    let r = client
+        .patch(format!("{}/api/settings", app.url))
+        .json(&json!({"auth.enabled": "false"}))
+        .send()
+        .await
+        .unwrap();
+    assert!(
+        r.status().is_success() || r.status().as_u16() == 400,
+        "unexpected PATCH status: {}",
+        r.status()
+    );
+
+    // Verify auth.enabled stayed "true". Use a fresh client (no cookie)
+    // and read /api/settings — that endpoint is on the protected router,
+    // so an UNAUTHENTICATED read should now 401, proving auth is still
+    // on.
+    let bare = reqwest::Client::new();
+    let resp = bare
+        .get(format!("{}/api/settings", app.url))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(
+        resp.status().as_u16(),
+        401,
+        "PATCH /api/settings disabled auth — anyone can now read settings unauthenticated"
+    );
+}
+
 #[tokio::test]
 async fn dry_run_basic() {
     let app = boot().await;
