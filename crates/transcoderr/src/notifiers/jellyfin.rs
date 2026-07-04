@@ -91,12 +91,33 @@ impl Notifier for Jellyfin {
                 let body = json!({
                     "Updates": [{ "Path": mapped, "UpdateType": "Modified" }]
                 });
-                client
+                let updated = client
                     .post(format!("{}/Library/Media/Updated", self.url))
                     .header("X-Emby-Token", &self.api_key)
                     .json(&body)
                     .send()
-                    .await?
+                    .await?;
+                if !updated.status().is_success() {
+                    return jellyfin_error(updated).await;
+                }
+                // Media/Updated alone often leaves stream lists stale (new
+                // audio tracks added by transcoderr won't appear until a full
+                // metadata refresh). Best-effort: find the item by path and
+                // re-probe it.
+                if let Some(item_id) = self.find_item_id_by_path(&client, &mapped).await? {
+                    let refresh = client
+                        .post(format!(
+                            "{}/Items/{item_id}/Refresh?MetadataRefreshMode=FullRefresh&ImageRefreshMode=None&ReplaceAllMetadata=true",
+                            self.url
+                        ))
+                        .header("X-Emby-Token", &self.api_key)
+                        .send()
+                        .await?;
+                    if !refresh.status().is_success() {
+                        return jellyfin_error(refresh).await;
+                    }
+                }
+                return Ok(());
             }
             None => {
                 // Test button path (extra is Null). Validate URL +
@@ -109,21 +130,54 @@ impl Notifier for Jellyfin {
             }
         };
 
-        let status = resp.status();
-        if !status.is_success() {
-            // Surface Jellyfin's own error body in the run timeline so
-            // the operator sees *why* the rescan failed (path not in
-            // any library, auth scope wrong, etc.) instead of just a
-            // bare status code.
-            let body = resp.text().await.unwrap_or_default();
-            let trimmed = body.trim();
-            if trimmed.is_empty() {
-                anyhow::bail!("jellyfin: {}", status);
-            } else {
-                anyhow::bail!("jellyfin: {} - {}", status, trimmed);
-            }
-        }
+        jellyfin_ok(resp).await
+    }
+}
+
+async fn jellyfin_ok(resp: reqwest::Response) -> anyhow::Result<()> {
+    let status = resp.status();
+    if status.is_success() {
         Ok(())
+    } else {
+        jellyfin_error(resp).await
+    }
+}
+
+async fn jellyfin_error(resp: reqwest::Response) -> anyhow::Result<()> {
+    let status = resp.status();
+    let body = resp.text().await.unwrap_or_default();
+    let trimmed = body.trim();
+    if trimmed.is_empty() {
+        anyhow::bail!("jellyfin: {}", status);
+    } else {
+        anyhow::bail!("jellyfin: {} - {}", status, trimmed)
+    }
+}
+
+impl Jellyfin {
+    async fn find_item_id_by_path(
+        &self,
+        client: &reqwest::Client,
+        mapped_path: &str,
+    ) -> anyhow::Result<Option<String>> {
+        let resp = client
+            .get(format!("{}/Items", self.url))
+            .header("X-Emby-Token", &self.api_key)
+            .query(&[("Path", mapped_path), ("Recursive", "true")])
+            .send()
+            .await?;
+        if !resp.status().is_success() {
+            // Best-effort lookup — Media/Updated already succeeded.
+            return Ok(None);
+        }
+        let body: Value = resp.json().await?;
+        Ok(body
+            .get("Items")
+            .and_then(|v| v.as_array())
+            .and_then(|items| items.first())
+            .and_then(|item| item.get("Id"))
+            .and_then(|id| id.as_str())
+            .map(str::to_string))
     }
 }
 
@@ -190,11 +244,6 @@ mod tests {
 
     #[tokio::test]
     async fn send_with_file_posts_library_media_updated() {
-        // Extra shape mirrors what the notify step actually passes:
-        // `{"file": "<path string>"}` -- not a nested object. The earlier
-        // test used `{"file": {"path": "..."}}` which never occurs in
-        // production and masked the bug that the notifier wasn't seeing
-        // the path at all.
         let server = MockServer::start().await;
         Mock::given(method("POST"))
             .and(path("/Library/Media/Updated"))
@@ -202,6 +251,20 @@ mod tests {
             .and(body_partial_json(json!({
                 "Updates": [{ "Path": "/mnt/movies/Foo.mkv", "UpdateType": "Modified" }]
             })))
+            .respond_with(ResponseTemplate::new(204))
+            .expect(1)
+            .mount(&server)
+            .await;
+        Mock::given(method("GET"))
+            .and(path("/Items"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "Items": [{"Id": "abc123"}]
+            })))
+            .expect(1)
+            .mount(&server)
+            .await;
+        Mock::given(method("POST"))
+            .and(path("/Items/abc123/Refresh"))
             .respond_with(ResponseTemplate::new(204))
             .expect(1)
             .mount(&server)
@@ -247,6 +310,12 @@ mod tests {
                 "Updates": [{ "Path": "/media/movies/Foo.mkv", "UpdateType": "Modified" }]
             })))
             .respond_with(ResponseTemplate::new(204))
+            .expect(1)
+            .mount(&server)
+            .await;
+        Mock::given(method("GET"))
+            .and(path("/Items"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({"Items": []})))
             .expect(1)
             .mount(&server)
             .await;

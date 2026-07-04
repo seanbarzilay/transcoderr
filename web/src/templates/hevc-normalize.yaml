@@ -28,6 +28,7 @@ steps:
         s.codec_name == "ac3" &&
         s.channels >= 6 &&
         (s.tags.language == "eng" || s.tags.language == "" || s.tags.language == "und") &&
+        !(has(s.tags.ENCODER) && s.tags.ENCODER.matches("(?i)Lavc")) &&
         !(has(s.disposition.comment) && s.disposition.comment == 1) &&
         !(has(s.tags.title) && s.tags.title.matches("(?i)comment"))
       )
