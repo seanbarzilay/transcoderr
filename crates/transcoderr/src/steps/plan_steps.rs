@@ -636,7 +636,9 @@ impl Step for PlanAudioEnsureStep {
         // Dedupe: skip add when an existing playable track in the target
         // language already covers the channel count. Foreign-language AC3
         // tracks must not satisfy dedupe when we're ensuring English.
-        if dedupe {
+        // Skip dedupe when replacing a prior lavc mis-encode — we need the
+        // fresh track even if e.g. English DTS already covers 6ch.
+        if dedupe && lavc_targets.is_empty() {
             let playable_max = existing_audio
                 .iter()
                 .copied()
