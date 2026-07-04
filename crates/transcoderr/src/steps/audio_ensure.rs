@@ -199,18 +199,6 @@ impl Step for AudioEnsureStep {
             .max_by_key(|s| s.channels)
             .map(|s| (s.index, s.channels));
 
-        // Existing playable max channels (used for the dedupe rule).
-        let playable_max_ch = streams
-            .iter()
-            .filter(|s| {
-                s.codec_type == "audio"
-                    && !s.is_commentary
-                    && PLAYABLE_AUDIO.contains(&s.codec_name.as_str())
-            })
-            .map(|s| s.channels)
-            .max()
-            .unwrap_or(0);
-
         let mut add_stream = if !has_target {
             seed_audio
         } else {
@@ -220,11 +208,24 @@ impl Step for AudioEnsureStep {
             None
         };
 
-        // Dedupe: drop the addition if it wouldn't add anything beyond what the source already has.
+        // Dedupe: drop the addition if a playable track in the target language
+        // already covers the channel count. Foreign-language tracks must not
+        // satisfy dedupe when we're ensuring a specific language.
         if let Some((_, _seed_ch)) = add_stream {
-            if target_channels <= playable_max_ch {
+            let playable_max_target_lang = streams
+                .iter()
+                .filter(|s| {
+                    s.codec_type == "audio"
+                        && !s.is_commentary
+                        && PLAYABLE_AUDIO.contains(&s.codec_name.as_str())
+                        && (s.language == target_lang || s.language.is_empty() || s.language == "und")
+                })
+                .map(|s| s.channels)
+                .max()
+                .unwrap_or(0);
+            if target_channels <= playable_max_target_lang {
                 on_progress(StepProgress::Log(format!(
-                    "audio.ensure: skipping add (existing playable {playable_max_ch}ch already >= target {target_channels}ch)"
+                    "audio.ensure: skipping add (existing playable {playable_max_target_lang}ch [{target_lang}] already >= target {target_channels}ch)"
                 )));
                 add_stream = None;
             }

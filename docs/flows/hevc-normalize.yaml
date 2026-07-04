@@ -33,6 +33,26 @@ steps:
     then:
       - return: skipped-no-streams
 
+  # Fast-path: already-normalized files (HEVC video + English AC3 6ch +
+  # already an .mkv) shouldn't pay for plan.execute, which is a full ffmpeg
+  # copy pass that just rewrites the file byte-for-byte. Foreign-language
+  # AC3 dubs must not satisfy this check — same language/channels rules as
+  # plan.audio.ensure. Commentary tracks don't count either.
+  - id: bail-if-already-normalized
+    if: |
+      probe.streams[0].codec_name == "hevc" &&
+      file.path.endsWith(".mkv") &&
+      probe.streams.exists(s,
+        s.codec_type == "audio" &&
+        s.codec_name == "ac3" &&
+        s.channels >= 6 &&
+        (s.tags.language == "eng" || s.tags.language == "" || s.tags.language == "und") &&
+        !(has(s.disposition.comment) && s.disposition.comment == 1) &&
+        !(has(s.tags.title) && s.tags.title.matches("(?i)comment"))
+      )
+    then:
+      - return: skipped-already-normalized
+
   # Seed the plan from probe (every stream copied, container=mkv).
   - id: plan-init
     use: plan.init
@@ -75,8 +95,8 @@ steps:
             fallback: cpu
 
   # Ensure there's an English AC3 6ch audio track. Skipped if the source
-  # already has one, or if dedupe says an existing playable track already
-  # covers the channel count.
+  # already has one, or if dedupe says an existing playable track in the
+  # target language already covers the channel count.
   - id: plan-ensure-audio
     use: plan.audio.ensure
     with:

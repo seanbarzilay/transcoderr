@@ -68,6 +68,16 @@ fn is_commentary(s: &Value) -> bool {
     comment_disp || title.contains("comment")
 }
 
+fn audio_lang_matches_target(s: &Value, target_lang: &str) -> bool {
+    let lang = s
+        .get("tags")
+        .and_then(|t| t.get("language"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_lowercase();
+    lang == target_lang || lang.is_empty() || lang == "und"
+}
+
 fn channel_layout_label(channels: i64) -> String {
     match channels {
         1 => "Mono".into(),
@@ -575,8 +585,9 @@ impl Step for PlanAudioEnsureStep {
         let seed_index = seed.get("index").and_then(|v| v.as_i64()).unwrap_or(-1);
         let seed_ch = seed.get("channels").and_then(|v| v.as_i64()).unwrap_or(0);
 
-        // Dedupe: skip add when an existing playable track already covers the
-        // target channel count.
+        // Dedupe: skip add when an existing playable track in the target
+        // language already covers the channel count. Foreign-language AC3
+        // tracks must not satisfy dedupe when we're ensuring English.
         if dedupe {
             let playable_max = existing_audio
                 .filter(|s| !is_commentary(s))
@@ -588,12 +599,13 @@ impl Step for PlanAudioEnsureStep {
                         .to_lowercase();
                     PLAYABLE_AUDIO.contains(&codec.as_str())
                 })
+                .filter(|s| audio_lang_matches_target(s, &target_lang))
                 .filter_map(|s| s.get("channels").and_then(|v| v.as_i64()))
                 .max()
                 .unwrap_or(0);
             if target_channels <= playable_max {
                 on_progress(StepProgress::Log(format!(
-                    "plan.audio.ensure: dedupe skip (existing playable {playable_max}ch >= target {target_channels}ch)"
+                    "plan.audio.ensure: dedupe skip (existing playable {playable_max}ch [{target_lang}] >= target {target_channels}ch)"
                 )));
                 save_plan(ctx, &plan);
                 return Ok(());
@@ -694,6 +706,38 @@ mod tests {
         assert_eq!(plan.audio_added.len(), 1);
         assert_eq!(plan.audio_added[0].codec, "ac3");
         assert_eq!(plan.audio_added[0].title, "AC3 5.1");
+    }
+
+    #[tokio::test]
+    async fn plan_audio_ensure_adds_when_only_foreign_ac3_exists() {
+        // Blu-ray remux pattern: English DTS-HD MA + foreign AC3 dubs. Dedupe
+        // must not treat the German AC3 as satisfying an English AC3 target.
+        let mut ctx = crate::flow::Context::for_file("/x");
+        ctx.probe = Some(json!({
+            "streams": [
+                {"index": 0, "codec_type": "video", "codec_name": "hevc"},
+                {"index": 1, "codec_type": "audio", "codec_name": "dts", "channels": 6,
+                 "tags": {"language": "eng", "title": "DTS-HD MA 5.1"}},
+                {"index": 2, "codec_type": "audio", "codec_name": "ac3", "channels": 6,
+                 "tags": {"language": "ger", "title": "DD 5.1"}},
+            ]
+        }));
+        let plan = StreamPlan::from_probe(ctx.probe.as_ref().unwrap());
+        save_plan(&mut ctx, &plan);
+        let mut with: BTreeMap<String, Value> = BTreeMap::new();
+        with.insert("codec".into(), json!("ac3"));
+        with.insert("channels".into(), json!(6));
+        with.insert("language".into(), json!("eng"));
+        with.insert("dedupe".into(), json!(true));
+        let mut cb = |_: StepProgress| {};
+        PlanAudioEnsureStep
+            .execute(&with, &mut ctx, &mut cb)
+            .await
+            .unwrap();
+        let plan = load_plan(&ctx).unwrap();
+        assert_eq!(plan.audio_added.len(), 1);
+        assert_eq!(plan.audio_added[0].seed_index, 1);
+        assert_eq!(plan.audio_added[0].language, "eng");
     }
 
     #[tokio::test]

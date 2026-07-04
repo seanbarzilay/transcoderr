@@ -19,6 +19,21 @@ steps:
   - id: probe
     use: probe
 
+  - id: bail-if-already-normalized
+    if: |
+      probe.streams[0].codec_name == "hevc" &&
+      file.path.endsWith(".mkv") &&
+      probe.streams.exists(s,
+        s.codec_type == "audio" &&
+        s.codec_name == "ac3" &&
+        s.channels >= 6 &&
+        (s.tags.language == "eng" || s.tags.language == "" || s.tags.language == "und") &&
+        !(has(s.disposition.comment) && s.disposition.comment == 1) &&
+        !(has(s.tags.title) && s.tags.title.matches("(?i)comment"))
+      )
+    then:
+      - return: skipped-already-normalized
+
   - id: plan-init
     use: plan.init
   - id: plan-tolerate
