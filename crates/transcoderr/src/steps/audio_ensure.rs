@@ -218,7 +218,9 @@ impl Step for AudioEnsureStep {
                     s.codec_type == "audio"
                         && !s.is_commentary
                         && PLAYABLE_AUDIO.contains(&s.codec_name.as_str())
-                        && (s.language == target_lang || s.language.is_empty() || s.language == "und")
+                        && (s.language == target_lang
+                            || s.language.is_empty()
+                            || s.language == "und")
                 })
                 .map(|s| s.channels)
                 .max()
