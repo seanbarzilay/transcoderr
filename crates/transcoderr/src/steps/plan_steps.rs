@@ -586,15 +586,18 @@ impl Step for PlanAudioEnsureStep {
 
         // Existing audio tracks (kept ones only — we don't want to dedupe against
         // a track another step has already marked for removal).
-        let existing_audio = streams.iter().filter(|s| {
-            let idx = s.get("index").and_then(|v| v.as_i64()).unwrap_or(-1);
-            let kept = plan.stream_keep.get(&idx).copied().unwrap_or(true);
-            kept && s.get("codec_type").and_then(|v| v.as_str()) == Some("audio")
-        });
+        let existing_audio: Vec<&Value> = streams
+            .iter()
+            .filter(|s| {
+                let idx = s.get("index").and_then(|v| v.as_i64()).unwrap_or(-1);
+                let kept = plan.stream_keep.get(&idx).copied().unwrap_or(true);
+                kept && s.get("codec_type").and_then(|v| v.as_str()) == Some("audio")
+            })
+            .collect();
 
         let mut native_target = false;
         let mut lavc_targets = vec![];
-        for s in existing_audio.clone() {
+        for s in &existing_audio {
             if !matches_audio_target(s, &target_codec, target_channels, &target_lang) {
                 continue;
             }
@@ -623,9 +626,10 @@ impl Step for PlanAudioEnsureStep {
             )));
         }
 
-        let seed = pick_audio_seed(existing_audio.clone(), &target_lang).ok_or_else(|| {
-            anyhow::anyhow!("plan.audio.ensure: no non-commentary audio stream to seed from")
-        })?;
+        let seed =
+            pick_audio_seed(existing_audio.iter().copied(), &target_lang).ok_or_else(|| {
+                anyhow::anyhow!("plan.audio.ensure: no non-commentary audio stream to seed from")
+            })?;
         let seed_index = seed.get("index").and_then(|v| v.as_i64()).unwrap_or(-1);
         let seed_ch = seed.get("channels").and_then(|v| v.as_i64()).unwrap_or(0);
 
@@ -634,6 +638,8 @@ impl Step for PlanAudioEnsureStep {
         // tracks must not satisfy dedupe when we're ensuring English.
         if dedupe {
             let playable_max = existing_audio
+                .iter()
+                .copied()
                 .filter(|s| !is_commentary(s))
                 .filter(|s| {
                     let codec = s
