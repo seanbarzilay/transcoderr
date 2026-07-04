@@ -78,6 +78,55 @@ fn audio_lang_matches_target(s: &Value, target_lang: &str) -> bool {
     lang == target_lang || lang.is_empty() || lang == "und"
 }
 
+/// True when ffmpeg tagged the stream with a Lavc encoder — i.e. we added
+/// it in a prior transcoderr pass. Used to replace mis-seeded re-encodes.
+fn is_lavc_encoded(s: &Value) -> bool {
+    s.get("tags")
+        .and_then(|t| t.get("ENCODER"))
+        .and_then(|v| v.as_str())
+        .is_some_and(|e| e.contains("Lavc"))
+}
+
+fn matches_audio_target(
+    s: &Value,
+    target_codec: &str,
+    target_channels: i64,
+    target_lang: &str,
+) -> bool {
+    if is_commentary(s) {
+        return false;
+    }
+    let codec = s
+        .get("codec_name")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_lowercase();
+    let ch = s.get("channels").and_then(|v| v.as_i64()).unwrap_or(0);
+    codec == target_codec && ch >= target_channels && audio_lang_matches_target(s, target_lang)
+}
+
+/// Pick the seed stream for a newly-encoded audio track. Prefer
+/// non-commentary streams in the target language; fall back to any
+/// language only when none match. Among candidates, take highest channels.
+fn pick_audio_seed<'a>(
+    streams: impl Iterator<Item = &'a Value>,
+    target_lang: &str,
+) -> Option<&'a Value> {
+    let non_commentary: Vec<&Value> = streams.filter(|s| !is_commentary(s)).collect();
+    let in_target: Vec<&&Value> = non_commentary
+        .iter()
+        .filter(|s| audio_lang_matches_target(s, target_lang))
+        .collect();
+    let pool: Vec<&&Value> = if in_target.is_empty() {
+        non_commentary.iter().collect()
+    } else {
+        in_target
+    };
+    pool.into_iter()
+        .max_by_key(|s| s.get("channels").and_then(|v| v.as_i64()).unwrap_or(0))
+        .copied()
+}
+
 fn channel_layout_label(channels: i64) -> String {
     match channels {
         1 => "Mono".into(),
@@ -537,36 +586,30 @@ impl Step for PlanAudioEnsureStep {
 
         // Existing audio tracks (kept ones only — we don't want to dedupe against
         // a track another step has already marked for removal).
-        let existing_audio = streams.iter().filter(|s| {
-            let idx = s.get("index").and_then(|v| v.as_i64()).unwrap_or(-1);
-            let kept = plan.stream_keep.get(&idx).copied().unwrap_or(true);
-            kept && s.get("codec_type").and_then(|v| v.as_str()) == Some("audio")
-        });
+        let existing_audio: Vec<&Value> = streams
+            .iter()
+            .filter(|s| {
+                let idx = s.get("index").and_then(|v| v.as_i64()).unwrap_or(-1);
+                let kept = plan.stream_keep.get(&idx).copied().unwrap_or(true);
+                kept && s.get("codec_type").and_then(|v| v.as_str()) == Some("audio")
+            })
+            .collect();
 
-        let has_target = existing_audio.clone().any(|s| {
-            // Commentary tracks don't count as the wanted main audio even if
-            // they happen to match codec/channels/language.
-            if is_commentary(s) {
-                return false;
+        let mut native_target = false;
+        let mut lavc_targets = vec![];
+        for s in &existing_audio {
+            if !matches_audio_target(s, &target_codec, target_channels, &target_lang) {
+                continue;
             }
-            let codec = s
-                .get("codec_name")
-                .and_then(|v| v.as_str())
-                .unwrap_or("")
-                .to_lowercase();
-            let ch = s.get("channels").and_then(|v| v.as_i64()).unwrap_or(0);
-            let lang = s
-                .get("tags")
-                .and_then(|t| t.get("language"))
-                .and_then(|v| v.as_str())
-                .unwrap_or("")
-                .to_lowercase();
-            codec == target_codec
-                && ch >= target_channels
-                && (lang == target_lang || lang.is_empty() || lang == "und")
-        });
+            let idx = s.get("index").and_then(|v| v.as_i64()).unwrap_or(-1);
+            if is_lavc_encoded(s) {
+                lavc_targets.push(idx);
+            } else {
+                native_target = true;
+            }
+        }
 
-        if has_target {
+        if native_target {
             on_progress(StepProgress::Log(format!(
                 "plan.audio.ensure: existing {target_codec} {target_channels}ch [{target_lang}] track found; nothing to add"
             )));
@@ -574,22 +617,37 @@ impl Step for PlanAudioEnsureStep {
             return Ok(());
         }
 
-        // Pick highest-channel non-commentary audio stream as seed.
-        let seed = existing_audio
-            .clone()
-            .filter(|s| !is_commentary(s))
-            .max_by_key(|s| s.get("channels").and_then(|v| v.as_i64()).unwrap_or(0))
-            .ok_or_else(|| {
-                anyhow::anyhow!("plan.audio.ensure: no non-commentary audio stream to seed from")
-            })?;
+        if !lavc_targets.is_empty() {
+            for idx in &lavc_targets {
+                plan.stream_keep.insert(*idx, false);
+            }
+            on_progress(StepProgress::Log(format!(
+                "plan.audio.ensure: replacing lavc-encoded {target_codec} [{target_lang}] track(s) {lavc_targets:?}"
+            )));
+        }
+
+        let seed = pick_audio_seed(
+            existing_audio.iter().copied().filter(|s| {
+                let idx = s.get("index").and_then(|v| v.as_i64()).unwrap_or(-1);
+                plan.stream_keep.get(&idx).copied().unwrap_or(true)
+            }),
+            &target_lang,
+        )
+        .ok_or_else(|| {
+            anyhow::anyhow!("plan.audio.ensure: no non-commentary audio stream to seed from")
+        })?;
         let seed_index = seed.get("index").and_then(|v| v.as_i64()).unwrap_or(-1);
         let seed_ch = seed.get("channels").and_then(|v| v.as_i64()).unwrap_or(0);
 
         // Dedupe: skip add when an existing playable track in the target
         // language already covers the channel count. Foreign-language AC3
         // tracks must not satisfy dedupe when we're ensuring English.
-        if dedupe {
+        // Skip dedupe when replacing a prior lavc mis-encode — we need the
+        // fresh track even if e.g. English DTS already covers 6ch.
+        if dedupe && lavc_targets.is_empty() {
             let playable_max = existing_audio
+                .iter()
+                .copied()
                 .filter(|s| !is_commentary(s))
                 .filter(|s| {
                     let codec = s
@@ -736,9 +794,40 @@ mod tests {
             .unwrap();
         let plan = load_plan(&ctx).unwrap();
         assert_eq!(plan.audio_added.len(), 1);
+        assert_eq!(plan.audio_added[0].seed_index, 1);
         assert_eq!(plan.audio_added[0].language, "eng");
         assert_eq!(plan.audio_added[0].codec, "ac3");
         assert_eq!(plan.audio_added[0].channels, 6);
+    }
+
+    #[tokio::test]
+    async fn plan_audio_ensure_replaces_lavc_misencoded_target() {
+        let mut ctx = crate::flow::Context::for_file("/x");
+        ctx.probe = Some(json!({
+            "streams": [
+                {"index": 0, "codec_type": "video", "codec_name": "hevc"},
+                {"index": 1, "codec_type": "audio", "codec_name": "dts", "channels": 6,
+                 "tags": {"language": "eng", "title": "DTS-HD MA 5.1"}},
+                {"index": 14, "codec_type": "audio", "codec_name": "ac3", "channels": 6,
+                 "tags": {"language": "eng", "title": "AC3 5.1", "ENCODER": "Lavc62.28.100 ac3"}},
+            ]
+        }));
+        let plan = StreamPlan::from_probe(ctx.probe.as_ref().unwrap());
+        save_plan(&mut ctx, &plan);
+        let mut with: BTreeMap<String, Value> = BTreeMap::new();
+        with.insert("codec".into(), json!("ac3"));
+        with.insert("channels".into(), json!(6));
+        with.insert("language".into(), json!("eng"));
+        with.insert("dedupe".into(), json!(true));
+        let mut cb = |_: StepProgress| {};
+        PlanAudioEnsureStep
+            .execute(&with, &mut ctx, &mut cb)
+            .await
+            .unwrap();
+        let plan = load_plan(&ctx).unwrap();
+        assert_eq!(plan.stream_keep.get(&14), Some(&false));
+        assert_eq!(plan.audio_added.len(), 1);
+        assert_eq!(plan.audio_added[0].seed_index, 1);
     }
 
     #[tokio::test]
