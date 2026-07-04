@@ -626,10 +626,16 @@ impl Step for PlanAudioEnsureStep {
             )));
         }
 
-        let seed =
-            pick_audio_seed(existing_audio.iter().copied(), &target_lang).ok_or_else(|| {
-                anyhow::anyhow!("plan.audio.ensure: no non-commentary audio stream to seed from")
-            })?;
+        let seed = pick_audio_seed(
+            existing_audio.iter().copied().filter(|s| {
+                let idx = s.get("index").and_then(|v| v.as_i64()).unwrap_or(-1);
+                plan.stream_keep.get(&idx).copied().unwrap_or(true)
+            }),
+            &target_lang,
+        )
+        .ok_or_else(|| {
+            anyhow::anyhow!("plan.audio.ensure: no non-commentary audio stream to seed from")
+        })?;
         let seed_index = seed.get("index").and_then(|v| v.as_i64()).unwrap_or(-1);
         let seed_ch = seed.get("channels").and_then(|v| v.as_i64()).unwrap_or(0);
 
