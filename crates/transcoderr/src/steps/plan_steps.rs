@@ -736,8 +736,9 @@ mod tests {
             .unwrap();
         let plan = load_plan(&ctx).unwrap();
         assert_eq!(plan.audio_added.len(), 1);
-        assert_eq!(plan.audio_added[0].seed_index, 1);
         assert_eq!(plan.audio_added[0].language, "eng");
+        assert_eq!(plan.audio_added[0].codec, "ac3");
+        assert_eq!(plan.audio_added[0].channels, 6);
     }
 
     #[tokio::test]
