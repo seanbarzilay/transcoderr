@@ -191,13 +191,27 @@ impl Step for AudioEnsureStep {
                 && (s.language == target_lang || s.language.is_empty() || s.language == "und")
         });
 
-        // Find the highest-channel non-commentary audio source — used as the seed for the
-        // added stream when we need to ensure it.
-        let seed_audio = streams
-            .iter()
-            .filter(|s| s.codec_type == "audio" && !s.is_commentary)
-            .max_by_key(|s| s.channels)
-            .map(|s| (s.index, s.channels));
+        // Prefer target-language audio as the encode seed; fall back to highest channels.
+        let seed_audio = {
+            let candidates: Vec<_> = streams
+                .iter()
+                .filter(|s| s.codec_type == "audio" && !s.is_commentary)
+                .collect();
+            let in_target: Vec<_> = candidates
+                .iter()
+                .filter(|s| {
+                    s.language == target_lang || s.language.is_empty() || s.language == "und"
+                })
+                .collect();
+            let pool: Vec<_> = if in_target.is_empty() {
+                candidates
+            } else {
+                in_target.into_iter().copied().collect()
+            };
+            pool.into_iter()
+                .max_by_key(|s| s.channels)
+                .map(|s| (s.index, s.channels))
+        };
 
         let mut add_stream = if !has_target {
             seed_audio
