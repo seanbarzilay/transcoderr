@@ -130,10 +130,15 @@ async fn worker_token_cannot_reach_the_operator_worker_routes() {
 }
 
 #[tokio::test]
-async fn worker_token_still_authenticates_the_daemon_surface() {
-    // The fix must not break real workers. `/api/worker/plugins/:name/tarball`
-    // verifies the token itself; a valid token should get past auth and
-    // fail on the missing plugin (404), never on the credential (401).
+async fn the_worker_daemon_surface_still_works_end_to_end() {
+    // NOTE: this does not exercise `is_worker_daemon_path`. The
+    // `/api/worker/*` routes are on the public router, so the request never
+    // reaches `require_auth` — this would pass even if the scope check
+    // rejected everything. `is_worker_daemon_path`'s unit tests carry that
+    // weight. Kept as a plain end-to-end check that scoping worker tokens
+    // did not break the surface real workers actually use: the handler
+    // verifies the token itself and should fail on the missing plugin (404),
+    // not on the credential (401).
     let app = boot().await;
     enable_auth(&app.pool).await;
     let client = client();
