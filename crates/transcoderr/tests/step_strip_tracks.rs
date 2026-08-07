@@ -100,6 +100,74 @@ async fn keeps_untagged_audio_rather_than_producing_a_silent_file() {
 }
 
 #[tokio::test]
+async fn does_not_refuse_mid_chain_on_a_stale_probe() {
+    // `ctx.probe` describes `ctx.file.path`. Once an earlier transformer
+    // has staged a file, ffmpeg reads the chain head instead — and only
+    // `steps/probe.rs` ever writes `ctx.probe`, so the probe is stale.
+    //
+    // `probe -> audio.ensure(target_lang: eng) -> strip.tracks([eng])` on a
+    // jpn-only source is the real case: audio.ensure adds the eng track, so
+    // the staged file has exactly what was asked for, but the guard sees the
+    // original's jpn-only stream list. Refusing there fails a flow that
+    // works.
+    let dir = tempdir().unwrap();
+    let original = dir.path().join("Movie.mkv");
+    let staged = dir.path().join("Movie.mkv.tcr-j1-00.tmp.mkv");
+    std::fs::write(&original, b"original").unwrap();
+    // A real staged file, so the step gets as far as invoking ffmpeg.
+    make_testsrc_mkv(&staged, 1).await.unwrap();
+
+    let mut ctx = Context::for_file(original.to_string_lossy());
+    ctx.probe = Some(probe_with_audio(Some("jpn"))); // stale: describes the original
+    ctx.record_step_output(
+        "transcode",
+        json!({ "output_path": staged.to_string_lossy() }),
+    );
+
+    let mut cb = |_: StepProgress| {};
+    let res = StripTracksStep
+        .execute(&with_langs(&["eng"]), &mut ctx, &mut cb)
+        .await;
+
+    if let Err(e) = &res {
+        assert!(
+            !e.to_string().contains("no audio stream matches"),
+            "must not refuse on a stale probe from a different file: {e}"
+        );
+    }
+}
+
+#[tokio::test]
+async fn predicts_language_matches_exactly_like_ffmpeg() {
+    // ffmpeg's `m:language:eng` is a plain string comparison. Treating a
+    // stream tagged `ENG` as matching `eng` would predict a match ffmpeg
+    // never makes, skip the untagged fallback, and emit the audio-less file
+    // this guard exists to prevent. Refuse instead, naming what is present
+    // so the operator can set the filter ffmpeg will actually match.
+    let dir = tempdir().unwrap();
+    let src = dir.path().join("Movie.mkv");
+    std::fs::write(&src, b"not really a video").unwrap();
+
+    let mut ctx = Context::for_file(src.to_string_lossy());
+    ctx.probe = Some(probe_with_audio(Some("ENG")));
+
+    let mut cb = |_: StepProgress| {};
+    let err = StripTracksStep
+        .execute(&with_langs(&["eng"]), &mut ctx, &mut cb)
+        .await
+        .expect_err("case-differing tag is not a match for ffmpeg");
+    let msg = err.to_string();
+    assert!(
+        msg.contains("no audio stream matches"),
+        "expected the refusal, got: {msg}"
+    );
+    assert!(
+        msg.contains("ENG"),
+        "error should show the tag as it really is: {msg}"
+    );
+}
+
+#[tokio::test]
 async fn honours_the_documented_languages_key() {
     // `StripTracksConfig` publishes `languages` and is `deny_unknown_fields`,
     // but the step used to read `keep_audio_languages` — so the documented
@@ -126,8 +194,26 @@ async fn honours_the_documented_languages_key() {
     );
 }
 
+#[test]
+fn published_schema_covers_the_legacy_key() {
+    // The step accepts `keep_audio_languages`, but the published schema is
+    // what the UI form editor validates against (`/api/step-kinds`), and it
+    // is `additionalProperties: false`. If the schema doesn't know the key,
+    // the runtime fallback is unreachable from the UI even though it works
+    // for a hand-written flow. (The schema is NOT applied server-side —
+    // `validate_flow_yaml` only compiles CEL and templates.)
+    let schema = transcoderr::steps::schemas::strip_tracks_schema();
+    let text = schema.to_string();
+    assert!(
+        text.contains("keep_audio_languages"),
+        "schema must mention the legacy key so the form editor accepts it: {text}"
+    );
+}
+
 #[tokio::test]
 async fn still_accepts_the_legacy_keep_audio_languages_key() {
+    // Calls the step directly, so this covers the runtime fallback only —
+    // the schema path is covered by `published_schema_covers_the_legacy_key`.
     let dir = tempdir().unwrap();
     let src = dir.path().join("Movie.mkv");
     std::fs::write(&src, b"not really a video").unwrap();

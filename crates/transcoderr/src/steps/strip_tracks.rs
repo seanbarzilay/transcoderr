@@ -22,15 +22,19 @@ const SUPPORTED_SUB_CODECS: &[&str] = &[
     "dvb_subtitle",
 ];
 
-/// The `tags.language` of a probe stream, lowercased. Empty when the
-/// stream carries no language tag — which is what `0:a:m:language:X:?`
-/// fails to match, and why the caller has to check.
-fn stream_language(s: &Value) -> String {
+/// The `tags.language` of a probe stream, verbatim. Empty when the stream
+/// carries no language tag — which is what `0:a:m:language:X:?` fails to
+/// match, and why the caller has to check.
+///
+/// Deliberately not normalised: ffmpeg's `m:language:X` is a plain string
+/// comparison, so a prediction that folds case would claim a match ffmpeg
+/// never makes, skip the fallback below, and emit exactly the audio-less
+/// file the caller is trying to avoid.
+fn stream_language(s: &Value) -> &str {
     s.get("tags")
         .and_then(|t| t.get("language"))
         .and_then(|v| v.as_str())
         .unwrap_or("")
-        .to_ascii_lowercase()
 }
 
 pub struct StripTracksStep;
@@ -123,16 +127,23 @@ impl Step for StripTracksStep {
 
         let matched = audio_streams
             .iter()
-            .filter(|s| {
-                langs
-                    .iter()
-                    .any(|l| l.eq_ignore_ascii_case(&stream_language(s)))
-            })
+            .filter(|s| langs.iter().any(|l| l.as_str() == stream_language(s)))
             .count();
 
-        // With no probe data there is nothing to predict from; leave the
-        // command as built rather than guess.
-        if !audio_streams.is_empty() && matched == 0 {
+        // `ctx.probe` describes `ctx.file.path`, but ffmpeg reads `src` —
+        // the chain head once an earlier transformer has staged a file.
+        // Only `steps/probe.rs` writes `ctx.probe` and no transformer
+        // refreshes it, so mid-chain it is stale: in
+        // `probe -> audio.ensure(target_lang: eng) -> strip.tracks([eng])`
+        // over a jpn-only source, audio.ensure adds the very track being
+        // asked for, yet the probe still shows jpn only. Predicting from
+        // that would fail a flow that works. Predict only when the probe
+        // describes the file ffmpeg will actually read.
+        //
+        // With no probe data there is nothing to predict from either;
+        // leave the command as built rather than guess.
+        let probe_describes_input = src.as_path() == std::path::Path::new(&ctx.file.path);
+        if probe_describes_input && !audio_streams.is_empty() && matched == 0 {
             // Untagged and `und` streams match no language selector, and
             // they are the common case in remuxes — including files this
             // tool produced itself. Keep them rather than emit a silent
@@ -141,14 +152,13 @@ impl Step for StripTracksStep {
                 .iter()
                 .filter(|s| {
                     let l = stream_language(s);
-                    l.is_empty() || l == "und"
+                    l.is_empty() || l.eq_ignore_ascii_case("und")
                 })
                 .filter_map(|s| s.get("index").and_then(|v| v.as_i64()))
                 .collect();
 
             if untagged.is_empty() {
-                let present: Vec<String> =
-                    audio_streams.iter().map(|s| stream_language(s)).collect();
+                let present: Vec<&str> = audio_streams.iter().map(|s| stream_language(s)).collect();
                 anyhow::bail!(
                     "strip.tracks: no audio stream matches {langs:?} (present: {present:?}); \
                      refusing to write a file with no audio"
