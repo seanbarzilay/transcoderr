@@ -24,14 +24,20 @@ pub async fn patch(
     State(state): State<AppState>,
     Json(body): Json<HashMap<String, Value>>,
 ) -> Result<StatusCode, StatusCode> {
-    // Special handling: if auth.enabled is being set to "true", require auth.password
+    // The `auth.` namespace is never written by the generic loop below.
+    // It holds `auth.password_hash` (the credential `login` verifies
+    // against) and `auth.enabled` (the flag `require_auth` reads), so a
+    // caller able to set them verbatim could install a password hash of
+    // their own choosing or switch authentication off entirely. Both
+    // transitions are handled explicitly here, server-side, from values
+    // this handler derives rather than values the body supplies.
     if let Some(en_val) = body.get("auth.enabled") {
-        let en_str = match en_val {
+        let want_enabled = match en_val {
             Value::String(s) => s.as_str() == "true",
             Value::Bool(b) => *b,
             _ => false,
         };
-        if en_str {
+        if want_enabled {
             // Must also provide auth.password
             let password = match body.get("auth.password") {
                 Some(Value::String(p)) if !p.is_empty() => p.clone(),
@@ -42,12 +48,20 @@ pub async fn patch(
             db::settings::set(&state.pool, "auth.password_hash", &hash)
                 .await
                 .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+            db::settings::set(&state.pool, "auth.enabled", "true")
+                .await
+                .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        } else {
+            db::settings::set(&state.pool, "auth.enabled", "false")
+                .await
+                .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
         }
     }
 
     for (key, val) in &body {
-        // Skip auth.password - never store it raw
-        if key == "auth.password" {
+        // `auth.password` must never be stored raw, and the rest of the
+        // `auth.` namespace is set above from server-derived values only.
+        if key.starts_with("auth.") {
             continue;
         }
         let val_str = match val {
