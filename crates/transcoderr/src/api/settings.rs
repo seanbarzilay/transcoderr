@@ -52,16 +52,31 @@ pub async fn patch(
             _ => false,
         };
         if want_enabled {
-            // Must also provide auth.password
-            let password = match body.get("auth.password") {
-                Some(Value::String(p)) if !p.is_empty() => p.clone(),
-                _ => return Err(StatusCode::BAD_REQUEST),
-            };
-            let hash = crate::api::auth::hash_password(&password)
-                .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-            db::settings::set(&state.pool, "auth.password_hash", &hash)
-                .await
-                .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+            match body.get("auth.password") {
+                // A new password was supplied: (re)hash it.
+                Some(Value::String(p)) if !p.is_empty() => {
+                    let hash = crate::api::auth::hash_password(p)
+                        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+                    db::settings::set(&state.pool, "auth.password_hash", &hash)
+                        .await
+                        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+                }
+                // No password in this request. That is the ordinary case
+                // for a save that only touches unrelated settings while
+                // auth is already configured, so it must not fail — but
+                // auth can never be switched on without a credential to
+                // check against, or the operator locks themselves out of
+                // an installation that now demands a password nobody set.
+                _ => {
+                    let existing = db::settings::get(&state.pool, "auth.password_hash")
+                        .await
+                        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+                        .unwrap_or_default();
+                    if existing.is_empty() {
+                        return Err(StatusCode::BAD_REQUEST);
+                    }
+                }
+            }
             db::settings::set(&state.pool, "auth.enabled", "true")
                 .await
                 .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;

@@ -251,6 +251,63 @@ async fn get_settings_never_returns_the_password_hash() {
 }
 
 #[tokio::test]
+async fn saving_with_auth_on_does_not_require_retyping_the_password() {
+    // The Settings page sends auth.enabled="true" on every save. Demanding
+    // auth.password alongside it meant that once auth was on, saving any
+    // unrelated setting failed with a silent 400.
+    let app = boot().await;
+    let client = client();
+
+    client
+        .patch(format!("{}/api/settings", app.url))
+        .json(&json!({"auth.enabled": "true", "auth.password": "hunter2"}))
+        .send()
+        .await
+        .unwrap();
+    let hash_before = stored(&app.pool, "auth.password_hash").await.unwrap();
+
+    let resp = client
+        .post(format!("{}/api/auth/login", app.url))
+        .json(&json!({"password": "hunter2"}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 204);
+
+    // A save that touches an unrelated key, with auth.enabled along for
+    // the ride and no password typed.
+    let resp = client
+        .patch(format!("{}/api/settings", app.url))
+        .json(&json!({"auth.enabled": "true", "retention.jobs_days": "14"}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(
+        resp.status(),
+        204,
+        "saving with auth already configured must not require the password again"
+    );
+
+    assert_eq!(
+        stored(&app.pool, "retention.jobs_days").await.as_deref(),
+        Some("14")
+    );
+    assert_eq!(
+        stored(&app.pool, "auth.password_hash").await.as_deref(),
+        Some(hash_before.as_str()),
+        "an unrelated save must leave the password hash untouched"
+    );
+    // And the original password still works.
+    let resp = client
+        .post(format!("{}/api/auth/login", app.url))
+        .json(&json!({"password": "hunter2"}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 204);
+}
+
+#[tokio::test]
 async fn ordinary_settings_are_still_writable() {
     // The filter must be limited to the `auth.` namespace.
     let app = boot().await;
