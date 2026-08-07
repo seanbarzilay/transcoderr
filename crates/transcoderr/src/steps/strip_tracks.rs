@@ -22,6 +22,17 @@ const SUPPORTED_SUB_CODECS: &[&str] = &[
     "dvb_subtitle",
 ];
 
+/// The `tags.language` of a probe stream, lowercased. Empty when the
+/// stream carries no language tag — which is what `0:a:m:language:X:?`
+/// fails to match, and why the caller has to check.
+fn stream_language(s: &Value) -> String {
+    s.get("tags")
+        .and_then(|t| t.get("language"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_ascii_lowercase()
+}
+
 pub struct StripTracksStep;
 
 #[async_trait]
@@ -44,8 +55,14 @@ impl Step for StripTracksStep {
         ctx: &mut Context,
         on_progress: &mut (dyn FnMut(StepProgress) + Send),
     ) -> anyhow::Result<()> {
+        // `languages` is the documented key (see StripTracksConfig, which
+        // is `deny_unknown_fields`); `keep_audio_languages` is what this
+        // step originally read. Accept both so neither a flow written
+        // against the published schema nor an older one silently falls
+        // back to the default.
         let langs = with
-            .get("keep_audio_languages")
+            .get("languages")
+            .or_else(|| with.get("keep_audio_languages"))
             .and_then(|v| v.as_array())
             .map(|a| {
                 a.iter()
@@ -82,6 +99,69 @@ impl Step for StripTracksStep {
             // `m:language:eng?` errors on 7.1+; canonical `:?` form
             // works on 6.x as well.
             cmd.args(["-map", &format!("0:a:m:language:{l}:?"), "-c:a", "copy"]);
+        }
+
+        // That `:?` is also a trap: a selector matching nothing is a no-op
+        // rather than an error, so a language filter that matches no
+        // stream produces an output with zero audio streams and exit
+        // status 0. This step would then publish it as the chain head and
+        // a downstream `output: replace` would rename it over the user's
+        // only copy — video and subtitles intact, audio gone, run
+        // reported `completed`. Predict the selection and refuse instead.
+        let audio_streams: Vec<&Value> = ctx
+            .probe
+            .as_ref()
+            .and_then(|p| p.get("streams"))
+            .and_then(|s| s.as_array())
+            .map(|streams| {
+                streams
+                    .iter()
+                    .filter(|s| s.get("codec_type").and_then(|v| v.as_str()) == Some("audio"))
+                    .collect()
+            })
+            .unwrap_or_default();
+
+        let matched = audio_streams
+            .iter()
+            .filter(|s| {
+                langs
+                    .iter()
+                    .any(|l| l.eq_ignore_ascii_case(&stream_language(s)))
+            })
+            .count();
+
+        // With no probe data there is nothing to predict from; leave the
+        // command as built rather than guess.
+        if !audio_streams.is_empty() && matched == 0 {
+            // Untagged and `und` streams match no language selector, and
+            // they are the common case in remuxes — including files this
+            // tool produced itself. Keep them rather than emit a silent
+            // file: we cannot prove they are not what was asked for.
+            let untagged: Vec<i64> = audio_streams
+                .iter()
+                .filter(|s| {
+                    let l = stream_language(s);
+                    l.is_empty() || l == "und"
+                })
+                .filter_map(|s| s.get("index").and_then(|v| v.as_i64()))
+                .collect();
+
+            if untagged.is_empty() {
+                let present: Vec<String> =
+                    audio_streams.iter().map(|s| stream_language(s)).collect();
+                anyhow::bail!(
+                    "strip.tracks: no audio stream matches {langs:?} (present: {present:?}); \
+                     refusing to write a file with no audio"
+                );
+            }
+
+            on_progress(StepProgress::Log(format!(
+                "no audio stream tagged {langs:?}; keeping {} untagged stream(s)",
+                untagged.len()
+            )));
+            for idx in untagged {
+                cmd.args(["-map", &format!("0:{idx}"), "-c:a", "copy"]);
+            }
         }
 
         // Subtitles: either copy all or only known codecs (selected per-stream).
