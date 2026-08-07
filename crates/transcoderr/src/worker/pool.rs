@@ -83,6 +83,10 @@ impl Worker {
         let cancel_token = self.cancellations.register(job.id);
         let mut ctx = Context::for_file(&job.file_path);
         ctx.cancel = Some(cancel_token.clone());
+        // Scopes this run's staged intermediates to the job (see
+        // `staging::next_io`), and travels with the context through
+        // checkpoints and remote dispatch.
+        ctx.job_id = Some(job.id);
 
         let job_start = std::time::Instant::now();
         let engine = match &self.state {

@@ -59,6 +59,11 @@ impl Engine {
         let resume = match db::checkpoints::get(&self.pool, job_id).await? {
             Some((idx, snap)) => {
                 ctx = Context::from_snapshot(&snap)?;
+                // The snapshot is not authoritative for the job id: a
+                // checkpoint written before this field existed carries none,
+                // and staged filenames derive from it. Take it from the
+                // argument, which always is.
+                ctx.job_id = Some(job_id);
                 Some(idx as u32 + 1)
             }
             None => None,
