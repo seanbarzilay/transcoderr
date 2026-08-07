@@ -51,11 +51,25 @@ impl Step for OutputStep {
                 // reported `completed`. The alongside branch already guards
                 // this case; refuse rather than retarget, so the operator
                 // decides what happens to the file they did not queue.
-                if final_path != original && Path::new(&final_path).exists() {
+                //
+                // Compare identity, not strings. `normalize_ext` does not
+                // fold case, so a `Movie.MKV` source planned to `mkv` yields
+                // a `final_path` of `Movie.mkv` — a different string, but the
+                // same file on APFS, SMB/CIFS or exFAT, all normal for *arr
+                // media mounts. A string-only check would hard-fail every run
+                // on an uppercase-extension source. Canonicalizing resolves
+                // both to the same path there, and to different ones in the
+                // real collision case. (CI runs on ext4 and never sees this.)
+                if final_path != original
+                    && Path::new(&final_path).exists()
+                    && std::fs::canonicalize(&final_path).ok()
+                        != std::fs::canonicalize(&original).ok()
+                {
                     anyhow::bail!(
                         "output: refusing to replace {final_path} — the planned container moves \
                          the output off {original} and a different file already exists there. \
-                         Remove or rename it, or use `mode: alongside`."
+                         Remove or rename it, or use `mode: alongside`. The transcoded result is \
+                         kept at {staged}."
                     );
                 }
                 on_progress(StepProgress::Log(format!(
