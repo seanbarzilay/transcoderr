@@ -78,36 +78,51 @@ filesystem paths**, and **how many runs proceed in parallel**.
 
 Two flows:
 
-**A. LAN auto-discovery (v0.38+, recommended).** On the same
-broadcast domain as the coordinator, a worker started with no
-`worker.toml` finds the coordinator via mDNS
-(`_transcoderr._tcp.local.`), enrolls for a fresh token over
-`POST /api/worker/enroll`, and writes its config to
-`/var/lib/transcoderr/worker.toml`. One command on the worker host:
+**A. LAN auto-discovery (v0.38+).** On the same broadcast domain as
+the coordinator, a worker started with no `worker.toml` finds the
+coordinator via mDNS (`_transcoderr._tcp.local.`), enrolls for a fresh
+token over `POST /api/worker/enroll`, and writes its config to
+`/var/lib/transcoderr/worker.toml`.
+
+> **This is opt-in, and only safe on a network you trust.** mDNS is
+> unauthenticated: the worker takes the *first* host that answers, with
+> no pre-shared secret and no pinned identity, over plaintext http/ws.
+> Any device on the broadcast domain that answers first becomes this
+> worker's coordinator — and a coordinator can push plugins, whose
+> manifests run a `deps` command through `/bin/sh -c` on the worker
+> host. Set `TRANSCODERR_WORKER_AUTO_ENROLL=1` only where you trust
+> every device on the link; otherwise use flow B.
+
+One command on the worker host:
 
 ```bash
 docker run --rm --network=host \
+  -e TRANSCODERR_WORKER_AUTO_ENROLL=1 \
   -v transcoderr-worker:/var/lib/transcoderr \
   ghcr.io/seanbarzilay/transcoderr:nvidia-latest \
   transcoderr worker
 ```
 
 `--network=host` is required because mDNS multicast doesn't propagate
-through Docker's default bridge. If the cached token is later
-rejected (the coordinator's database was wiped, etc.), the worker
-re-discovers and re-enrolls automatically — once, then exits. To
-disable the responder on the coordinator side, set
-`TRANSCODERR_DISCOVERY=disabled`.
+through Docker's default bridge. Without
+`TRANSCODERR_WORKER_AUTO_ENROLL`, a worker with no `worker.toml` exits
+with an error telling you to use flow B instead. If the cached token is
+later rejected (the coordinator's database was wiped, etc.), a worker
+with the variable set re-discovers and re-enrolls automatically — once,
+then exits; without it the worker leaves its config alone and exits so
+you can re-enroll deliberately. To disable the responder on the
+coordinator side, set `TRANSCODERR_DISCOVERY=disabled`.
 
 The `transcoderr-worker` volume captures both `worker.toml` and the
 synced plugins (the worker stores plugins next to its config file),
 so plugin tarballs survive image upgrades and the worker doesn't
 re-download them from the coordinator on every restart.
 
-**B. Manual token.** When the worker isn't on the same LAN
-(remote VPS, behind a VPN, Docker default-bridge networking), mint a
-token in the coordinator UI (**Workers → Add worker**) and drop a
-`worker.toml` on the worker host:
+**B. Manual token (recommended).** Works everywhere, and is the only
+flow that authenticates the coordinator to the worker. Required when
+the worker isn't on the same LAN (remote VPS, behind a VPN, Docker
+default-bridge networking). Mint a token in the coordinator UI
+(**Workers → Add worker**) and drop a `worker.toml` on the worker host:
 
 ```toml
 coordinator_url   = "wss://transcoderr.example/api/worker/connect"
