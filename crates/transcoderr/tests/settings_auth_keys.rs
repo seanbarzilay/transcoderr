@@ -308,6 +308,73 @@ async fn saving_with_auth_on_does_not_require_retyping_the_password() {
 }
 
 #[tokio::test]
+async fn refusing_to_enable_auth_explains_why() {
+    // The Settings page renders `${status} ${statusText}: ${body}`, so a
+    // bare StatusCode shows the operator "400 Bad Request: " and no reason.
+    let app = boot().await;
+
+    let resp = client()
+        .patch(format!("{}/api/settings", app.url))
+        .json(&json!({"auth.enabled": "true"}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 400);
+
+    let body = resp.text().await.unwrap();
+    assert!(
+        body.contains("password"),
+        "the 400 must say what to do about it, got: {body:?}"
+    );
+}
+
+#[tokio::test]
+async fn a_password_alone_rotates_the_credential() {
+    // A scripted `PATCH {"auth.password": "..."}` used to fall through
+    // every branch and return 204 having done nothing.
+    let app = boot().await;
+    let client = client();
+
+    client
+        .patch(format!("{}/api/settings", app.url))
+        .json(&json!({"auth.enabled": "true", "auth.password": "first"}))
+        .send()
+        .await
+        .unwrap();
+    let before = stored(&app.pool, "auth.password_hash").await.unwrap();
+
+    let resp = client
+        .post(format!("{}/api/auth/login", app.url))
+        .json(&json!({"password": "first"}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 204);
+
+    // No auth.enabled in the body at all.
+    let resp = client
+        .patch(format!("{}/api/settings", app.url))
+        .json(&json!({"auth.password": "second"}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 204);
+
+    assert_ne!(
+        stored(&app.pool, "auth.password_hash").await.unwrap(),
+        before,
+        "a lone auth.password must not be a silent no-op"
+    );
+    let resp = client
+        .post(format!("{}/api/auth/login", app.url))
+        .json(&json!({"password": "second"}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 204, "the rotated password must log in");
+}
+
+#[tokio::test]
 async fn ordinary_settings_are_still_writable() {
     // The filter must be limited to the `auth.` namespace.
     let app = boot().await;

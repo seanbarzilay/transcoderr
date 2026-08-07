@@ -13,6 +13,11 @@ export default function Settings() {
   const setDraft = (key: string, value: string) => {
     setDraftOverride({ ...draft, [key]: value });
     setDirty((prev) => new Set(prev).add(key));
+    // The password field unmounts when auth.enabled leaves "true", but this
+    // component keeps the state. Without clearing it, typing a password and
+    // then switching auth off sends both keys, and the server takes the
+    // disable branch and drops the password silently.
+    if (key === "auth.enabled" && value !== "true") setPassword("");
   };
 
   const save = useMutation({

@@ -34,10 +34,20 @@ pub async fn get_all(
     Ok(Json(out))
 }
 
+/// Errors carry a body so the Settings page can show the operator why a
+/// save failed — `web/src/api/client.ts` builds its message from the
+/// response text, and a bare StatusCode renders as `400 Bad Request: `.
+type PatchError = (StatusCode, &'static str);
+
+const E_INTERNAL: PatchError = (
+    StatusCode::INTERNAL_SERVER_ERROR,
+    "could not write settings",
+);
+
 pub async fn patch(
     State(state): State<AppState>,
     Json(body): Json<HashMap<String, Value>>,
-) -> Result<StatusCode, StatusCode> {
+) -> Result<StatusCode, PatchError> {
     // The `auth.` namespace is never written by the generic loop below.
     // It holds `auth.password_hash` (the credential `login` verifies
     // against) and `auth.enabled` (the flag `require_auth` reads), so a
@@ -45,6 +55,21 @@ pub async fn patch(
     // their own choosing or switch authentication off entirely. Both
     // transitions are handled explicitly here, server-side, from values
     // this handler derives rather than values the body supplies.
+
+    // A supplied password is stored whatever else the body asks for, so a
+    // scripted `PATCH {"auth.password": "..."}` rotates the credential
+    // instead of returning 204 having done nothing.
+    let supplied_password = match body.get("auth.password") {
+        Some(Value::String(p)) if !p.is_empty() => Some(p.as_str()),
+        _ => None,
+    };
+    if let Some(p) = supplied_password {
+        let hash = crate::api::auth::hash_password(p).map_err(|_| E_INTERNAL)?;
+        db::settings::set(&state.pool, "auth.password_hash", &hash)
+            .await
+            .map_err(|_| E_INTERNAL)?;
+    }
+
     if let Some(en_val) = body.get("auth.enabled") {
         let want_enabled = match en_val {
             Value::String(s) => s.as_str() == "true",
@@ -52,38 +77,32 @@ pub async fn patch(
             _ => false,
         };
         if want_enabled {
-            match body.get("auth.password") {
-                // A new password was supplied: (re)hash it.
-                Some(Value::String(p)) if !p.is_empty() => {
-                    let hash = crate::api::auth::hash_password(p)
-                        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-                    db::settings::set(&state.pool, "auth.password_hash", &hash)
-                        .await
-                        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-                }
-                // No password in this request. That is the ordinary case
-                // for a save that only touches unrelated settings while
-                // auth is already configured, so it must not fail — but
-                // auth can never be switched on without a credential to
-                // check against, or the operator locks themselves out of
-                // an installation that now demands a password nobody set.
-                _ => {
-                    let existing = db::settings::get(&state.pool, "auth.password_hash")
-                        .await
-                        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
-                        .unwrap_or_default();
-                    if existing.is_empty() {
-                        return Err(StatusCode::BAD_REQUEST);
-                    }
+            // Turning auth on needs a credential to check against. A save
+            // that only touches unrelated settings while auth is already
+            // configured carries no password and must still succeed; a
+            // fresh install with no stored hash must not, or the operator
+            // locks themselves out of a server that now demands a password
+            // nobody set. The migration seeds an empty hash, hence the
+            // is_empty check rather than a presence check.
+            if supplied_password.is_none() {
+                let existing = db::settings::get(&state.pool, "auth.password_hash")
+                    .await
+                    .map_err(|_| E_INTERNAL)?
+                    .unwrap_or_default();
+                if existing.is_empty() {
+                    return Err((
+                        StatusCode::BAD_REQUEST,
+                        "set a password to enable authentication",
+                    ));
                 }
             }
             db::settings::set(&state.pool, "auth.enabled", "true")
                 .await
-                .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+                .map_err(|_| E_INTERNAL)?;
         } else {
             db::settings::set(&state.pool, "auth.enabled", "false")
                 .await
-                .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+                .map_err(|_| E_INTERNAL)?;
         }
     }
 
@@ -101,7 +120,7 @@ pub async fn patch(
         };
         db::settings::set(&state.pool, key, &val_str)
             .await
-            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+            .map_err(|_| E_INTERNAL)?;
     }
     Ok(StatusCode::NO_CONTENT)
 }
