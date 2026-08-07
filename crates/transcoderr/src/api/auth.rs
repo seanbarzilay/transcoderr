@@ -121,6 +121,22 @@ pub enum AuthSource {
     Token,
 }
 
+/// Paths a worker daemon's `secret_token` is allowed to authenticate.
+///
+/// Deliberately matches `/worker/...` (the daemon surface) and NOT
+/// `/workers...` (the operator surface). `GET /api/workers` and
+/// `PATCH /api/workers/:id` expose every worker row — including other
+/// workers' cleartext `secret_token` — so a worker credential must not
+/// reach them.
+///
+/// This layer sits inside the router nested under `/api`, so the path it
+/// observes is normally already stripped to `/worker/...`. Both forms
+/// are accepted so the check stays correct wherever the layer is applied.
+fn is_worker_daemon_path(path: &str) -> bool {
+    let p = path.strip_prefix("/api").unwrap_or(path);
+    p == "/worker" || p.starts_with("/worker/")
+}
+
 pub async fn require_auth(
     State(state): State<AppState>,
     cookies: Cookies,
@@ -150,12 +166,32 @@ pub async fn require_auth(
                     request.extensions_mut().insert(AuthSource::Token);
                     return Ok(next.run(request).await);
                 }
-                // Worker tokens are a second valid Bearer source. They
-                // grant the same surface as API tokens for the
-                // /api/workers* and /api/worker/* paths the worker
-                // daemon uses; for other paths, treat as redacted Token
-                // (same redaction policy applies).
+                // Worker tokens are a second valid Bearer source, but
+                // ONLY for the worker-daemon surface. They are not
+                // general API credentials: `/api/worker/enroll` is
+                // unauthenticated by design, so anyone who can reach
+                // the port can mint one. Accepting it anywhere else
+                // would let an unauthenticated caller take over the
+                // whole API in two requests, regardless of
+                // `auth.enabled`.
+                //
+                // The `/api/worker/*` routes currently live on the
+                // public router and re-verify the token themselves
+                // (see `workers::connect` and `worker_plugins::tarball`),
+                // so this branch grants nothing today — it keeps the
+                // scope correct if a protected worker route is ever
+                // added.
                 if let Ok(Some(_row)) = crate::db::workers::get_by_token(&state.pool, token).await {
+                    if is_worker_daemon_path(request.uri().path()) {
+                        request.extensions_mut().insert(AuthSource::Token);
+                        return Ok(next.run(request).await);
+                    }
+                    if enabled {
+                        return Err(StatusCode::UNAUTHORIZED);
+                    }
+                    // Auth disabled: the request is allowed like every
+                    // other, but keep the Token marker so the secret
+                    // redaction policy still fires.
                     request.extensions_mut().insert(AuthSource::Token);
                     return Ok(next.run(request).await);
                 }
@@ -343,5 +379,57 @@ mod catalog_redaction_tests {
         unredact_catalog_row(&mut new, &current);
         assert_eq!(new["auth_header"], "Bearer secret");
         assert_eq!(new["name"], "renamed");
+    }
+}
+
+#[cfg(test)]
+mod worker_token_scope_tests {
+    use super::is_worker_daemon_path;
+
+    #[test]
+    fn accepts_the_worker_daemon_surface() {
+        // Path as this layer normally sees it (nested under /api).
+        assert!(is_worker_daemon_path("/worker/connect"));
+        assert!(is_worker_daemon_path("/worker/enroll"));
+        assert!(is_worker_daemon_path("/worker/plugins/foo/tarball"));
+        // ...and the unstripped form, in case the layer moves.
+        assert!(is_worker_daemon_path("/api/worker/connect"));
+    }
+
+    #[test]
+    fn rejects_the_operator_worker_routes() {
+        // `/workers*` is the operator surface: it lists every worker row
+        // and PATCH returns another worker's cleartext secret_token.
+        // A worker credential must never reach it.
+        assert!(!is_worker_daemon_path("/workers"));
+        assert!(!is_worker_daemon_path("/workers/1"));
+        assert!(!is_worker_daemon_path("/workers/1/path-mappings"));
+        assert!(!is_worker_daemon_path("/api/workers"));
+    }
+
+    #[test]
+    fn rejects_the_admin_api() {
+        for p in [
+            "/settings",
+            "/flows",
+            "/sources",
+            "/plugin-catalogs",
+            "/dry-run",
+            "/auth/tokens",
+        ] {
+            assert!(
+                !is_worker_daemon_path(p),
+                "{p} must not accept a worker token"
+            );
+            assert!(!is_worker_daemon_path(&format!("/api{p}")));
+        }
+    }
+
+    #[test]
+    fn is_not_fooled_by_prefix_lookalikes() {
+        assert!(!is_worker_daemon_path("/worker-admin"));
+        assert!(!is_worker_daemon_path("/workerz/connect"));
+        // A nested route that merely mentions the word must not match.
+        assert!(!is_worker_daemon_path("/settings/worker/connect"));
     }
 }
