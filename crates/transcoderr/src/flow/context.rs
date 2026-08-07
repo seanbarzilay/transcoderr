@@ -12,6 +12,16 @@ pub struct Context {
     /// reference `{{ failed.id }}`, `{{ failed.use_ }}`, and `{{ failed.error }}`.
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub failed: Option<FailedInfo>,
+    /// The `jobs.id` this context belongs to. Set by the worker when it claims
+    /// the job, and carried through checkpoints and remote dispatch so a staged
+    /// filename is stable across a resume or a hand-off to a worker.
+    ///
+    /// `staging::next_io` mixes it into the intermediate filename so two runs
+    /// over the same media file can never target the same `.tmp.` path. Optional
+    /// because `Context::for_file` is also used outside a job (dry-run, tests),
+    /// where nothing is written to disk.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub job_id: Option<i64>,
     /// Cooperative cancellation. Set by the engine before running each job. Steps
     /// that spawn long-running subprocesses (ffmpeg) clone this and race it against
     /// `child.wait()` so a Cancel from the API kills the child immediately.

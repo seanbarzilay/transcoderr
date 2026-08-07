@@ -22,6 +22,21 @@ const SUPPORTED_SUB_CODECS: &[&str] = &[
     "dvb_subtitle",
 ];
 
+/// The `tags.language` of a probe stream, verbatim. Empty when the stream
+/// carries no language tag — which is what `0:a:m:language:X:?` fails to
+/// match, and why the caller has to check.
+///
+/// Deliberately not normalised: ffmpeg's `m:language:X` is a plain string
+/// comparison, so a prediction that folds case would claim a match ffmpeg
+/// never makes, skip the fallback below, and emit exactly the audio-less
+/// file the caller is trying to avoid.
+fn stream_language(s: &Value) -> &str {
+    s.get("tags")
+        .and_then(|t| t.get("language"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+}
+
 pub struct StripTracksStep;
 
 #[async_trait]
@@ -44,8 +59,14 @@ impl Step for StripTracksStep {
         ctx: &mut Context,
         on_progress: &mut (dyn FnMut(StepProgress) + Send),
     ) -> anyhow::Result<()> {
+        // `languages` is the documented key (see StripTracksConfig, which
+        // is `deny_unknown_fields`); `keep_audio_languages` is what this
+        // step originally read. Accept both so neither a flow written
+        // against the published schema nor an older one silently falls
+        // back to the default.
         let langs = with
-            .get("keep_audio_languages")
+            .get("languages")
+            .or_else(|| with.get("keep_audio_languages"))
             .and_then(|v| v.as_array())
             .map(|a| {
                 a.iter()
@@ -82,6 +103,75 @@ impl Step for StripTracksStep {
             // `m:language:eng?` errors on 7.1+; canonical `:?` form
             // works on 6.x as well.
             cmd.args(["-map", &format!("0:a:m:language:{l}:?"), "-c:a", "copy"]);
+        }
+
+        // That `:?` is also a trap: a selector matching nothing is a no-op
+        // rather than an error, so a language filter that matches no
+        // stream produces an output with zero audio streams and exit
+        // status 0. This step would then publish it as the chain head and
+        // a downstream `output: replace` would rename it over the user's
+        // only copy — video and subtitles intact, audio gone, run
+        // reported `completed`. Predict the selection and refuse instead.
+        let audio_streams: Vec<&Value> = ctx
+            .probe
+            .as_ref()
+            .and_then(|p| p.get("streams"))
+            .and_then(|s| s.as_array())
+            .map(|streams| {
+                streams
+                    .iter()
+                    .filter(|s| s.get("codec_type").and_then(|v| v.as_str()) == Some("audio"))
+                    .collect()
+            })
+            .unwrap_or_default();
+
+        let matched = audio_streams
+            .iter()
+            .filter(|s| langs.iter().any(|l| l.as_str() == stream_language(s)))
+            .count();
+
+        // `ctx.probe` describes `ctx.file.path`, but ffmpeg reads `src` —
+        // the chain head once an earlier transformer has staged a file.
+        // Only `steps/probe.rs` writes `ctx.probe` and no transformer
+        // refreshes it, so mid-chain it is stale: in
+        // `probe -> audio.ensure(target_lang: eng) -> strip.tracks([eng])`
+        // over a jpn-only source, audio.ensure adds the very track being
+        // asked for, yet the probe still shows jpn only. Predicting from
+        // that would fail a flow that works. Predict only when the probe
+        // describes the file ffmpeg will actually read.
+        //
+        // With no probe data there is nothing to predict from either;
+        // leave the command as built rather than guess.
+        let probe_describes_input = src.as_path() == std::path::Path::new(&ctx.file.path);
+        if probe_describes_input && !audio_streams.is_empty() && matched == 0 {
+            // Untagged and `und` streams match no language selector, and
+            // they are the common case in remuxes — including files this
+            // tool produced itself. Keep them rather than emit a silent
+            // file: we cannot prove they are not what was asked for.
+            let untagged: Vec<i64> = audio_streams
+                .iter()
+                .filter(|s| {
+                    let l = stream_language(s);
+                    l.is_empty() || l.eq_ignore_ascii_case("und")
+                })
+                .filter_map(|s| s.get("index").and_then(|v| v.as_i64()))
+                .collect();
+
+            if untagged.is_empty() {
+                let present: Vec<&str> = audio_streams.iter().map(|s| stream_language(s)).collect();
+                anyhow::bail!(
+                    "strip.tracks: no audio stream matches {langs:?} (present: {present:?}); \
+                     refusing to write a file with no audio"
+                );
+            }
+
+            on_progress(StepProgress::Log(format!(
+                "no audio stream tagged {langs:?}; keeping {} untagged stream(s)",
+                untagged.len()
+            )));
+            for idx in untagged {
+                cmd.args(["-map", &format!("0:{idx}"), "-c:a", "copy"]);
+            }
         }
 
         // Subtitles: either copy all or only known codecs (selected per-stream).

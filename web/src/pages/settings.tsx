@@ -7,23 +7,45 @@ export default function Settings() {
   const qc = useQueryClient();
   const settings = useQuery({ queryKey: ["settings"], queryFn: api.settings.get });
   const [draftOverride, setDraftOverride] = useState<Record<string, string> | null>(null);
+  const [dirty, setDirty] = useState<Set<string>>(new Set());
   const [password, setPassword] = useState("");
   const draft = draftOverride ?? settings.data ?? {};
-  const setDraft = (next: Record<string, string>) => setDraftOverride(next);
+  const setDraft = (key: string, value: string) => {
+    setDraftOverride({ ...draft, [key]: value });
+    setDirty((prev) => new Set(prev).add(key));
+    // The password field unmounts when auth.enabled leaves "true", but this
+    // component keeps the state. Without clearing it, typing a password and
+    // then switching auth off sends both keys, and the server takes the
+    // disable branch and drops the password silently.
+    if (key === "auth.enabled" && value !== "true") setPassword("");
+  };
 
   const save = useMutation({
     mutationFn: () => {
-      const body: Record<string, string> = { ...draft };
-      if (draft["auth.enabled"] === "true" && password) body["auth.password"] = password;
+      // Send only what was actually edited. PATCHing the whole settings
+      // map back is what used to write a stale auth.password_hash over a
+      // freshly rotated one, and it makes every save depend on keys this
+      // page never touched.
+      const body: Record<string, string> = {};
+      for (const k of dirty) body[k] = draft[k] ?? "";
+      if (password) {
+        body["auth.password"] = password;
+        // The server only (re)hashes a password as part of the
+        // enable-auth branch, so this key has to travel with it.
+        body["auth.enabled"] = draft["auth.enabled"] ?? "true";
+      }
       return api.settings.patch(body);
     },
     onSuccess: () => {
       setPassword("");
       setDraftOverride(null);
+      setDirty(new Set());
       qc.invalidateQueries({ queryKey: ["settings"] });
     },
   });
 
+  // `auth.password_hash` is no longer sent by the server; the filter
+  // stays so an older coordinator doesn't render it into an input.
   const keys = Object.keys(draft)
     .filter((k) => k !== "auth.password_hash")
     .sort();
@@ -40,6 +62,12 @@ export default function Settings() {
         </button>
       </div>
 
+      {save.isError && (
+        <div style={{ color: "#f88", fontSize: 12, marginTop: 6 }}>
+          {(save.error as Error)?.message ?? "save failed"}
+        </div>
+      )}
+
       <div className="surface">
         <table>
           <thead>
@@ -55,7 +83,7 @@ export default function Settings() {
                 <td>
                   <input
                     value={draft[k] ?? ""}
-                    onChange={(e) => setDraft({ ...draft, [k]: e.target.value })}
+                    onChange={(e) => setDraft(k, e.target.value)}
                     style={{ width: 360 }}
                   />
                 </td>

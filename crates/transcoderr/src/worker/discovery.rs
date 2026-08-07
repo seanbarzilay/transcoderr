@@ -104,8 +104,40 @@ fn browse_blocking(
     Ok(None)
 }
 
+/// Validate a path advertised in an mDNS TXT record before it is
+/// concatenated onto the coordinator's origin.
+///
+/// mDNS is unauthenticated — any host on the link can answer — and these
+/// values are pasted straight into a URL (`http://host:port` + path). A
+/// value that does not begin with a single `/` can move the request to a
+/// different host entirely: `@evil.example/x` makes the real `host:port`
+/// the userinfo component and `evil.example` the authority. Accept only a
+/// plain absolute path so the origin the caller resolved is the origin it
+/// actually talks to.
+///
+/// Returns `None` for anything suspicious; `browse_blocking` treats that
+/// as a malformed responder and keeps looking.
+fn sanitize_txt_path(raw: &str) -> Option<String> {
+    // Must be an absolute path, and must not open with `//` (which a URL
+    // parser reads as the start of an authority).
+    if !raw.starts_with('/') || raw.starts_with("//") {
+        return None;
+    }
+    // `@` would introduce userinfo, `?`/`#` a query or fragment, `\` is
+    // treated as `/` by some parsers, and control/whitespace characters
+    // have no business in a path.
+    if raw
+        .chars()
+        .any(|c| c.is_control() || c.is_whitespace() || matches!(c, '@' | '?' | '#' | '\\'))
+    {
+        return None;
+    }
+    Some(raw.to_string())
+}
+
 /// Pure helper: pull the address, port, and TXT records out of a
-/// `ServiceInfo`. Returns `None` if any required field is missing.
+/// `ServiceInfo`. Returns `None` if any required field is missing or if a
+/// TXT-supplied path fails `sanitize_txt_path`.
 /// Kept private but unit-testable.
 fn parse_service_info(info: &ServiceInfo) -> Option<DiscoveredCoordinator> {
     let addrs = info.get_addresses();
@@ -118,8 +150,8 @@ fn parse_service_info(info: &ServiceInfo) -> Option<DiscoveredCoordinator> {
     let props = info.get_properties();
     // val_str() returns &str directly in mdns-sd 0.13 (not Option<&str>),
     // matching the pattern from Task 1's coordinator-side helper.
-    let enroll_path = props.get("enroll")?.val_str().to_string();
-    let ws_path = props.get("ws")?.val_str().to_string();
+    let enroll_path = sanitize_txt_path(props.get("enroll")?.val_str())?;
+    let ws_path = sanitize_txt_path(props.get("ws")?.val_str())?;
     Some(DiscoveredCoordinator {
         addr,
         port,
@@ -166,5 +198,53 @@ mod tests {
         // IPv6 addresses must be bracketed in URLs (RFC 2732).
         assert_eq!(d.http_url(), "http://[fe80::1]:8765");
         assert_eq!(d.ws_url(), "ws://[fe80::1]:8765/api/worker/connect");
+    }
+
+    #[test]
+    fn sanitize_accepts_ordinary_absolute_paths() {
+        for p in [
+            "/api/worker/enroll",
+            "/api/worker/connect",
+            "/enroll",
+            "/a/b/c-d_e.f",
+        ] {
+            assert_eq!(sanitize_txt_path(p).as_deref(), Some(p));
+        }
+    }
+
+    #[test]
+    fn sanitize_rejects_authority_rewrites() {
+        // The important case: anything that can move the request to a
+        // host other than the one we resolved over mDNS.
+        for p in [
+            "@evil.example/x",       // real host:port becomes userinfo
+            "//evil.example/x",      // parsed as a new authority
+            "/x@evil.example",       // `@` anywhere is refused outright
+            "http://evil.example/x", // absolute URL, not a path
+            "evil.example/x",        // relative, would append to origin
+        ] {
+            assert!(
+                sanitize_txt_path(p).is_none(),
+                "{p} must be rejected as a TXT path"
+            );
+        }
+    }
+
+    #[test]
+    fn sanitize_rejects_query_fragment_and_control_characters() {
+        for p in [
+            "/enroll?to=evil",
+            "/enroll#frag",
+            "/enroll\\x",
+            "/enroll\nHost: evil",
+            "/enroll with space",
+            "/enroll\u{0}",
+            "",
+        ] {
+            assert!(
+                sanitize_txt_path(p).is_none(),
+                "{p:?} must be rejected as a TXT path"
+            );
+        }
     }
 }

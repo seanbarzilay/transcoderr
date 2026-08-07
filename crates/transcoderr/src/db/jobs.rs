@@ -39,11 +39,22 @@ pub async fn insert(
 /// us in a race. Uses a single UPDATE...RETURNING so we don't need a
 /// multi-statement transaction (which deadlocks under concurrent
 /// claim_next calls when runs.max_concurrent > 1, hitting SQLITE_BUSY).
+///
+/// A pending job is skipped while another job for the same `file_path` is
+/// already running. Every webhook enqueues one job per matching flow for
+/// the same file, and `runs.max_concurrent` defaults to 2, so without this
+/// two runs would process one media file simultaneously: both stage
+/// intermediates next to it and both `output: replace` rename over the
+/// original. Such jobs are not dropped, just deferred — the next tick
+/// picks them up once the file is free. Boot recovery flips abandoned
+/// 'running' rows back to 'pending', so a crash cannot block a file
+/// permanently.
 pub async fn claim_next(pool: &SqlitePool) -> anyhow::Result<Option<JobRow>> {
     let row: Option<JobRow> = sqlx::query_as(
         "UPDATE jobs SET status = 'running', started_at = ?, attempt = attempt + 1 \
          WHERE id = ( \
             SELECT id FROM jobs WHERE status = 'pending' \
+              AND file_path NOT IN (SELECT file_path FROM jobs WHERE status = 'running') \
             ORDER BY priority DESC, created_at ASC LIMIT 1 \
          ) AND status = 'pending' \
          RETURNING id, flow_id, flow_version, source_kind, file_path, trigger_payload_json, status, priority, current_step, attempt"
@@ -140,4 +151,92 @@ pub async fn set_worker_id(pool: &SqlitePool, job_id: i64, worker_id: i64) -> an
         .execute(pool)
         .await?;
     Ok(())
+}
+
+#[cfg(test)]
+mod claim_tests {
+    use super::*;
+    use tempfile::tempdir;
+
+    async fn pool_with_flow() -> (SqlitePool, i64, tempfile::TempDir) {
+        let dir = tempdir().unwrap();
+        let pool = crate::db::open(dir.path()).await.unwrap();
+        // jobs.flow_id has an FK to flows and the foreign_keys pragma is on.
+        let flow_id: i64 = sqlx::query_scalar(
+            "INSERT INTO flows (name, yaml_source, parsed_json, enabled, version, updated_at) \
+             VALUES ('t', '', '{}', 1, 1, 0) RETURNING id",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        (pool, flow_id, dir)
+    }
+
+    #[tokio::test]
+    async fn claim_skips_a_file_already_running() {
+        let (pool, flow_id, _dir) = pool_with_flow().await;
+        // Two jobs for the same file — what one webhook produces when two
+        // flows match it.
+        let first = insert(&pool, flow_id, 1, "radarr", "/m/Dune.mkv", "{}")
+            .await
+            .unwrap();
+        let second = insert(&pool, flow_id, 1, "radarr", "/m/Dune.mkv", "{}")
+            .await
+            .unwrap();
+
+        let claimed = claim_next(&pool).await.unwrap().expect("first claim");
+        assert_eq!(claimed.id, first);
+
+        assert!(
+            claim_next(&pool).await.unwrap().is_none(),
+            "job {second} must not be claimed while {first} is running on the same file"
+        );
+    }
+
+    #[tokio::test]
+    async fn claim_takes_a_different_file_meanwhile() {
+        // Deferral must be per-file, not a global stall.
+        let (pool, flow_id, _dir) = pool_with_flow().await;
+        let busy = insert(&pool, flow_id, 1, "radarr", "/m/Dune.mkv", "{}")
+            .await
+            .unwrap();
+        insert(&pool, flow_id, 1, "radarr", "/m/Dune.mkv", "{}")
+            .await
+            .unwrap();
+        let other = insert(&pool, flow_id, 1, "radarr", "/m/Arrival.mkv", "{}")
+            .await
+            .unwrap();
+
+        assert_eq!(claim_next(&pool).await.unwrap().unwrap().id, busy);
+        assert_eq!(
+            claim_next(&pool).await.unwrap().expect("other file").id,
+            other
+        );
+    }
+
+    #[tokio::test]
+    async fn deferred_job_is_claimable_once_the_file_is_free() {
+        // Deferred, not dropped.
+        let (pool, flow_id, _dir) = pool_with_flow().await;
+        let first = insert(&pool, flow_id, 1, "radarr", "/m/Dune.mkv", "{}")
+            .await
+            .unwrap();
+        let second = insert(&pool, flow_id, 1, "radarr", "/m/Dune.mkv", "{}")
+            .await
+            .unwrap();
+
+        assert_eq!(claim_next(&pool).await.unwrap().unwrap().id, first);
+        assert!(claim_next(&pool).await.unwrap().is_none());
+
+        set_status(&pool, first, "completed", None).await.unwrap();
+
+        assert_eq!(
+            claim_next(&pool)
+                .await
+                .unwrap()
+                .expect("second job once the file is free")
+                .id,
+            second
+        );
+    }
 }

@@ -94,6 +94,29 @@ pub async fn run(cfg_path: PathBuf) -> ! {
     crate::worker::connection::run(cfg.coordinator_url, cfg.coordinator_token, ctx).await
 }
 
+/// Opt-in switch for unattended mDNS enrollment.
+pub const AUTO_ENROLL_ENV: &str = "TRANSCODERR_WORKER_AUTO_ENROLL";
+
+/// Whether this worker may enroll with whatever answers mDNS.
+///
+/// `discovery::browse` returns the first host on the link that answers
+/// `_transcoderr._tcp.local.`, and nothing authenticates that answer:
+/// there is no pre-shared secret, no pinned identity, and the exchange
+/// runs over plaintext http/ws. Whoever wins the race becomes this
+/// worker's coordinator, and a coordinator can drive `plugin_sync`,
+/// whose manifests run a `deps` command through `/bin/sh -c`. On an
+/// untrusted network that is remote code execution on the worker host,
+/// so enrolling this way has to be something the operator asks for.
+fn auto_enroll_allowed() -> bool {
+    matches!(
+        std::env::var(AUTO_ENROLL_ENV)
+            .unwrap_or_default()
+            .to_ascii_lowercase()
+            .as_str(),
+        "1" | "true" | "yes"
+    )
+}
+
 /// Resolve a usable `WorkerConfig`, performing auto-discovery and 401
 /// recovery if needed. Returns `Err` only on terminal failure.
 async fn boot_config(cfg_path: &Path) -> anyhow::Result<WorkerConfig> {
@@ -111,13 +134,44 @@ async fn boot_config(cfg_path: &Path) -> anyhow::Result<WorkerConfig> {
 
     let cfg = match initial {
         Some(c) => c,
-        None => crate::worker::enroll::discover_and_enroll(cfg_path, None, false).await?,
+        None => {
+            if !auto_enroll_allowed() {
+                anyhow::bail!(
+                    "no usable worker.toml at {} and unattended mDNS enrollment is disabled.\n\
+                     Write worker.toml with the coordinator URL and a token minted in the \
+                     coordinator's Workers UI, or set {AUTO_ENROLL_ENV}=1 to let this worker \
+                     enroll with whichever host answers mDNS first (only safe on a network \
+                     you trust — see docs/deploy.md).",
+                    cfg_path.display()
+                );
+            }
+            tracing::warn!(
+                "{AUTO_ENROLL_ENV} is set: enrolling with the first host that answers mDNS, \
+                 which is not authenticated. Only do this on a trusted network."
+            );
+            crate::worker::enroll::discover_and_enroll(cfg_path, None, false).await?
+        }
     };
 
     // Probe once to detect a stale cached token.
     match probe_token(&cfg.coordinator_url, &cfg.coordinator_token).await {
         ProbeOutcome::Ok => Ok(cfg),
         ProbeOutcome::Unauthorized => {
+            // Re-running discovery here is the same unauthenticated
+            // handshake as first boot, so it needs the same opt-in. It is
+            // also the state an attacker would try to induce: get the
+            // known-good token rejected, and the worker deletes its
+            // config and re-pairs with whoever answers mDNS first.
+            if !auto_enroll_allowed() {
+                return Err(anyhow::anyhow!(
+                    "coordinator at {} rejected the token in {} (HTTP 401). Re-enroll \
+                     deliberately: mint a new token in the coordinator's Workers UI and \
+                     update worker.toml, or set {AUTO_ENROLL_ENV}=1 to allow unattended \
+                     mDNS re-enrollment. Leaving the existing config in place.",
+                    cfg.coordinator_url,
+                    cfg_path.display()
+                ));
+            }
             tracing::warn!(
                 "cached coordinator token rejected; deleting {} and re-running discovery",
                 cfg_path.display()
@@ -144,5 +198,84 @@ async fn boot_config(cfg_path: &Path) -> anyhow::Result<WorkerConfig> {
             );
             Ok(cfg)
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serial_test::serial;
+
+    /// The variable is process-global, so every test that touches it is
+    /// `#[serial]` and restores the unset state on the way out.
+    struct EnvGuard;
+    impl Drop for EnvGuard {
+        fn drop(&mut self) {
+            std::env::remove_var(AUTO_ENROLL_ENV);
+        }
+    }
+
+    fn set_auto_enroll(v: Option<&str>) -> EnvGuard {
+        match v {
+            Some(v) => std::env::set_var(AUTO_ENROLL_ENV, v),
+            None => std::env::remove_var(AUTO_ENROLL_ENV),
+        }
+        EnvGuard
+    }
+
+    #[test]
+    #[serial]
+    fn auto_enroll_is_off_by_default() {
+        let _g = set_auto_enroll(None);
+        assert!(
+            !auto_enroll_allowed(),
+            "unattended mDNS enrollment must be opt-in"
+        );
+    }
+
+    #[test]
+    #[serial]
+    fn auto_enroll_accepts_affirmative_values() {
+        for v in ["1", "true", "TRUE", "yes", "Yes"] {
+            let _g = set_auto_enroll(Some(v));
+            assert!(auto_enroll_allowed(), "{v} should enable auto-enroll");
+        }
+    }
+
+    #[test]
+    #[serial]
+    fn auto_enroll_rejects_everything_else() {
+        for v in ["", "0", "false", "no", "off", "maybe"] {
+            let _g = set_auto_enroll(Some(v));
+            assert!(
+                !auto_enroll_allowed(),
+                "{v:?} should not enable auto-enroll"
+            );
+        }
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn boot_config_refuses_to_enroll_without_opt_in() {
+        // No worker.toml and no opt-in: bail with an actionable message
+        // rather than pairing with whoever answers mDNS. Reaches the
+        // guard before any network activity.
+        let _g = set_auto_enroll(None);
+        let dir = tempfile::tempdir().unwrap();
+        let cfg_path = dir.path().join("worker.toml");
+
+        let err = boot_config(&cfg_path)
+            .await
+            .expect_err("must not auto-enroll without opt-in")
+            .to_string();
+
+        assert!(
+            err.contains(AUTO_ENROLL_ENV),
+            "error should name the opt-in variable: {err}"
+        );
+        assert!(
+            !cfg_path.exists(),
+            "a refused boot must not write a worker.toml"
+        );
     }
 }

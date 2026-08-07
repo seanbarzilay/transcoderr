@@ -230,9 +230,12 @@ pub fn extract_subs_schema() -> Value {
 #[serde(deny_unknown_fields)]
 #[allow(dead_code)]
 pub struct StripTracksConfig {
-    /// Audio language tags to keep. Streams in any other language are
-    /// dropped.
-    #[serde(default)]
+    /// Audio language tags to keep, matched exactly against each stream's
+    /// `tags.language` (ffmpeg compares these verbatim, so `eng` does not
+    /// match a stream tagged `ENG`). Streams in any other language are
+    /// dropped. Also accepted as `keep_audio_languages`, the name the step
+    /// read before the two were reconciled.
+    #[serde(default, alias = "keep_audio_languages")]
     pub languages: Option<Vec<String>>,
     /// When true, also drops attached_pic / cover-art video streams.
     #[serde(default)]

@@ -58,7 +58,22 @@ impl Engine {
         // Resume.
         let resume = match db::checkpoints::get(&self.pool, job_id).await? {
             Some((idx, snap)) => {
+                // The snapshot is not authoritative for either of these.
+                // `cancel` is `#[serde(skip)]` so it is never persisted, and
+                // a checkpoint written before `job_id` existed carries none.
+                // Both come from the live run, so carry them across rather
+                // than inherit whatever the snapshot happens to hold.
+                //
+                // Losing the token is not cosmetic: every consumer reads
+                // `ctx.cancel.as_ref()` and would get None, so after any
+                // restart the API's cancel would return 204 while ffmpeg
+                // kept running to completion — and a later `output: replace`
+                // would overwrite the very file the operator was trying to
+                // protect. Staged filenames derive from `job_id`.
+                let cancel = ctx.cancel.take();
                 ctx = Context::from_snapshot(&snap)?;
+                ctx.cancel = cancel;
+                ctx.job_id = Some(job_id);
                 Some(idx as u32 + 1)
             }
             None => None,

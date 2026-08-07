@@ -40,7 +40,22 @@ pub fn next_io(ctx: &Context, ext: &str) -> (PathBuf, PathBuf) {
         .parent()
         .map(PathBuf::from)
         .unwrap_or_else(|| PathBuf::from("."));
-    let next = parent.join(format!("{stem}.tcr-{counter:02}.tmp.{ext}"));
+    // The job id makes the staged path unique per run. Without it the name is
+    // a pure function of the original filename and a counter that always starts
+    // at 0, so two runs over the same media file compute byte-identical staged
+    // paths and hand them to ffmpeg with `-y`. Both write the same file, and
+    // whichever `output: replace` finishes last renames the interleaved result
+    // over the original — the source is gone and the replacement is unplayable.
+    // Every webhook enqueues one job per matching flow for the same path, so a
+    // single Radarr event with two enabled flows is enough to trigger it.
+    //
+    // `db::jobs::claim_next` also refuses to claim a job whose file is already
+    // being processed; this is the second line of defence, and it makes an
+    // orphaned tmp file traceable to the run that left it behind.
+    let next = match ctx.job_id {
+        Some(job) => parent.join(format!("{stem}.tcr-j{job}-{counter:02}.tmp.{ext}")),
+        None => parent.join(format!("{stem}.tcr-{counter:02}.tmp.{ext}")),
+    };
     (current_input, next)
 }
 
@@ -126,6 +141,45 @@ mod tests {
         assert_eq!(input, first_out);
         assert_ne!(input, second_out);
         assert_eq!(second_out.to_string_lossy(), "/m/Dune.mkv.tcr-01.tmp.mkv");
+    }
+
+    #[test]
+    fn staged_output_is_scoped_to_the_job() {
+        let mut ctx = Context::for_file("/m/Dune.mkv");
+        ctx.job_id = Some(42);
+        let (_, output) = next_io(&ctx, "mkv");
+        assert_eq!(output.to_string_lossy(), "/m/Dune.mkv.tcr-j42-00.tmp.mkv");
+    }
+
+    #[test]
+    fn two_jobs_on_the_same_file_never_share_a_staged_path() {
+        // The data-loss case: one webhook enqueues a job per matching flow
+        // for the same file. Identical staged paths meant two ffmpeg
+        // processes writing one file, and `output: replace` renaming the
+        // interleaved result over the original.
+        let mut a = Context::for_file("/m/Dune.mkv");
+        a.job_id = Some(1);
+        let mut b = Context::for_file("/m/Dune.mkv");
+        b.job_id = Some(2);
+
+        let (_, out_a) = next_io(&a, "mkv");
+        let (_, out_b) = next_io(&b, "mkv");
+        assert_ne!(
+            out_a, out_b,
+            "concurrent jobs on one file must not target the same tmp path"
+        );
+    }
+
+    #[test]
+    fn job_scoped_names_still_advance_with_the_chain_counter() {
+        let mut ctx = Context::for_file("/m/Dune.mkv");
+        ctx.job_id = Some(7);
+        let (_, first) = next_io(&ctx, "mkv");
+        record_output(&mut ctx, &first, json!({}));
+        let (input, second) = next_io(&ctx, "mkv");
+
+        assert_eq!(input, first);
+        assert_eq!(second.to_string_lossy(), "/m/Dune.mkv.tcr-j7-01.tmp.mkv");
     }
 
     #[test]
