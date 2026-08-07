@@ -14,6 +14,20 @@ pub async fn get_all(
     let mut out = HashMap::new();
     for r in rows {
         let key: String = r.get(0);
+        // Never leave the server. `auth.password_hash` is the Argon2 PHC
+        // string `login` verifies against; handing it to any caller that
+        // can read settings turns an API credential into an offline
+        // cracking target for the operator's actual password. The web UI
+        // filtered this key client-side, which only ever hid it from the
+        // page — it was still on the wire.
+        //
+        // `auth.enabled` is deliberately still returned: it is not a
+        // secret (GET /api/auth/me exposes the same fact unauthenticated
+        // as `auth_required`), and the Settings page needs it to render
+        // the auth row and the password field.
+        if key == "auth.password_hash" {
+            continue;
+        }
         let val: String = r.get(1);
         out.insert(key, val);
     }

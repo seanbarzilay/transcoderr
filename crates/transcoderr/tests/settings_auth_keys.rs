@@ -26,9 +26,14 @@ async fn stored(pool: &sqlx::SqlitePool, key: &str) -> Option<String> {
 }
 
 /// Tests start with auth disabled (the migration default), so no
-/// credential is needed to reach the handler.
+/// credential is needed to reach the handler. The cookie store matters
+/// for the tests that enable auth partway through and then have to keep
+/// talking to a protected route.
 fn client() -> reqwest::Client {
-    reqwest::Client::builder().build().unwrap()
+    reqwest::Client::builder()
+        .cookie_store(true)
+        .build()
+        .unwrap()
 }
 
 #[tokio::test]
@@ -190,6 +195,59 @@ async fn a_stale_password_hash_echo_does_not_revert_a_password_change() {
         .await
         .unwrap();
     assert_eq!(resp.status(), 401, "the old password must stop working");
+}
+
+#[tokio::test]
+async fn get_settings_never_returns_the_password_hash() {
+    let app = boot().await;
+    let client = client();
+
+    // Configure a password so there is a hash to leak.
+    client
+        .patch(format!("{}/api/settings", app.url))
+        .json(&json!({"auth.enabled": "true", "auth.password": "hunter2"}))
+        .send()
+        .await
+        .unwrap();
+    assert!(
+        stored(&app.pool, "auth.password_hash").await.is_some(),
+        "precondition: a hash must exist in the settings table"
+    );
+
+    // Read it back as an authenticated caller.
+    let resp = client
+        .post(format!("{}/api/auth/login", app.url))
+        .json(&json!({"password": "hunter2"}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 204);
+
+    let body: serde_json::Value = client
+        .get(format!("{}/api/settings", app.url))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+
+    assert!(
+        body.get("auth.password_hash").is_none(),
+        "GET /api/settings must not return auth.password_hash; got {body}"
+    );
+    // Nothing that looks like a PHC string should appear in any value.
+    let raw = body.to_string();
+    assert!(
+        !raw.contains("$argon2"),
+        "no argon2 hash may appear anywhere in the response: {raw}"
+    );
+    // But the flag the Settings page renders must still be there.
+    assert_eq!(
+        body.get("auth.enabled").and_then(|v| v.as_str()),
+        Some("true"),
+        "auth.enabled is not a secret and the UI needs it"
+    );
 }
 
 #[tokio::test]
